@@ -243,15 +243,17 @@ export interface Candidate {
 /**
  * Who could be put on this role at this service, by hand.
  *
- * Everybody active, not only those the generator would pick — that is the point
- * of doing it by hand. A guest preacher exists precisely to be chosen this way
- * and would never appear otherwise, and somebody on a break may still say yes
- * when asked directly.
+ * ONLY people ticked as able to do this role. A dropdown of sixty-six names
+ * when eight of them can preach is not a choice, it is a search — and the
+ * question being asked is "who else could preach on the 20th", not "who else
+ * exists". Somebody missing from the list is fixed where that fact belongs:
+ * tick them on their own page, or in the by-role editor.
  *
- * Nobody is excluded. What the list does instead is SAY things: who cannot
- * normally do this role, who is away that day, who is already on this service.
- * The person clicking is a churchwarden who knows more than the database does,
- * so the job here is to inform the decision rather than to overrule it.
+ * Who is EXCLUDED from the generator is a different question and is not asked
+ * here. A guest preacher is ticked as a preacher and appears, which is the only
+ * way one ever reaches a service; somebody on a break appears too, because they
+ * may well say yes when rung up and asked directly. The list says which is
+ * which, and the churchwarden decides.
  */
 export async function listCandidatesForRole(
   db: D1Database,
@@ -269,9 +271,10 @@ export async function listCandidatesForRole(
                       WHERE u.person_id = p.id
                         AND s.service_date BETWEEN u.from_date AND u.to_date) AS away
          FROM people p
-         LEFT JOIN person_roles pr ON pr.person_id = p.id AND pr.role_id = ?2
+         JOIN person_roles pr ON pr.person_id = p.id AND pr.role_id = ?2
         WHERE p.is_active = 1 AND p.needs_review = 0
-        ORDER BY COALESCE(pr.can_do, 0) DESC, p.display_name`,
+          AND pr.can_do = 1
+        ORDER BY p.display_name`,
     )
     .bind(serviceId, roleId)
     .all<Candidate>();

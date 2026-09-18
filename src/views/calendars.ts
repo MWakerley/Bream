@@ -19,6 +19,8 @@ export function roomsCalendarPage(opts: {
 }) {
   const { rooms, roomId, bookings, counts, month, ctx } = opts;
   const current = rooms.find((r) => r.id === roomId);
+  // No + button for somebody who could only be refused by it.
+  const canBook = ctx.areas?.has('rooms.manage') ?? false;
 
   const entries: CalendarEntry[] = bookings.map((b) => ({
     date: b.starts_at.slice(0, 10),
@@ -62,6 +64,17 @@ export function roomsCalendarPage(opts: {
         baseHref: '/app/rooms/calendar',
         extraQuery: q(roomId),
         emptyMessage: `Nothing booked in ${monthLabel(month)}${current ? ` for the ${current.name}` : ''}.`,
+        // Looking at a month and wanting a room on the 14th should not mean
+        // going back to a list and typing the date in again. The room shown
+        // travels with it, so picking a room first and then a day fills both.
+        addDay: canBook
+          ? {
+              // The fragment must come last in a URL; monthCalendar appends
+              // ?on=DATE, so the anchor is added by the page instead.
+              href: `/app/rooms${roomId ? `?room=${roomId}` : ''}`,
+              label: current ? `Book the ${current.name}` : 'Make a booking',
+            }
+          : undefined,
       })}
 
       <p style="margin-top:1.25rem">

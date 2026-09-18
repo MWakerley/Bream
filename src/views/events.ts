@@ -227,6 +227,57 @@ export function eventAdminPage(opts: {
         </div>
       </div>
 
+      <h2 class="section-h2">The details</h2>
+      <div class="card">
+        <p style="margin-top:0;color:var(--ink-2)">
+          Everything here can be changed after the event exists. Raising the number who can come
+          reopens booking if it had sold out; lowering it below the number already booked is
+          allowed — nobody is thrown off — but no more will be taken until the numbers come back
+          under it.
+        </p>
+        <form method="post" action="/app/events/${e.id}/details">
+          <div class="field">
+            <label for="d_title">What it is called</label>
+            <input id="d_title" name="title" type="text" value="${e.title}" required>
+          </div>
+          <div class="field">
+            <label for="d_description">Tell people about it</label>
+            <span class="hint">This shows on the booking page.</span>
+            <textarea id="d_description" name="description" rows="4">${e.description ?? ''}</textarea>
+          </div>
+          <div class="grid-fields">
+            <div class="field">
+              <label for="d_date">Date</label>
+              <input id="d_date" name="on_date" type="date" value="${dateOf(e.starts_at)}" required>
+            </div>
+            <div class="field">
+              <label for="d_time">Starts</label>
+              <input id="d_time" name="start_time" type="time" value="${timeOf(e.starts_at)}" required>
+            </div>
+            <div class="field">
+              <label for="d_location">Where</label>
+              <input id="d_location" name="location" type="text" value="${e.location ?? ''}">
+            </div>
+            <div class="field">
+              <label for="d_capacity">How many can come</label>
+              <span class="hint">
+                ${e.capacity == null
+                  ? 'No limit at the moment. Put a number here to set one.'
+                  : `${e.booked} of ${e.capacity} taken. Blank means no limit.`}
+              </span>
+              <input id="d_capacity" name="capacity" type="number" min="1" max="2000"
+                     value="${e.capacity ?? ''}">
+            </div>
+            <div class="field">
+              <label for="d_closes">Bookings close</label>
+              <span class="hint">Optional.</span>
+              <input id="d_closes" name="closes" type="date" value="${e.booking_closes_at ?? ''}">
+            </div>
+          </div>
+          <button class="btn-primary" type="submit">Save these details</button>
+        </form>
+      </div>
+
       <div class="card">
         <h2>The booking page</h2>
         ${e.is_published
@@ -720,11 +771,15 @@ export function publicBookingPage(opts: {
           <p style="margin-top:0"><strong>${formatDate(dateOf(e.starts_at))}</strong> at
             ${timeOf(e.starts_at)}${e.location ? `, ${e.location}` : ''}</p>
           ${e.description ? html`<p>${raw(e.description.replace(/\n/g, '<br>'))}</p>` : ''}
+          <!-- Whether there is room, never how much of it. "3 places left"
+               makes people hesitate over whether to take two, and it tells
+               anybody who looks exactly how the evening is selling. -->
           ${left != null
             ? html`<p style="margin-bottom:0">
                 ${full
-                  ? html`<strong style="color:var(--bad)">This event is now full.</strong>`
-                  : html`<strong>${left}</strong> place${left === 1 ? '' : 's'} left.`}
+                  ? html`<strong style="color:var(--bad)">Sold out.</strong>
+                      There are no places left for this one.`
+                  : html`<strong style="color:var(--ok)">Still spaces left.</strong>`}
               </p>`
             : ''}
         </div>
@@ -733,8 +788,9 @@ export function publicBookingPage(opts: {
 
         ${full
           ? html`<div class="notice notice-warn"><p style="margin:0">
-              Bookings are closed because the event is full. Please speak to the church office
-              if you would like to be added to a waiting list.</p></div>`
+              This event is sold out, so bookings are closed. Please speak to the church office
+              if you would like to be added to a waiting list — places do sometimes come
+              back.</p></div>`
           : html`<form method="post" class="card">
               <div class="field">
                 <label for="name">Your name</label>

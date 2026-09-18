@@ -797,10 +797,11 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
    underneath on a phone rather than squeezing the name.
    --------------------------------------------------------------------------- */
 
-.page-h1-row {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .9rem;
-}
-.page-h1-row .page-h1 { margin-bottom: 0; }
+/* Stacked, and centred with the heading it belongs to: the event's name, a
+   small gap, then what the page is for, then the poster. */
+.page-h1-stack { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.page-h1-stack .page-h1 { margin-bottom: .45rem; }
+.page-h1-stack + * { margin-top: 1.25rem; }
 .page-h1-aside {
   font-family: var(--display); font-weight: 800;
   font-size: clamp(.8125rem, .7rem + .4vw, 1rem);
@@ -831,3 +832,30 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
 .add-person { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .add-person select { width: auto; min-width: 12rem; max-width: 100%; flex: 1 1 12rem; padding: .5rem .6rem; }
 .add-person button { flex: none; }
+
+/* ---------------------------------------------------------------------------
+   Booking a room straight from the calendar.
+
+   A day in the grid is not itself a link — it holds links — so the way in is a
+   button in the corner. It stays visible rather than appearing on hover,
+   because hover does not exist on the iPads this gets used on.
+   --------------------------------------------------------------------------- */
+
+.cal-day { position: relative; }
+.cal-add {
+  position: absolute; top: .2rem; right: .2rem;
+  width: 1.6rem; height: 1.6rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 1.05rem/1 var(--body);
+  background: var(--navy-wash); color: var(--navy);
+  text-decoration: none; border: 1px solid transparent;
+}
+.cal-add:hover, .cal-add:focus-visible {
+  background: var(--gold); color: var(--navy-deep); border-color: var(--gold-warm);
+}
+/* The number would otherwise sit under the button on a narrow column. */
+.cal-day .cal-n { padding-right: 1.7rem; }
+
+/* The name of the church belongs to the stack under it when that stack is
+   centred — left-aligned above a centred heading reads as a mistake. */
+.eyebrow-centred { text-align: center; }

@@ -72,7 +72,7 @@ const detail: ServiceDetail = {
 const CANDIDATES = new Map([
   [1, [
     { id: 11, display_name: 'Sue Baker', can_do: 1, on_break: 0, is_guest: 0, already_here: 0, away: 0 },
-    { id: 12, display_name: 'Roger Vane', can_do: 0, on_break: 0, is_guest: 1, already_here: 0, away: 0 },
+    { id: 12, display_name: 'Roger Vane', can_do: 1, on_break: 0, is_guest: 1, already_here: 0, away: 0 },
     { id: 13, display_name: 'Pat Doyle', can_do: 1, on_break: 1, is_guest: 0, already_here: 0, away: 1 },
     { id: 14, display_name: 'Steve', can_do: 1, on_break: 0, is_guest: 0, already_here: 1, away: 0 },
   ]],
@@ -192,14 +192,22 @@ await check('a coordinator can put somebody on', () => servicePage(detail, CTX, 
   // Nobody is hidden. The list SAYS what it knows and leaves the decision to
   // the person clicking, who rang round on Saturday night and knows more.
   'Sue Baker',
-  'Roger Vane — does not normally do this, guest',
+  'Roger Vane — guest',
   'Pat Doyle — on a break, away that day',
   // Existing assignees carry their own markers.
   'on a break', 'guest',
 ], [
   // Somebody already on this service is not offered again.
   'Steve — ',
+  // Everyone offered can already do the role, so saying so would be noise.
+  'does not normally do this',
 ]);
+
+// A role nobody else is ticked for says where to go, rather than showing an
+// empty dropdown that looks broken.
+await check('an empty picker says how to fill it', () => servicePage(
+  detail, CTX, new Map([[1, []], [4, []], [2, []]])),
+  ['Nobody else is ticked for', '/app/settings/people/by-role?role=1']);
 await check('readings', () => readingsPage([service()], CTX, '2026-11-15'),
   ['Gen 1:1-5', 'Sermon title', 'Saved']);
 await check('services', () => servicesPage({
@@ -298,10 +306,27 @@ await check('event admin', () => eventAdminPage({
 }), ['Harvest Supper', '48', '12', 'Main course', 'Any allergies?', 'Add this question',
      'https://breamchurch.stack66.com/events/harvest-supper']);
 await check('public booking', () => publicBookingPage({ event: EVENT, fields: FIELDS }),
-  ['Harvest Supper', 'Book my place', 'Main course', 'Beef', 'Vegetarian', '>12</strong> places left']);
+  ['Harvest Supper', 'Book my place', 'Main course', 'Beef', 'Vegetarian', 'Still spaces left']);
+// The public page must never say how many. "3 places left" makes people
+// hesitate over taking two, and it tells anybody looking exactly how the
+// evening is selling. The admin page keeps the numbers.
+await check('the public page never gives the count away', () => publicBookingPage({
+  event: EVENT, fields: FIELDS,
+  // The requirement is about NUMBERS, not the phrase: the sold-out branch may
+  // well say 'no places left', which gives nothing away that 'Sold out' has not
+  // already said. What must never appear is the count or the capacity.
+  // Matched as whole words with their units, not as bare digits — '60' also
+  // appears inside the Google Fonts URL (wght@600), which is not a capacity.
+}), ['Still spaces left'], ['12 places', '48 of', 'of 60', '60 places', 'places left.']);
+
+await check('but the event page still shows them', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test',
+}), ['48', '60', 'places left', 'How many can come', 'name="capacity"',
+     'Save these details']);
+
 await check('public booking (full)', () => publicBookingPage({
   event: { ...EVENT, booked: 60 }, fields: FIELDS,
-}), ['now full', 'waiting list']);
+}), ['Sold out', 'waiting list']);
 await check('booking done', () => bookingDonePage(EVENT, 2), ['You are booked in', 'Harvest Supper']);
 
 // ---- self-service --------------------------------------------------------

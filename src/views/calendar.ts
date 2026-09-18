@@ -69,6 +69,16 @@ export function monthCalendar(opts: {
   baseHref: string;
   extraQuery?: string;
   emptyMessage?: string;
+  /**
+   * Makes each day itself clickable, for "book this day".
+   *
+   * Given `{ href, label }`, every day in the month gets an add button linking
+   * to `href` with the date appended. Days in the leading and trailing weeks of
+   * the grid belong to other months and are left alone — clicking 29 September
+   * from the October grid and getting a September booking is the kind of thing
+   * nobody notices until the room is double-booked.
+   */
+  addDay?: { href: string; label: string };
 }) {
   const { month, entries, baseHref } = opts;
   const extra = opts.extraQuery ? `&${opts.extraQuery}` : '';
@@ -106,6 +116,13 @@ export function monthCalendar(opts: {
               return html`<div class="cal-day ${d.inMonth ? '' : 'cal-out'} ${d.date === today ? 'cal-today' : ''}"
                                 role="cell">
                 <span class="cal-n">${Number(d.date.slice(8, 10))}</span>
+                ${opts.addDay && d.inMonth
+                  ? html`<a class="cal-add" href="${opts.addDay.href}${opts.addDay.href.includes('?') ? '&' : '?'}on=${d.date}"
+                             title="${opts.addDay.label} on ${d.date}">
+                      <span aria-hidden="true">+</span>
+                      <span class="sr-only">${opts.addDay.label} on ${d.date}</span>
+                    </a>`
+                  : ''}
                 ${list.map(
                   (e) => html`<a class="cal-item cal-${e.tone ?? 'navy'}" href="${e.href}"
                                  title="${e.title ?? `${e.lead ?? ''} ${e.label}`}">

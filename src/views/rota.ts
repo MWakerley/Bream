@@ -297,14 +297,13 @@ export function gapsPage(services: ServiceSummary[], ctx: ViewCtx) {
 /**
  * "Sue Baker — on a break, away that day".
  *
- * Everything the database knows that the person clicking might not. Nobody is
- * hidden on the strength of these: a churchwarden ringing round on a Saturday
- * night knows more than the roster does, and the job of this list is to inform
- * the decision rather than to overrule it.
+ * Everyone in this list can already do the role, so that is not worth saying.
+ * What IS worth saying is anything the person clicking might not know: nobody
+ * is hidden on the strength of these, because a churchwarden ringing round on a
+ * Saturday night knows more than the roster does.
  */
 function candidateLabel(c: Candidate): string {
   const notes = [
-    c.can_do ? '' : 'does not normally do this',
     c.on_break ? 'on a break' : '',
     c.is_guest ? 'guest' : '',
     c.away ? 'away that day' : '',
@@ -413,7 +412,14 @@ export function servicePage(
                         .map((cand) => html`<option value="${cand.id}">${candidateLabel(cand)}</option>`)}
                     </select>
                     <button class="btn-secondary" type="submit">Add</button>
-                  </form>`
+                  </form>
+                  ${(candidatesFor?.get(r.role_id) ?? []).filter((cand) => !cand.already_here).length === 0
+                    ? html`<p class="hint" style="margin:.35rem 0 0">
+                        Nobody else is ticked for ${r.role_name}.
+                        <a href="/app/settings/people/by-role?role=${r.role_id}">Tick somebody</a>
+                        and they will appear here.
+                      </p>`
+                    : ''}`
                     : ''}
                 </td>
                 <td>

@@ -65,7 +65,7 @@ export function roomsPage(opts: {
         ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
         : ''}
 
-      <h2 class="section-h2">Make a booking</h2>
+      <h2 class="section-h2" id="book">Make a booking</h2>
       <form method="post" action="/app/rooms/book" class="card">
         <div class="grid-fields">
           <div class="field">

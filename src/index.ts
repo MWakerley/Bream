@@ -2027,7 +2027,23 @@ async function roomsView(
   return c.html(roomsPage({ rooms, bookings, series, ctx: viewCtx(c), weekFrom, notice, form }));
 }
 
-app.get('/app/rooms', (c) => roomsView(c));
+app.get('/app/rooms', (c) => {
+  // Arriving from a day in the calendar: ?on=YYYY-MM-DD&room=N. Both are
+  // prefilled rather than assumed, so the form still shows what it is about to
+  // do and can still be changed before anything is saved.
+  const on = c.req.query('on');
+  const room = c.req.query('room');
+  const prefill: Record<string, string> = {};
+  if (on && /^d{4}-d{2}-d{2}$/.test(on)) prefill.on_date = on;
+  if (room && /^d+$/.test(room)) prefill.room_id = room;
+  return roomsView(
+    c,
+    prefill.on_date
+      ? { tone: 'ok', text: `Making a booking for ${formatDate(prefill.on_date)}. Fill in the rest below.` }
+      : undefined,
+    Object.keys(prefill).length ? prefill : undefined,
+  );
+});
 
 app.post('/app/rooms/book', async (c) => {
   const form = await c.req.formData();
@@ -2470,6 +2486,68 @@ app.get('/app/events/:id', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return c.notFound();
   return eventAdminView(c, id);
+});
+
+/**
+ * Change an event after it exists.
+ *
+ * Capacity above all: numbers change once people start replying, and having to
+ * delete an event and start again because twelve more want to come is not a
+ * thing to make anybody do.
+ */
+app.post('/app/events/:id/details', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+
+  const form = await c.req.formData();
+  const str = (k: string) => {
+    const v = String(form.get(k) ?? '').trim();
+    return v.length ? v : null;
+  };
+
+  const title = str('title');
+  const onDate = str('on_date');
+  const startTime = str('start_time');
+  if (!title || !onDate || !startTime) {
+    return eventAdminView(c, id, {
+      tone: 'bad', text: 'A name, a date and a start time are all needed.',
+    });
+  }
+
+  const rawCapacity = String(form.get('capacity') ?? '').trim();
+  const capacity = rawCapacity === '' ? null : Number(rawCapacity);
+  if (capacity != null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 2000)) {
+    return eventAdminView(c, id, {
+      tone: 'bad', text: 'How many can come has to be a number from 1 to 2000, or blank for no limit.',
+    });
+  }
+
+  // Lowering the capacity below what is already booked is ALLOWED and nobody is
+  // thrown off — the bookings were made in good faith. It simply means no more
+  // are taken until the numbers come back under it, and the page says so rather
+  // than refusing an edit somebody had a reason for.
+  const booked = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(party_size), 0) AS n FROM event_bookings
+      WHERE event_id = ?1 AND status = 'booked'`,
+  ).bind(id).first<{ n: number }>();
+
+  await c.env.DB.prepare(
+    `UPDATE events
+        SET title = ?2, description = ?3, starts_at = ?4, location = ?5,
+            capacity = ?6, booking_closes_at = ?7
+      WHERE id = ?1`,
+  ).bind(id, title, str('description'), `${onDate}T${startTime}`, str('location'),
+    capacity, str('closes')).run();
+
+  const over = capacity != null && (booked?.n ?? 0) > capacity;
+  return eventAdminView(c, id, {
+    tone: over ? 'bad' : 'ok',
+    text: over
+      ? `Saved — but ${booked?.n} places are already booked and you have set the limit to `
+        + `${capacity}. Nobody has been thrown off; no further bookings will be taken until `
+        + 'the numbers come back under it.'
+      : 'Saved.',
+  });
 });
 
 app.post('/app/events/:id/publish', async (c) => {
