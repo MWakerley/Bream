@@ -345,8 +345,17 @@ export interface ServiceSummary {
   is_communion: number;
   readings: string | null;
   sermon_title: string | null;
-  /** Roles below their minimum. */
+  /**
+   * Roles with NOBODY on them. Only these count as unfilled.
+   *
+   * A role wanting two people and having one is not unfilled — somebody is
+   * doing it, and calling that "unfilled" both overstates the problem and
+   * buries the services where genuinely nobody is on. Those cases are `under`,
+   * shown and highlighted but described for what they are.
+   */
   gaps: string[];
+  /** Roles with somebody on them but fewer than the minimum. */
+  under: { role: string; filled: number; min: number }[];
   /** Roles at or above minimum but below ideal. */
   short: string[];
   filled: number;
@@ -382,14 +391,20 @@ export async function listUpcomingServices(
         is_communion: row.is_communion,
         readings: row.readings,
         sermon_title: row.sermon_title,
-        gaps: [], short: [], filled: 0, needed: 0,
+        gaps: [], under: [], short: [], filled: 0, needed: 0,
       };
       byService.set(row.service_id, s);
     }
     s.filled += row.filled;
     s.needed += row.min_needed;
-    if (row.filled < row.min_needed) s.gaps.push(row.role_name);
-    else if (row.filled < row.ideal_needed) s.short.push(row.role_name);
+    // Three states, not two. "Nobody at all" is the one that needs finding a
+    // person; "one of the two we would like" is worth flagging but is not the
+    // same problem, and lumping them together made a service with every role
+    // covered look the same as one with none.
+    if (row.filled === 0) s.gaps.push(row.role_name);
+    else if (row.filled < row.min_needed) {
+      s.under.push({ role: row.role_name, filled: row.filled, min: row.min_needed });
+    } else if (row.filled < row.ideal_needed) s.short.push(row.role_name);
   }
 
   return [...byService.values()].slice(0, limit);

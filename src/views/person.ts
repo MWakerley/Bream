@@ -29,6 +29,24 @@ export interface PersonEditData {
   settings: Map<number, PersonRoleSetting>;
   /** Their sign-in, if they have one at all. Most of the roster does not. */
   account?: PersonAccount | null;
+  /** Offered when they have no sign-in, so one can be given from this page. */
+  profiles?: { id: number; name: string; is_default: number }[];
+}
+
+/**
+ * 'Andy Ewens' -> 'andy.ewens'.
+ *
+ * The same rule as access.ts's suggestUsername, repeated here rather than
+ * imported: this file is bundled into the render tests, and pulling in the
+ * access module would drag WebCrypto along with it for one string function.
+ */
+function suggestedUsername(name: string): string {
+  return name.toLowerCase().trim()
+    .replace(/[^a-z0-9\s.]/g, '')
+    .replace(/\s+/g, '.')
+    .replace(/\.+/g, '.')
+    .replace(/^\.|\.$/g, '')
+    .slice(0, 40) || 'user';
 }
 
 export interface PersonAccount {
@@ -64,6 +82,7 @@ export function personPage(opts: {
   saved?: boolean;
   /** A password just reset by an administrator, shown once and never stored. */
   reset?: { password: string; emailed: string | null; emailError: string | null };
+  notice?: { tone: 'ok' | 'bad'; text: string };
   /** Injected so the page renders the same way every time it is tested. */
   today?: Date;
 }) {
@@ -80,6 +99,10 @@ export function personPage(opts: {
     },
     html`
       ${opts.saved ? html`<div class="notice notice-ok" role="status"><p>Saved.</p></div>` : ''}
+      ${opts.notice
+        ? html`<div class="notice notice-${opts.notice.tone}" role="status">
+            <p style="margin:0">${opts.notice.text}</p></div>`
+        : ''}
 
       ${p.needs_review
         ? html`<div class="notice notice-warn">
@@ -256,11 +279,47 @@ export function personPage(opts: {
                 they cannot open the system to see it. That is how most of the roster is set
                 up, and it is perfectly fine.
               </p>
-              <p style="margin-bottom:0;color:var(--ink-2)">
-                To give them one, you need an email address or a username for them. Sign-ins are
-                handed out from <a href="/app/settings/people/new">Add a person</a>, and
-                <a href="/app/settings/profiles">the profile</a> decides what they can see.
-              </p>`
+
+              <form method="post" action="/app/settings/people/${p.id}/give-login">
+                <h3 style="margin-bottom:.35rem">Give them a sign-in</h3>
+                <p class="hint" style="margin-top:0">
+                  They get a username and a temporary password. The password is shown here once,
+                  so you can read it out — it is not stored anywhere you could look it up again.
+                  They must choose their own the first time they sign in.
+                </p>
+                <div class="grid-fields">
+                  <div class="field">
+                    <label for="username">Username</label>
+                    <span class="hint">What they type to sign in. Their email works too.</span>
+                    <input id="username" name="username" type="text"
+                           value="${suggestedUsername(p.display_name)}" required>
+                  </div>
+                  <div class="field">
+                    <label for="profile_id">What they can see</label>
+                    <span class="hint">
+                      <a href="/app/settings/profiles">Profiles</a> decide which pages open.
+                    </span>
+                    <select id="profile_id" name="profile_id" required>
+                      ${(p.profiles ?? []).map(
+                        (pr) => html`<option value="${pr.id}" ${pr.is_default ? 'selected' : ''}>
+                          ${pr.name}${pr.is_default ? ' — the usual one' : ''}
+                        </option>`,
+                      )}
+                    </select>
+                  </div>
+                </div>
+                ${p.email
+                  ? html`<label class="check" style="max-width:28rem;margin-bottom:1rem">
+                      <input type="checkbox" name="send_email" value="1" checked>
+                      <span><span class="check-label">Email it to ${p.email}</span>
+                        <span class="check-note">It is shown on screen either way.</span></span>
+                    </label>`
+                  : html`<p style="color:var(--ink-2);font-size:.9375rem">
+                      No email address on file for them, so nothing can be sent — read the
+                      password out, or add their email above and save first.
+                    </p>`}
+                <button class="btn-primary" type="submit">Give ${p.display_name} a sign-in</button>
+              </form>`
           : html`
               <dl class="facts">
                 <div>

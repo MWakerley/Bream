@@ -928,7 +928,11 @@ Bream Church`,
 async function personView(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   id: number,
-  extra: { saved?: boolean; reset?: { password: string; emailed: string | null; emailError: string | null } } = {},
+  extra: {
+    saved?: boolean;
+    reset?: { password: string; emailed: string | null; emailError: string | null };
+    notice?: { tone: 'ok' | 'bad'; text: string };
+  } = {},
 ) {
   const [person, roles, settings] = await Promise.all([
     c.env.DB.prepare(
@@ -962,11 +966,16 @@ async function personView(
       WHERE p.id = ?1`,
   ).bind(id).first<any>();
 
+  // Only fetched when there is a form that needs them: somebody with a sign-in
+  // already has a profile, and the page does not offer to pick one again.
+  const profiles = account ? [] : await listProfiles(c.env.DB);
+
   return c.html(personPage({
     person: {
       ...person,
       settings: new Map(settings.results.map((s: any) => [s.role_id, s])),
       account,
+      profiles,
     },
     roles,
     ctx: viewCtx(c),
@@ -978,6 +987,91 @@ app.get('/app/settings/people/:id', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return c.notFound();
   return personView(c, id, { saved: c.req.query('saved') === '1' });
+});
+
+/**
+ * Give somebody already on the roster a sign-in.
+ *
+ * "Add a person" creates a new person WITH a login, which is no use for the
+ * sixty-odd who were imported from the spreadsheet and are already here — using
+ * it for them would make a second copy of somebody who already exists. This is
+ * the same job done to a person who is already in the system.
+ */
+app.post('/app/settings/people/:id/give-login', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+
+  const form = await c.req.formData();
+  const person = await c.env.DB.prepare(
+    'SELECT id, display_name, email FROM people WHERE id = ?1',
+  ).bind(id).first<{ id: number; display_name: string; email: string | null }>();
+  if (!person) return c.notFound();
+
+  const already = await c.env.DB.prepare('SELECT 1 FROM credentials WHERE person_id = ?1')
+    .bind(id).first();
+  if (already) {
+    return personView(c, id, {
+      notice: { tone: 'bad', text: 'They already have a sign-in. Reset their password instead.' },
+    });
+  }
+
+  const username = (String(form.get('username') ?? '').trim().toLowerCase())
+    || suggestUsername(person.display_name);
+  const profileId = Number(form.get('profile_id'));
+
+  try {
+    await c.env.DB.prepare('UPDATE people SET username = ?2, profile_id = ?3 WHERE id = ?1')
+      .bind(id, username, Number.isInteger(profileId) ? profileId : null).run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return personView(c, id, {
+      notice: {
+        tone: 'bad',
+        text: /username/i.test(message)
+          ? `The username "${username}" is already taken. Try another.`
+          : `That could not be saved. The database said: ${message}`,
+      },
+    });
+  }
+
+  // Only once the username is safely in does the password get made, so a clash
+  // never leaves an account half-created with a password nobody was shown.
+  const password = temporaryPassword();
+  const hashed = await hashPassword(password);
+  await c.env.DB.prepare(
+    `INSERT INTO credentials (person_id, password_hash, salt, iterations, must_change)
+     VALUES (?1, ?2, ?3, ?4, 1)`,
+  ).bind(id, hashed.password_hash, hashed.salt, hashed.iterations).run();
+
+  let emailed: string | null = null;
+  let emailError: string | null = null;
+  if (person.email && form.get('send_email')) {
+    const origin = new URL(c.req.url).origin;
+    const result = await sendAcknowledgement(
+      c.env.EMAIL, c.env.ACK_FROM, person.email,
+      'Your sign-in for the Bream Church system',
+      `Dear ${person.display_name},
+
+You have been given a sign-in for the Bream Church rota and diary system.
+
+  Address:  ${origin}
+  Username: ${username}
+  Password: ${password}
+
+That password is temporary — you will be asked to choose your own the first time
+you sign in.
+
+Bream Church`,
+      {
+        name: person.display_name, eventTitle: 'your sign-in', eventDate: '', eventTime: '',
+        location: null, partySize: 1,
+      },
+    );
+    if (result.status === 'sent') emailed = person.email;
+    else emailError = result.error ?? result.status;
+  }
+
+  return personView(c, id, { reset: { password, emailed, emailError } });
 });
 
 /**

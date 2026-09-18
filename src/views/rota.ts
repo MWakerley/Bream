@@ -46,6 +46,18 @@ export function formatDateTime(sqlite: string): string {
 }
 
 /**
+ * "Reader 1 of 2" — a role that has somebody on it but fewer than wanted.
+ *
+ * Deliberately never called unfilled. Somebody IS doing it; what is missing is a
+ * second pair of hands, and the wording has to say which of those two problems
+ * this is. Calling both "unfilled" made a service with one reader look exactly
+ * like a service with none.
+ */
+export function describeUnder(under: { role: string; filled: number; min: number }[]): string {
+  return under.map((u) => `${u.role} ${u.filled} of ${u.min}`).join(', ');
+}
+
+/**
  * One service as a card.
  *
  * Cards rather than table rows because a service is a thing, not a row of
@@ -54,7 +66,10 @@ export function formatDateTime(sqlite: string): string {
  * colour is never carrying the meaning on its own.
  */
 function serviceCard(s: ServiceSummary) {
-  const state = s.gaps.length ? 'gap' : s.short.length ? 'short' : 'ok';
+  // Red is for a role with nobody on it. A role wanting two and having one is
+  // its own state — worth seeing, and still red, but it is not an unfilled role
+  // and is never counted as one.
+  const state = s.gaps.length ? 'gap' : s.under.length ? 'under' : s.short.length ? 'short' : 'ok';
   const [y, m, d] = s.service_date.split('-').map(Number);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -76,13 +91,18 @@ function serviceCard(s: ServiceSummary) {
         ${s.location ? html`<span class="svc-where">${s.location}</span>` : ''}
         <span class="svc-meta">
           ${state === 'gap'
-            ? html`${chip('red', `${s.gaps.length} still to find`)}
-                <span class="svc-detail">Nobody on ${s.gaps.join(', ')}</span>`
-            : state === 'short'
-              ? html`${chip('amber', 'Below ideal')}
-                  <span class="svc-detail">Could do with more on ${s.short.join(', ')}</span>`
-              : html`${chip('green', 'Everyone in place')}
-                  <span class="svc-detail">${s.filled} people</span>`}
+            ? html`${chip('red', `${s.gaps.length} with nobody`)}
+                <span class="svc-detail">Nobody on ${s.gaps.join(', ')}${s.under.length
+                  ? ` · also ${describeUnder(s.under)}`
+                  : ''}</span>`
+            : state === 'under'
+              ? html`${chip('red', 'Short-handed')}
+                  <span class="svc-detail">Every role has somebody — ${describeUnder(s.under)}</span>`
+              : state === 'short'
+                ? html`${chip('amber', 'Below ideal')}
+                    <span class="svc-detail">Could do with more on ${s.short.join(', ')}</span>`
+                : html`${chip('green', 'Everyone in place')}
+                    <span class="svc-detail">${s.filled} people</span>`}
         </span>
       </span>
       <span class="svc-go" aria-hidden="true">→</span>
@@ -99,7 +119,11 @@ function serviceCard(s: ServiceSummary) {
  * worth seeing.
  */
 function nextServiceCard(next: ServiceDetail) {
-  const gaps = next.roles.filter((r) => r.people.length < r.min_needed);
+  // Unfilled means nobody. A role wanting two people and having one is counted
+  // separately, because somebody is doing it and saying otherwise sends people
+  // looking for a problem that is not there.
+  const empty = next.roles.filter((r) => r.people.length === 0);
+  const under = next.roles.filter((r) => r.people.length > 0 && r.people.length < r.min_needed);
   return html`
     <section class="next-up">
       <div class="next-up-head">
@@ -109,9 +133,11 @@ function nextServiceCard(next: ServiceDetail) {
           ${next.location ? html`<p class="next-up-where">${next.location}</p>` : ''}
         </div>
         <div class="next-up-status">
-          ${gaps.length
-            ? chip('red', `${gaps.length} role${gaps.length === 1 ? '' : 's'} unfilled`)
-            : chip('green', 'Everyone is in place')}
+          ${empty.length
+            ? chip('red', `${empty.length} role${empty.length === 1 ? '' : 's'} with nobody`)
+            : under.length
+              ? chip('red', `Short-handed on ${under.length} role${under.length === 1 ? '' : 's'}`)
+              : chip('green', 'Everyone is in place')}
         </div>
       </div>
 
@@ -125,10 +151,14 @@ function nextServiceCard(next: ServiceDetail) {
 
       <ul class="next-up-roles">
         ${next.roles.map(
-          (r) => html`<li class="${r.people.length < r.min_needed ? 'is-empty' : ''}">
+          (r) => html`<li class="${r.people.length === 0 ? 'is-empty' : r.people.length < r.min_needed ? 'is-under' : ''}">
             <span class="nu-role">${r.role_name}</span>
             <span class="nu-who">
-              ${r.people.length ? r.people.join(', ') : 'nobody yet'}
+              ${r.people.length
+                ? html`${r.people.join(', ')}${r.people.length < r.min_needed
+                    ? html` <span class="nu-note">${r.people.length} of ${r.min_needed}</span>`
+                    : ''}`
+                : 'nobody yet'}
             </span>
           </li>`,
         )}
@@ -146,6 +176,9 @@ export function rotaDashboard(
   next?: ServiceDetail | null,
 ) {
   const withGaps = services.filter((s) => s.gaps.length);
+  // Short-handed but with nobody actually missing. Kept apart from withGaps so
+  // the headline number means one thing only: services needing somebody found.
+  const underOnly = services.filter((s) => !s.gaps.length && s.under.length);
   return layout(
     { title: 'The rota', back: BACK, ...ctx },
     html`
@@ -167,13 +200,23 @@ export function rotaDashboard(
         ? html`<div class="notice notice-bad" role="status">
             <p style="margin:0">
               <strong>${withGaps.length}</strong> of the next ${services.length} services
-              ${withGaps.length === 1 ? 'has a role' : 'have roles'} with nobody assigned.
+              ${withGaps.length === 1 ? 'has a role' : 'have roles'} with nobody at all on it.
               <a href="/app/rota/gaps">See just those</a>.
             </p>
           </div>`
-        : services.length
-          ? html`<div class="notice notice-ok"><p style="margin:0">Every upcoming service has its required roles filled.</p></div>`
-          : ''}
+        : underOnly.length
+          ? html`<div class="notice notice-warn" role="status">
+              <p style="margin:0">
+                Every role on every upcoming service has somebody on it.
+                <strong>${underOnly.length}</strong>
+                ${underOnly.length === 1 ? 'service is' : 'services are'} short-handed —
+                fewer people than you would like, but nobody missing.
+                <a href="/app/rota/gaps">See which</a>.
+              </p>
+            </div>`
+          : services.length
+            ? html`<div class="notice notice-ok"><p style="margin:0">Every upcoming service has its required roles filled.</p></div>`
+            : ''}
 
       ${services.length === 0
         ? html`<div class="card"><p style="margin:0">
@@ -188,15 +231,21 @@ export function rotaDashboard(
 
 export function gapsPage(services: ServiceSummary[], ctx: ViewCtx) {
   const withGaps = services.filter((s) => s.gaps.length);
+  const underOnly = services.filter((s) => !s.gaps.length && s.under.length);
   return layout(
-    { title: 'Unfilled roles', back: { href: '/app/rota', label: 'The rota' }, ...ctx },
+    { title: 'Roles that need somebody', back: { href: '/app/rota', label: 'The rota' }, ...ctx },
     html`
       <p class="page-intro">
-        Services where a role is below the minimum it needs. Roles that are merely below
-        their ideal are not listed here — those show on the rota as "below ideal".
+        Two different problems, kept apart. <strong>Nobody on it</strong> means the role has
+        not been given to anyone. <strong>Short-handed</strong> means somebody is doing it,
+        but fewer people than the role asks for.
       </p>
+
+      <h2 class="section-h2">Nobody on it</h2>
       ${withGaps.length === 0
-        ? html`<div class="notice notice-ok"><p style="margin:0">Nothing unfilled. Every upcoming service has its minimum covered.</p></div>`
+        ? html`<div class="notice notice-ok"><p style="margin:0">
+            Nothing unfilled. Every role on every upcoming service has somebody on it.
+          </p></div>`
         : html`<div class="table-scroll">
             <table class="grid">
               <thead><tr><th>When</th><th>Service</th><th>Nobody assigned to</th></tr></thead>
@@ -214,12 +263,42 @@ export function gapsPage(services: ServiceSummary[], ctx: ViewCtx) {
               </tbody>
             </table>
           </div>`}
+
+      <h2 class="section-h2">Short-handed</h2>
+      ${underOnly.length === 0
+        ? html`<div class="notice notice-ok"><p style="margin:0">
+            Nothing short-handed either — every role has the number of people it asks for.
+          </p></div>`
+        : html`<p style="color:var(--ink-2)">
+              Somebody is doing each of these. A second pair of hands would help, but nothing
+              here is unfilled.
+            </p>
+            <div class="table-scroll">
+              <table class="grid">
+                <thead><tr><th>When</th><th>Service</th><th>Could do with more on</th></tr></thead>
+                <tbody>
+                  ${underOnly.map(
+                    (s) => html`<tr>
+                      <td>
+                        <a href="/app/rota/service/${s.id}"><strong>${formatDate(s.service_date)}</strong></a>
+                        <div class="num" style="color:var(--ink-2);font-size:.9375rem">${s.service_time}</div>
+                      </td>
+                      <td>${s.title ?? 'Worship'}</td>
+                      <td><strong style="color:var(--warn)">${describeUnder(s.under)}</strong></td>
+                    </tr>`,
+                  )}
+                </tbody>
+              </table>
+            </div>`}
     `,
   );
 }
 
 export function servicePage(s: ServiceDetail, ctx: ViewCtx) {
-  const gaps = s.roles.filter((r) => r.people.length < r.min_needed);
+  // Nobody on it at all, versus somebody on it but not enough of them. Only
+  // the first is a role that needs filling.
+  const empty = s.roles.filter((r) => r.people.length === 0);
+  const under = s.roles.filter((r) => r.people.length > 0 && r.people.length < r.min_needed);
   return layout(
     {
       title: `${formatDate(s.service_date)} ${s.service_time}`,
@@ -233,11 +312,20 @@ export function servicePage(s: ServiceDetail, ctx: ViewCtx) {
         ${s.is_communion ? html` · ${chip('neutral', 'Communion')}` : ''}
       </p>
 
-      ${gaps.length
+      ${empty.length
         ? html`<div class="notice notice-bad" role="status">
             <p style="margin:0">
               Nobody is assigned to
-              <strong>${gaps.map((g) => g.role_name).join(', ')}</strong>.
+              <strong>${empty.map((g) => g.role_name).join(', ')}</strong>.
+            </p>
+          </div>`
+        : ''}
+
+      ${under.length
+        ? html`<div class="notice notice-warn" role="status">
+            <p style="margin:0">
+              Everything here has somebody on it. These roles ask for more people than they
+              have: <strong>${under.map((r) => `${r.role_name} ${r.people.length} of ${r.min_needed}`).join(', ')}</strong>.
             </p>
           </div>`
         : ''}
@@ -258,9 +346,10 @@ export function servicePage(s: ServiceDetail, ctx: ViewCtx) {
           <thead><tr><th>Role</th><th>Who</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${s.roles.map((r) => {
-              const short = r.people.length < r.min_needed;
-              const belowIdeal = !short && r.people.length < r.ideal_needed;
-              return html`<tr class="${short ? 'row-gap' : ''}">
+              const nobody = r.people.length === 0;
+              const short = !nobody && r.people.length < r.min_needed;
+              const belowIdeal = !nobody && !short && r.people.length < r.ideal_needed;
+              return html`<tr class="${nobody ? 'row-gap' : ''}">
                 <td><strong>${r.role_name}</strong></td>
                 <td>
                   ${r.people.length
@@ -268,11 +357,13 @@ export function servicePage(s: ServiceDetail, ctx: ViewCtx) {
                     : html`<span style="color:var(--bad);font-weight:600">nobody yet</span>`}
                 </td>
                 <td>
-                  ${short
-                    ? chip('red', `${r.min_needed - r.people.length} short`)
-                    : belowIdeal
-                      ? chip('amber', 'Below ideal')
-                      : chip('green', 'OK')}
+                  ${nobody
+                    ? chip('red', 'Nobody on it')
+                    : short
+                      ? chip('red', `${r.people.length} of ${r.min_needed}`)
+                      : belowIdeal
+                        ? chip('amber', 'Below ideal')
+                        : chip('green', 'OK')}
                 </td>
                 <td>
                   <form method="post" action="/app/rota/service/${s.id}/role/${r.role_id}/off"

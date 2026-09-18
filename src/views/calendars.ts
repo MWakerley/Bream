@@ -1,6 +1,7 @@
 import { html } from 'hono/html';
 import { layout, type ViewCtx } from './layout.js';
 import { monthCalendar, monthLabel, viewTabs, type CalendarEntry } from './calendar.js';
+import { describeUnder } from './rota.js';
 import type { ServiceSummary } from '../db.js';
 import type { BookingRow, RoomRow } from './rooms.js';
 
@@ -86,13 +87,18 @@ export function rotaCalendarPage(opts: {
     // Red where somebody still has to be found, amber-ish where it is merely
     // below ideal. Colour is never the only signal — the title attribute and the
     // service page both say it in words.
-    tone: s.gaps.length ? 'red' : s.short.length ? 'gold' : 'green',
+    tone: s.gaps.length || s.under.length ? 'red' : s.short.length ? 'gold' : 'green',
     title: s.gaps.length
       ? `${s.title ?? 'Worship'} — nobody on ${s.gaps.join(', ')}`
-      : `${s.title ?? 'Worship'} at ${s.service_time}`,
+      : s.under.length
+        ? `${s.title ?? 'Worship'} — short-handed: ${describeUnder(s.under)}`
+        : `${s.title ?? 'Worship'} at ${s.service_time}`,
   }));
 
+  // Only services where somebody actually has to be found. A role wanting two
+  // people and having one is short-handed, not unfilled, and is counted apart.
   const withGaps = services.filter((s) => s.gaps.length).length;
+  const shortHanded = services.filter((s) => !s.gaps.length && s.under.length).length;
 
   return layout(
     {
@@ -107,11 +113,17 @@ export function rotaCalendarPage(opts: {
       ${viewTabs('calendar', '/app/rota', `/app/rota/calendar?month=${month}`)}
 
       ${withGaps > 0
-        ? html`<div class="notice notice-warn" role="status"><p style="margin:0">
+        ? html`<div class="notice notice-bad" role="status"><p style="margin:0">
             <strong>${withGaps}</strong> service${withGaps === 1 ? '' : 's'} this month
-            ${withGaps === 1 ? 'has' : 'have'} a role with nobody assigned — shown in red.
+            ${withGaps === 1 ? 'has' : 'have'} a role with nobody at all on it — shown in red.
           </p></div>`
-        : ''}
+        : shortHanded > 0
+          ? html`<div class="notice notice-warn" role="status"><p style="margin:0">
+              Every role this month has somebody on it.
+              <strong>${shortHanded}</strong> service${shortHanded === 1 ? ' is' : 's are'}
+              short-handed — fewer people than the role asks for, but nobody missing.
+            </p></div>`
+          : ''}
 
       ${monthCalendar({
         month,
@@ -121,8 +133,8 @@ export function rotaCalendarPage(opts: {
       })}
 
       <p style="margin-top:1.25rem;color:var(--ink-2);font-size:.9375rem">
-        Green means every role is filled · amber means below the ideal number ·
-        red means somebody still has to be found.
+        Green means every role has the people it asks for · amber means below the ideal
+        number · red means a role with nobody on it, or fewer people than it asks for.
       </p>
     `,
   );

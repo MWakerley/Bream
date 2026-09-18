@@ -42,7 +42,7 @@ const roles: RoleRow[] = [
 const service = (over: Partial<ServiceSummary> = {}): ServiceSummary => ({
   id: 1, service_date: '2026-11-15', service_time: '10:30', title: 'Worship',
   location: null, is_communion: 0, readings: 'Gen 1:1-5', sermon_title: null,
-  gaps: [], short: [], filled: 10, needed: 12, ...over,
+  gaps: [], under: [], short: [], filled: 10, needed: 12, ...over,
 });
 
 const detail: ServiceDetail = {
@@ -132,11 +132,24 @@ await check('pairs', () => pairsPage(
   ['Sue', 'Sheila', 'Any role', 'Must be together', 'cannot be separated', 'Add a pairing']);
 await check('rota dashboard', () => rotaDashboard(
   [service(), service({ id: 2, gaps: ['Steward'], title: 'Holy Communion' })], CTX, detail),
-  ['Sun 15 Nov 2026', 'Steward', 'still to find', 'Next service', 'nobody yet', 'Add a service', 'svc-gap']);
+  ['Sun 15 Nov 2026', 'Steward', 'with nobody', 'Next service', 'nobody yet',
+   'Add a service', 'svc-gap']);
+
+// A role wanting two people and having one is not unfilled. Somebody is doing
+// it, and the whole point of this distinction is that the word never appears.
+await check('one of two is short-handed, not unfilled', () => rotaDashboard(
+  [service({ under: [{ role: 'Reader', filled: 1, min: 2 }] })], CTX, null),
+  ['Short-handed', 'Reader 1 of 2', 'Every role has somebody', 'svc-under'],
+  ['unfilled', 'with nobody', 'nobody at all']);
 await check('rota dashboard (empty)', () => rotaDashboard([], CTX, null), ['No upcoming services']);
 await check('gaps', () => gapsPage([service({ gaps: ['Steward', 'Computer'] })], CTX),
-  ['Steward, Computer']);
-await check('gaps (none)', () => gapsPage([service()], CTX), ['Nothing unfilled']);
+  ['Steward, Computer', 'Nobody on it']);
+await check('gaps (none)', () => gapsPage([service()], CTX),
+  ['Nothing unfilled', 'Nothing short-handed either']);
+await check('the gaps page keeps the two apart', () => gapsPage(
+  [service({ under: [{ role: 'Reader', filled: 1, min: 2 }] })], CTX),
+  // Nothing is unfilled, so that half says so; the short-handed half names it.
+  ['Nothing unfilled', 'Reader 1 of 2', 'Somebody is doing each of these']);
 await check('service detail', () => servicePage(detail, CTX),
   ['Remembrance', 'Bream Cenotaph', 'nobody yet', 'Not needed here', 'Put it back', 'Tea and coffee']);
 await check('readings', () => readingsPage([service()], CTX, '2026-11-15'),
@@ -379,9 +392,31 @@ const WITH_ACCOUNT = {
   settings: new Map<number, never>(),
 };
 
-await check('person with no sign-in', () => personPage({
-  person: { ...WITH_ACCOUNT, account: null }, roles, ctx: CTX,
-}), ['has no sign-in'], ['Last signed in']);
+// The sixty-odd people imported from the spreadsheet are already here, so
+// giving them a sign-in has to be possible from their own record. Sending an
+// administrator to "Add a person" would make a second copy of somebody who
+// already exists.
+await check('person with no sign-in can be given one', () => personPage({
+  person: {
+    ...WITH_ACCOUNT, email: 'sue@example.org', account: null,
+    profiles: [{ id: 1, name: 'Volunteer', is_default: 1 },
+               { id: 2, name: 'Administrator', is_default: 0 }],
+  },
+  roles, ctx: CTX,
+}), [
+  'has no sign-in', 'Give them a sign-in',
+  // The username is suggested from their name so nobody has to invent one.
+  'value="sue.baker"',
+  'Volunteer', 'the usual one', 'Email it to sue@example.org',
+], ['Last signed in']);
+
+await check('somebody with no email is told to read it out', () => personPage({
+  person: {
+    ...WITH_ACCOUNT, account: null,
+    profiles: [{ id: 1, name: 'Volunteer', is_default: 1 }],
+  },
+  roles, ctx: CTX,
+}), ['No email address on file'], ['Email it to']);
 
 await check('person who has never signed in', () => personPage({
   person: {

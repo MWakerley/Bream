@@ -75,7 +75,7 @@ export function homePage(opts: {
             <p style="margin:0">
               <strong>${opts.gapCount}</strong>
               ${opts.gapCount === 1 ? 'upcoming service has' : 'upcoming services have'}
-              a role with nobody assigned.
+              a role with nobody at all on it.
               <a href="/app/rota/gaps">See which ones</a>.
             </p>
           </div>`
