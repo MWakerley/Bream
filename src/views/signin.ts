@@ -15,8 +15,11 @@ export function signInPage(opts: { error?: string; next?: string } = {}) {
         <form method="post" action="/auth/sign-in" class="card">
           <input type="hidden" name="next" value="${opts.next ?? '/app'}">
           <div class="field">
-            <label for="email">Username or email</label>
-            <span class="hint">Whichever you were given.</span>
+            <label for="email">Username</label>
+            <span class="hint">
+              Your name with the spaces taken out — Andy Ewens signs in as
+              <strong>andyewens</strong>. Your email address works too, if you gave one.
+            </span>
             <input id="email" name="email" type="text" autocomplete="username"
                    autocapitalize="none" required autofocus>
           </div>

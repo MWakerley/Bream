@@ -25,6 +25,7 @@ import { noAccessPage } from '../src/views/noaccess.js';
 import { peopleByRolePage } from '../src/views/byrole.js';
 import { combinationsByRolePage } from '../src/views/combinations.js';
 import { draftRulesPage } from '../src/views/draftrules.js';
+import { worshipPage } from '../src/views/worship.js';
 import type { ViewCtx } from '../src/views/layout.js';
 import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
 
@@ -482,7 +483,7 @@ await check('person with no sign-in can be given one', () => personPage({
 }), [
   'has no sign-in', 'Give them a sign-in',
   // The username is suggested from their name so nobody has to invent one.
-  'value="sue.baker"',
+  'value="suebaker"',
   'Volunteer', 'the usual one', 'Email it to sue@example.org',
 ], ['Last signed in']);
 
@@ -679,5 +680,98 @@ await check('tightening a rule names back who it would push off', () => draftRul
   // The whole-rota rules come back selected as they were saved.
   'value="2"', 'Save these exceptions',
 ]);
+
+// --- the worship team's own roster ---------------------------------------
+const BAND = [
+  { id: 1, display_name: 'Nat Dix' },
+  { id: 2, display_name: 'Stu Dix' },
+  { id: 3, display_name: 'Owen Price' },
+];
+
+await check('the worship roster', () => worshipPage({
+  sundays: [
+    {
+      service_id: 1, service_date: '2026-09-20', service_time: '10:30',
+      title: 'Worship', is_communion: 0,
+      plan_id: 7, kind: 'live', notes: 'Two new songs — run through at 9.30.',
+      leaders: ['Nat Dix'],
+      slots: [
+        { position: 'drums', person_id: 2, name: null },
+        { position: 'singer1', person_id: null, name: 'A friend of Stu' },
+      ],
+    },
+    {
+      service_id: 2, service_date: '2026-09-27', service_time: '10:30',
+      title: 'Worship', is_communion: 0,
+      plan_id: null, kind: null, notes: null, leaders: [], slots: [],
+    },
+  ],
+  people: BAND,
+  ctx: CTX,
+  savedId: 1,
+}), [
+  'Worship', 'Sun 20 Sep 2026', 'led by', 'Nat Dix',
+  'Live worship', 'Worship lyrics',
+  // Every position is offered, and the singers-only ones too.
+  'Drums', 'Bass', 'Guitar', 'Keyboards', 'Singer 1', 'Singer 2', 'Singer 3',
+  // Somebody not on the church roster can still be written down — a visiting
+  // musician should not have to be added to the roster first.
+  'Somebody not on the list', 'A friend of Stu',
+  'Two new songs',
+  // A week with nothing down is normal and must not read as a problem.
+  'Nothing down yet', 'no worship leader on the rota yet',
+  'Saved',
+]);
+
+// Seeing who is playing is useful to the whole team; changing it is the
+// worship leader's job.
+await check('a viewer sees the band but no form', () => worshipPage({
+  sundays: [{
+    service_id: 1, service_date: '2026-09-20', service_time: '10:30',
+    title: 'Worship', is_communion: 0, plan_id: 7, kind: 'lyrics', notes: null,
+    leaders: ['Nat Dix'],
+    slots: [{ position: 'singer1', person_id: 3, name: null }],
+  }],
+  people: BAND,
+  ctx: CTX,
+  canEdit: false,
+}), ['Owen Price', 'Singer 1'],
+  // On a lyrics week there is no band to ask about, so the band positions are
+  // not shown at all in the read-only view.
+  ['Save this week', 'Drums', 'Keyboards']);
+
+// --- what has changed lately ---------------------------------------------
+// The case this exists for, in the churchwarden's own words: somebody says on
+// their own page that they cannot preach on the 20th, and nobody finds out
+// until the gap is noticed. It has to name the person, say what and when, and
+// link through to the service it affects.
+await check('the home page shows what has changed', () => homePage({
+  ctx: CTX, gapCount: 0, isAdmin: true,
+  now: new Date('2026-09-18T12:00:00Z'),
+  activity: [
+    { when: '2026-09-18 09:00:00', icon: '⚠️', tone: 'bad', who: 'Matt Wakerley',
+      what: 'cannot do Preacher on Sun 20 Sep 2026 — still needs somebody',
+      href: '/app/rota/service/4', area: 'rota' },
+    { when: '2026-09-16 10:00:00', icon: '🏖️', tone: 'warn', who: 'Sue Baker',
+      what: 'is away from Sun 4 Oct 2026 to Sun 11 Oct 2026 — holiday',
+      href: '/app/rota/calendar', area: 'rota' },
+    { when: '2026-09-15 10:00:00', icon: '⏸️', tone: 'warn', who: 'Pat Doyle',
+      what: 'is taking a break, so will not be put on anything new', area: 'rota' },
+  ],
+}), [
+  'Lately',
+  'Matt Wakerley', 'cannot do Preacher on Sun 20 Sep 2026',
+  '/app/rota/service/4',
+  // A distance reads better than a date for something that just happened.
+  'hours ago', '2 days ago', '3 days ago',
+  'Sue Baker', 'Pat Doyle',
+  // Urgency shows in the edge AND the words, never the colour alone.
+  'recent-bad', 'recent-warn',
+]);
+
+// A quiet week must not leave an empty box sitting there looking broken.
+await check('and nothing at all on a quiet week', () => homePage({
+  ctx: CTX, gapCount: 0, isAdmin: true, activity: [],
+}), ['Welcome'], ['Lately', 'recent-list']);
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

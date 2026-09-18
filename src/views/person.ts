@@ -48,18 +48,17 @@ export interface PersonEditData {
 }
 
 /**
- * 'Andy Ewens' -> 'andy.ewens'.
+ * 'Andy Ewens' -> 'andyewens'.
  *
  * The same rule as access.ts's suggestUsername, repeated here rather than
  * imported: this file is bundled into the render tests, and pulling in the
  * access module would drag WebCrypto along with it for one string function.
+ * If one changes, change both — seed/access-test.ts pins the shared rule.
  */
 function suggestedUsername(name: string): string {
   return name.toLowerCase().trim()
-    .replace(/[^a-z0-9\s.]/g, '')
-    .replace(/\s+/g, '.')
-    .replace(/\.+/g, '.')
-    .replace(/^\.|\.$/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, '')
     .slice(0, 40) || 'user';
 }
 

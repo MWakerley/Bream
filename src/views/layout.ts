@@ -53,6 +53,7 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
     items: [
       { href: '/app/rota', label: 'The rota', match: '^/app/rota$', area: 'rota' },
       { href: '/app/rota/calendar', label: 'Calendar', match: '^/app/rota/calendar', area: 'rota' },
+      { href: '/app/rota/worship', label: 'Worship', match: '^/app/rota/worship', area: 'rota' },
       { href: '/app/rota/generate', label: 'Generate a rota', match: '^/app/rota/generate', area: 'rota.manage' },
       { href: '/app/rota/readings', label: 'Readings and sermons', match: '^/app/rota/readings', area: 'rota.manage' },
       { href: '/app/rota/requests', label: 'Change requests', match: '^/app/rota/requests', area: 'rota.manage' },

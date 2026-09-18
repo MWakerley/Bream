@@ -35,6 +35,9 @@ import { setupPage, signInPage } from './views/signin.js';
 import { combinationsPage, pairsPage, peoplePage, rolesPage } from './views/settings.js';
 import { combinationsByRolePage } from './views/combinations.js';
 import { draftRulesPage } from './views/draftrules.js';
+import { worshipPage } from './views/worship.js';
+import { recentActivity } from './activity.js';
+import { listWorshipSundays, saveWorshipPlan, POSITIONS } from './worship.js';
 import { gapsPage, readingsPage, rotaDashboard, servicePage } from './views/rota.js';
 import { servicesPage, type ServiceListRow, type ServiceTypeOption } from './views/services.js';
 import { generateFormPage, previewPage, type PreviewService } from './views/generate.js';
@@ -377,9 +380,14 @@ app.use('/app', requireSignIn);
 
 app.get('/app', async (c) => {
   const person = c.get('person');
-  const gaps = await countServicesWithGaps(c.env.DB);
+  const [gaps, activity] = await Promise.all([
+    countServicesWithGaps(c.env.DB),
+    // Filtered by what this person may open, so nobody is shown a change they
+    // cannot act on or a link that would refuse them.
+    recentActivity(c.env.DB, c.get('areas') ?? new Set()),
+  ]);
   return c.html(
-    homePage({ ctx: viewCtx(c), gapCount: gaps, isAdmin: !!person.is_admin }),
+    homePage({ ctx: viewCtx(c), gapCount: gaps, isAdmin: !!person.is_admin, activity }),
   );
 });
 
@@ -1704,6 +1712,73 @@ app.post('/app/rota/service/:id/role/:roleId/:state{on|off}', async (c) => {
     ).bind(id, roleId, `Switched off by ${c.get('person').display_name}`).run();
   }
   return c.redirect(`/app/rota/service/${id}`, 303);
+});
+
+// ---------------------------------------------------------------------------
+// The worship team's own roster.
+//
+// Kept apart from the main rota deliberately: the worship leader decides who is
+// playing what, and that is a different job from deciding who preaches. Under
+// the rota area because it is about Sundays, but on its own tab.
+// ---------------------------------------------------------------------------
+
+async function worshipView(
+  c: Context<{ Bindings: Env; Variables: Vars }>,
+  notice?: { tone: 'ok' | 'bad'; text: string },
+  savedId?: number,
+) {
+  const from = c.req.query('from') ?? new Date().toISOString().slice(0, 10);
+  const [sundays, people] = await Promise.all([
+    listWorshipSundays(c.env.DB, from),
+    c.env.DB.prepare(
+      'SELECT id, display_name FROM people WHERE is_active = 1 ORDER BY display_name',
+    ).all<{ id: number; display_name: string }>(),
+  ]);
+  return c.html(worshipPage({
+    sundays,
+    people: people.results,
+    ctx: viewCtx(c),
+    notice,
+    savedId,
+    // Seeing who is playing is useful to the whole team; changing it is the
+    // worship leader's job, and goes with the rest of rota management.
+    canEdit: c.get('areas')?.has('rota.manage') ?? false,
+  }));
+}
+
+app.get('/app/rota/worship', (c) => worshipView(c));
+
+app.post('/app/rota/worship/:serviceId', async (c) => {
+  const serviceId = Number(c.req.param('serviceId'));
+  if (!Number.isInteger(serviceId)) return c.notFound();
+
+  const form = await c.req.formData();
+  const kindRaw = String(form.get('kind') ?? 'live');
+  const kind: 'live' | 'lyrics' = kindRaw === 'lyrics' ? 'lyrics' : 'live';
+
+  // Every position comes back from the form, whether anybody is on it or not,
+  // so a position just cleared can go back to empty. "other" means the name was
+  // typed rather than picked — a visiting musician, or somebody's son who plays
+  // drums once and should not have to be added to the church roster first.
+  const slots = POSITIONS.map((pos) => {
+    const picked = String(form.get(`p_${pos.key}`) ?? '');
+    const typed = String(form.get(`n_${pos.key}`) ?? '').trim();
+    if (picked === 'other') return { position: pos.key, personId: null, name: typed || null };
+    const id = Number(picked);
+    if (Number.isInteger(id) && id > 0) return { position: pos.key, personId: id, name: null };
+    return { position: pos.key, personId: null, name: null };
+  });
+
+  const notes = String(form.get('notes') ?? '').trim() || null;
+  await saveWorshipPlan(c.env.DB, serviceId, kind, notes, slots);
+
+  const named = slots.filter((x) => x.personId != null || x.name).length;
+  return worshipView(c, {
+    tone: 'ok',
+    text: named
+      ? `Saved — ${named} ${named === 1 ? 'person' : 'people'} down for that week.`
+      : 'Saved. Nobody is down for that week yet, which is fine.',
+  }, serviceId);
 });
 
 app.get('/app/rota/readings', async (c) =>

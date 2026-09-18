@@ -859,3 +859,86 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
 /* The name of the church belongs to the stack under it when that stack is
    centred — left-aligned above a centred heading reads as a mistake. */
 .eyebrow-centred { text-align: center; }
+
+/* ---------------------------------------------------------------------------
+   The worship team's own roster.
+
+   One card per Sunday, each its own form, so saving one week never disturbs
+   another that is half typed.
+   --------------------------------------------------------------------------- */
+
+.worship-card { padding-block: 1.1rem; }
+.worship-saved { border-left: 4px solid var(--ok); }
+.worship-head {
+  display: flex; flex-wrap: wrap; gap: .5rem 1rem;
+  align-items: flex-start; justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.worship-grid {
+  display: grid; gap: .85rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  margin-bottom: 1rem;
+}
+/* The "somebody not on the list" box only matters once that option is chosen,
+   so it sits quietly under its dropdown rather than doubling the page height. */
+.worship-other { margin-top: .35rem; font-size: .9375rem; }
+
+/* ---------------------------------------------------------------------------
+   Lately — what has changed since somebody last looked.
+
+   Sits above the three big area tiles because it is the only part of the home
+   page that is ever urgent: somebody saying they cannot preach on Sunday needs
+   to reach whoever can do something about it, and this is the screen everybody
+   opens. A coloured left edge carries the urgency; the words carry the meaning,
+   so nothing here depends on the colour alone.
+   --------------------------------------------------------------------------- */
+
+.recent {
+  background: var(--paper); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden;
+  margin-bottom: 1.75rem;
+}
+.recent-head {
+  padding: 1rem 1.25rem .6rem;
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(to bottom, var(--navy-wash), var(--paper));
+}
+.recent-head h2 {
+  margin: 0; font-family: var(--display); font-weight: 800;
+  text-transform: uppercase; letter-spacing: .06em; font-size: 1rem; color: var(--navy);
+}
+.recent-head p { margin: .15rem 0 0; color: var(--ink-2); font-size: .9375rem; }
+
+.recent-list { list-style: none; margin: 0; padding: 0; }
+.recent-item {
+  display: flex; align-items: flex-start; gap: .75rem;
+  padding: .8rem 1.25rem;
+  border-left: 4px solid transparent;
+}
+.recent-item + .recent-item { border-top: 1px solid var(--rule); }
+.recent-bad  { border-left-color: var(--bad);  background: var(--bad-wash); }
+.recent-warn { border-left-color: var(--warn); background: var(--warn-wash); }
+.recent-ok   { border-left-color: var(--ok); }
+.recent-navy { border-left-color: var(--navy-soft); }
+
+.recent-icon { font-size: 1.2rem; line-height: 1.4; flex: none; }
+.recent-body { flex: 1 1 auto; min-width: 0; }
+.recent-text { display: block; }
+.recent-when {
+  display: block; color: var(--ink-2); font-size: .875rem; margin-top: .1rem;
+}
+.recent-go {
+  flex: none; align-self: center;
+  font-family: var(--display); font-weight: 700; font-size: .8125rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  text-decoration: none; color: var(--navy);
+  border: 2px solid var(--rule-strong); border-radius: var(--radius);
+  padding: .35rem .75rem; white-space: nowrap;
+}
+.recent-go:hover { border-color: var(--navy); background: var(--navy-wash); }
+
+@media (max-width: 34rem) {
+  /* The button drops under the text rather than squeezing it to two words. */
+  .recent-item { flex-wrap: wrap; }
+  .recent-go { margin-left: 2rem; }
+}

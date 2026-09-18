@@ -1,5 +1,6 @@
 import { html } from 'hono/html';
 import { layout, type ViewCtx } from './layout.js';
+import { howLongAgo, type ActivityItem } from '../activity.js';
 
 interface Area {
   href: string;
@@ -59,8 +60,14 @@ export function homePage(opts: {
   /** Services in the next few weeks that are missing a required role. */
   gapCount: number;
   isAdmin: boolean;
+  /** What has changed lately. Empty on a quiet week, which is fine. */
+  activity?: ActivityItem[];
+  /** Injected so the page renders identically every time it is tested. */
+  now?: Date;
 }) {
   const firstName = opts.ctx.signedInAs.split(' ')[0] ?? opts.ctx.signedInAs;
+  const now = opts.now ?? new Date();
+  const activity = opts.activity ?? [];
   return layout(
     {
       title: 'Home',
@@ -79,6 +86,36 @@ export function homePage(opts: {
               <a href="/app/rota/gaps">See which ones</a>.
             </p>
           </div>`
+        : ''}
+
+      <!-- What has changed since somebody last looked.
+           The case this exists for: a volunteer says on their own page that they
+           cannot preach on the 20th, and until now nobody found out until
+           somebody noticed the gap. The home page is the only screen everybody
+           opens, so it is where that has to surface. -->
+      ${activity.length
+        ? html`<section class="recent">
+            <div class="recent-head">
+              <h2>Lately</h2>
+              <p>What has changed since you were last here.</p>
+            </div>
+            <ul class="recent-list">
+              ${activity.map((a) => html`<li class="recent-item recent-${a.tone}">
+                <span class="recent-icon" aria-hidden="true">${a.icon}</span>
+                <span class="recent-body">
+                  <span class="recent-text">
+                    <strong>${a.who}</strong> ${a.what}
+                  </span>
+                  <span class="recent-when">${howLongAgo(a.when, now)}</span>
+                </span>
+                ${a.href
+                  ? html`<a class="recent-go" href="${a.href}">
+                      Open<span class="sr-only"> — ${a.who} ${a.what}</span>
+                    </a>`
+                  : ''}
+              </li>`)}
+            </ul>
+          </section>`
         : ''}
 
       <ul class="areas">

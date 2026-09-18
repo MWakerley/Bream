@@ -42,6 +42,8 @@ const PATHS: [string, string | null][] = [
   ['/app/events/12/bookings/5', 'events'],
   ['/app/rota/service/3/role/2/add', 'rota'],
   ['/app/rota/service/3/assignment/9/remove', 'rota'],
+  ['/app/rota/worship', 'rota'],
+  ['/app/rota/worship/12', 'rota'],
 ];
 for (const [path, want] of PATHS) {
   const got = areaForPath(path);
@@ -77,6 +79,12 @@ ok('nor take somebody off',
 ok('a coordinator can put somebody on', mayAccess(COORD, '/app/rota/service/3/role/2/add', 'POST'),
   'this is the only way a guest preacher ever reaches a service');
 ok('and take somebody off', mayAccess(COORD, '/app/rota/service/3/assignment/9/remove', 'POST'));
+
+ok('a volunteer can SEE the worship roster', mayAccess(VOLUNTEER, '/app/rota/worship', 'GET'),
+  'the whole team wants to know who is playing');
+ok('but cannot change it', !mayAccess(VOLUNTEER, '/app/rota/worship/12', 'POST'));
+ok('the worship leader can, through rota.manage',
+  mayAccess(COORD, '/app/rota/worship/12', 'POST'));
 
 ok('the room profile can book', mayAccess(ROOMS, '/app/rooms/book', 'POST'));
 ok('the room profile can change a booking', mayAccess(ROOMS, '/app/rooms/42', 'POST'));
@@ -115,10 +123,12 @@ for (const p of ['/app/rota', '/app/rooms', '/app/events', '/app/me', '/app/sett
 }
 
 console.log('\nhelpers:');
-ok('a username is made from a name', suggestUsername('Andy Ewens') === 'andy.ewens',
-  suggestUsername('Andy Ewens'));
-ok('punctuation and case are dropped', suggestUsername("  Sue  O'Neill-Smith ") === 'sue.oneillsmith',
+ok('a username is the name with the spaces taken out',
+  suggestUsername('Andy Ewens') === 'andyewens', suggestUsername('Andy Ewens'));
+ok('punctuation and case are dropped', suggestUsername("  Sue  O'Neill-Smith ") === 'sueoneillsmith',
   suggestUsername("  Sue  O'Neill-Smith "));
+ok('and it is never an address', !suggestUsername('Matt Wakerley').includes('@'),
+  'signing in should use their name, not the address a browser will autofill');
 ok('an empty name still gives something', suggestUsername('!!!') === 'user');
 {
   const pw = temporaryPassword();

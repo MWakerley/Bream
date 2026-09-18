@@ -137,12 +137,21 @@ export function temporaryPassword(): string {
   return `${pick()}-${pick()}-${digits}`;
 }
 
-/** A username suggestion from a name: 'Andy Ewens' -> 'andy.ewens'. */
+/**
+ * A username suggestion from a name: 'Andy Ewens' -> 'andyewens'.
+ *
+ * Their NAME, not their email address. Somebody who has both ends up typing
+ * whichever their browser offers — which is the email — and the username they
+ * were given becomes a thing they were told once and never used. A name is also
+ * the thing that can be reminded over the phone without looking anything up.
+ *
+ * Spaces are removed rather than replaced by a dot: it gets dictated over the
+ * phone and typed on a tablet, and "andy dot ewens" is one more thing to get
+ * wrong than "andyewens".
+ */
 export function suggestUsername(name: string): string {
   return name.toLowerCase().trim()
-    .replace(/[^a-z0-9\s.]/g, '')
-    .replace(/\s+/g, '.')
-    .replace(/\.+/g, '.')
-    .replace(/^\.|\.$/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, '')
     .slice(0, 40) || 'user';
 }
