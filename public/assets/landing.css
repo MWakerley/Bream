@@ -1,0 +1,75 @@
+/* The public front page.
+
+   It shares app.css entirely — the same navy, gold, Montserrat and Nunito Sans —
+   so that signing in does not feel like arriving at a different website. Only
+   the hero and footer are its own.
+
+   Its job is to get somebody to the sign-in. Everything else on the page is
+   there to reassure whoever followed a link that they are in the right place. */
+
+body.landing { background: var(--paper); }
+
+.hero {
+  background: var(--navy);
+  color: #fff;
+  padding-block: clamp(3rem, 9vw, 6rem);
+  /* A hairline of brand gold, the same rule that sits under the app's top bar. */
+  border-bottom: 4px solid var(--gold);
+}
+.hero-inner {
+  width: 100%; max-width: 74rem; margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2.5rem);
+}
+/* "Bream Church" is the name of the place, not a caption on the heading, so on
+   the landing page it is sized to read as a line of its own rather than as the
+   8pt label the shared .eyebrow gives it elsewhere. */
+.hero .eyebrow {
+  color: var(--gold);
+  font-size: clamp(1.125rem, .9rem + 1.1vw, 1.75rem);
+  letter-spacing: .1em;
+  margin-bottom: .6rem;
+}
+.hero h1 {
+  margin: 0 0 1rem;
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(2rem, 1.2rem + 3.6vw, 3.5rem);
+  line-height: 1.08; letter-spacing: .01em;
+  text-transform: uppercase; color: #fff;
+}
+.hero-lead {
+  margin: 0 0 2rem; max-width: 34ch;
+  font-size: clamp(1.0625rem, 1rem + .4vw, 1.3125rem);
+  /* Not pure white: a touch softer reads better over a large dark field. */
+  color: #dfe5ef;
+}
+.hero-actions { margin: 0 0 1rem; }
+
+/* Gold on navy is the one place the brand gold can carry a whole button: it is
+   about 8:1 against the navy, and the label is navy rather than white. */
+.btn-big {
+  font-size: 1rem; padding: 1rem 2rem;
+  background: var(--gold); color: var(--navy-deep);
+}
+.btn-big:hover { background: #f0e4ad; color: var(--navy-deep); }
+
+.hero-note { margin: 0; color: #b9c4d6; font-size: .9375rem; }
+
+.what { padding-block: clamp(2.5rem, 6vw, 4rem); }
+.what .section-h2 { margin-top: 0; }
+
+/* The same cards as the app's home screen, minus the hover — nothing here is a
+   link, and a card that lifts under the cursor but does nothing is a lie. */
+.area-static { cursor: default; box-shadow: var(--shadow); }
+.area-static:hover { transform: none; box-shadow: var(--shadow); }
+.area-static h3 {
+  margin: 0; font-family: var(--display); font-weight: 700;
+  font-size: 1.25rem; text-transform: uppercase; color: var(--navy);
+}
+
+.landing-foot {
+  background: var(--ground);
+  border-top: 1px solid var(--rule);
+  padding-block: 2rem;
+}
+.landing-foot p { margin: 0; color: var(--ink-2); }
+.landing-foot p:first-child { color: var(--navy); font-family: var(--display); }

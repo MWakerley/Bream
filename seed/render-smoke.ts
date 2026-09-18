@@ -1,0 +1,424 @@
+/**
+ * Renders every view with fixture data and asserts the output looks right.
+ *
+ * This exists because the pages live behind an admin sign-in that only the
+ * church has credentials for, so they cannot be walked through with curl from
+ * here. A template that throws, or silently drops a section, would otherwise
+ * only be discovered by the person using it.
+ *
+ *   npx esbuild seed/render-smoke.ts --bundle --platform=node --format=esm \
+ *     --outfile=.smoke.mjs && node .smoke.mjs
+ */
+import { homePage } from '../src/views/home.js';
+import { signInPage, setupPage } from '../src/views/signin.js';
+import { combinationsPage, pairsPage, peoplePage, rolesPage } from '../src/views/settings.js';
+import { gapsPage, readingsPage, rotaDashboard, servicePage, formatDate } from '../src/views/rota.js';
+import { servicesPage } from '../src/views/services.js';
+import { personPage, mergePage } from '../src/views/person.js';
+import { roomsPage, editBookingPage, editSeriesPage } from '../src/views/rooms.js';
+import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
+         bookingEditPage } from '../src/views/events.js';
+import { myRotaPage, requestsPage } from '../src/views/me.js';
+import { roomSettingsPage } from '../src/views/roomsettings.js';
+import { profilesPage, addPersonPage, changePasswordPage } from '../src/views/profiles.js';
+import { noAccessPage } from '../src/views/noaccess.js';
+import { peopleByRolePage } from '../src/views/byrole.js';
+import { combinationsByRolePage } from '../src/views/combinations.js';
+import type { ViewCtx } from '../src/views/layout.js';
+import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
+
+const role = (id: number, name: string, min = 1, ideal = 1, communion = 0): RoleRow => ({
+  id, key: name.toLowerCase().replace(/\W+/g, '_'), name, sheet_heading: name,
+  sort_order: id * 10, min_needed: min, ideal_needed: ideal,
+  communion_only: communion, is_active: 1,
+});
+
+const roles: RoleRow[] = [
+  role(1, 'Preacher'), role(2, 'Service leader'), role(3, 'Reader', 2, 2),
+  role(4, 'Prayer ministry', 2, 4), role(5, 'Children: Rec to Yr 5 (4-10yr)', 2, 2),
+  role(6, 'Communion preside', 1, 1, 1),
+];
+
+const service = (over: Partial<ServiceSummary> = {}): ServiceSummary => ({
+  id: 1, service_date: '2026-11-15', service_time: '10:30', title: 'Worship',
+  location: null, is_communion: 0, readings: 'Gen 1:1-5', sermon_title: null,
+  gaps: [], short: [], filled: 10, needed: 12, ...over,
+});
+
+const detail: ServiceDetail = {
+  id: 1, service_date: '2026-11-15', service_time: '15:00', title: 'Remembrance',
+  location: 'Bream Cenotaph', is_communion: 0, readings: null, sermon_title: null,
+  roles: [
+    { role_id: 1, role_name: 'Preacher', min_needed: 1, ideal_needed: 1, people: ['Steve'] },
+    { role_id: 4, role_name: 'Prayer ministry', min_needed: 2, ideal_needed: 4, people: ['Don', 'Christine'] },
+    { role_id: 2, role_name: 'Service leader', min_needed: 1, ideal_needed: 1, people: [] },
+  ],
+  notApplicable: [{ role_id: 5, role_name: 'Tea and coffee', note: 'Outdoor service' }],
+};
+
+const CTX: ViewCtx = { signedInAs: 'Matt', isAdmin: true, path: '/app' };
+
+/** What each kind of person may open, for the tests that check the menu only
+ *  offers pages the viewer can actually get into. */
+const ADMIN_AREAS = new Set(['rota', 'rota.manage', 'rooms', 'rooms.manage', 'events',
+  'events.manage', 'me', 'settings']);
+const VOLUNTEER_AREAS = new Set(['rota', 'rooms', 'events', 'me']);
+
+let failures = 0;
+/**
+ * Renders one view and asserts what the output must, and must not, contain.
+ *
+ * The negative list matters as much as the positive one: a page that offers a
+ * volunteer a button they will be refused, or a Delete on a booking that does
+ * not exist yet, is a fault no amount of "does it contain" would catch.
+ */
+async function check(
+  name: string,
+  render: () => unknown,
+  mustContain: string[],
+  mustNotContain: string[] = [],
+) {
+  try {
+    const out = String(await render());
+    const missing = mustContain.filter((m) => !out.includes(m));
+    const present = mustNotContain.filter((m) => out.includes(m));
+    if (missing.length) {
+      console.log(`  FAIL ${name} — missing: ${missing.join(' | ')}`);
+      failures++;
+    } else if (present.length) {
+      console.log(`  FAIL ${name} — should not be there: ${present.join(' | ')}`);
+      failures++;
+    } else if (/undefined|\[object Object\]|NaN/.test(out)) {
+      const m = out.match(/.{0,60}(undefined|\[object Object\]|NaN).{0,60}/);
+      console.log(`  FAIL ${name} — leaked placeholder: ...${m?.[0]}...`);
+      failures++;
+    } else {
+      console.log(`  ok   ${name} (${out.length} bytes)`);
+    }
+  } catch (e) {
+    console.log(`  THREW ${name} — ${e instanceof Error ? e.message : e}`);
+    failures++;
+  }
+}
+
+console.log('date formatting:');
+const fd = formatDate('2026-11-15');
+console.log(`  2026-11-15 -> ${fd}`);
+if (fd !== 'Sun 15 Nov 2026') { console.log('  FAIL wrong weekday'); failures++; }
+
+console.log('\nviews:');
+await check('home', () => homePage({ ctx: CTX, gapCount: 3, isAdmin: true }),
+  ['Room booking', 'Events', '3', 'Setting things up', 'Merge duplicates']);
+await check('home (no gaps, not admin)',
+  () => homePage({ ctx: { ...CTX, signedInAs: 'Sue', isAdmin: false }, gapCount: 0, isAdmin: false }), ['Room booking']);
+await check('sign in', () => signInPage({ error: 'Nope', next: '/app' }), ['Nope', 'password']);
+await check('setup', () => setupPage('tok'), ['Create administrator']);
+await check('people', () => peoplePage(
+  [{ id: 1, display_name: 'Matt R', full_name: null, email: null, is_active: 1, is_admin: 0,
+     needs_review: 1, review_note: 'may be Matt W', happy_with_anyone: 1,
+     role_names: 'Preacher', role_count: 1 }], CTX),
+  ['Matt R', 'Possible duplicate', 'may be Matt W', 'Merge duplicates']);
+await check('roles', () => rolesPage(roles, CTX), ['Prayer ministry', 'Save all roles', 'Add this role']);
+await check('combinations', () => combinationsPage(roles, [
+  { role_a_id: 1, role_b_id: 2, verdict: 'green', reason: 'Observed 8 times' },
+  { role_a_id: 2, role_b_id: 3, verdict: 'amber', reason: 'Not ideal' },
+  { role_a_id: 1, role_b_id: 5, verdict: 'red', reason: 'Cannot be in two places' },
+], CTX), ['combo-green', 'combo-amber', 'combo-red', 'Children: Rec to Yr 5']);
+await check('pairs', () => pairsPage(
+  [{ id: 1, role_id: null, a_name: 'Sue', b_name: 'Sheila', role_name: null, mode: 'together',
+     strength: 'must', note: 'Served together 8 times' }],
+  [{ id: 1, display_name: 'Sue' }, { id: 2, display_name: 'Sheila' }],
+  roles, CTX),
+  ['Sue', 'Sheila', 'Any role', 'Must be together', 'cannot be separated', 'Add a pairing']);
+await check('rota dashboard', () => rotaDashboard(
+  [service(), service({ id: 2, gaps: ['Steward'], title: 'Holy Communion' })], CTX, detail),
+  ['Sun 15 Nov 2026', 'Steward', 'still to find', 'Next service', 'nobody yet', 'Add a service', 'svc-gap']);
+await check('rota dashboard (empty)', () => rotaDashboard([], CTX, null), ['No upcoming services']);
+await check('gaps', () => gapsPage([service({ gaps: ['Steward', 'Computer'] })], CTX),
+  ['Steward, Computer']);
+await check('gaps (none)', () => gapsPage([service()], CTX), ['Nothing unfilled']);
+await check('service detail', () => servicePage(detail, CTX),
+  ['Remembrance', 'Bream Cenotaph', 'nobody yet', 'Not needed here', 'Put it back', 'Tea and coffee']);
+await check('readings', () => readingsPage([service()], CTX, '2026-11-15'),
+  ['Gen 1:1-5', 'Sermon title', 'Saved']);
+await check('services', () => servicesPage({
+  services: [{ id: 1, service_date: '2026-11-15', service_time: '10:30', title: 'Worship',
+    location: null, type_name: 'Worship', is_cancelled: 0 }],
+  types: [{ id: 1, name: 'Worship', is_communion: 0, default_time: '10:30' }],
+  ctx: CTX,
+  notice: { tone: 'ok', text: '5 added' },
+}), ['Create the Sundays', 'Add this service', '5 added']);
+
+await check('person edit', () => personPage({
+  person: {
+    id: 7, display_name: 'Andy', full_name: null, email: null,
+    needs_review: 1, review_note: 'may be the same person as: Andy E, Andy Ewens',
+    is_active: 1, is_admin: 0,
+    settings: new Map([[1, {
+      role_id: 1, can_do: 1, willing: 1,
+      max_per_period: 2, period_days: 30, min_gap_days: null, done: 4,
+    }]]),
+  },
+  roles, ctx: CTX, saved: true,
+}), ['Andy', 'What they can do', 'How often', 'Has done this 4 times',
+     'Not recorded doing this yet', 'Save this person', 'Not a duplicate']);
+
+await check('merge', () => mergePage({
+  groups: [{
+    suggestion: 'Andy — 3 records',
+    people: [
+      { id: 1, display_name: 'Andy', done: 7, needs_review: 1 },
+      { id: 2, display_name: 'Andy E', done: 2, needs_review: 1 },
+      { id: 3, display_name: 'Andy Ewens', done: 2, needs_review: 1 },
+    ],
+  }],
+  all: [{ id: 1, display_name: 'Andy', done: 7 }, { id: 2, display_name: 'Andy E', done: 2 }],
+  ctx: CTX,
+  notice: { tone: 'ok', text: 'Merged 2 records into Andy Ewens.' },
+}), ['Andy Ewens', 'Merge the ticked ones', 'keep_id', 'merge_ids', 'cannot be undone',
+     'Not a duplicate', 'These are all different people', 'group_ids']);
+
+await check('merge (nothing left)', () => mergePage({
+  groups: [], all: [{ id: 1, display_name: 'Andy', done: 7 }], ctx: CTX,
+}), ['No likely duplicates left']);
+
+// ---- rooms ---------------------------------------------------------------
+const ROOMS = [
+  { id: 1, name: 'Main church', capacity: 200, notes: null },
+  { id: 2, name: 'Church Centre', capacity: 60, notes: null },
+];
+const SERIES = [{ id: 1, room_id: 2, room_name: 'Church Centre', title: 'Home group',
+  contact: null, notes: null, freq: 'weekly' as const, from_date: '2026-09-21',
+  until_date: '2027-09-21', from_time: '19:00', to_time: '21:00', upcoming: 40, total: 52 }];
+const BOOKING = {
+  id: 1, room_id: 2, room_name: 'Church Centre', title: 'Home group',
+  starts_at: '2026-11-20T19:00', ends_at: '2026-11-20T21:00',
+  contact: 'Sue', notes: null, status: 'booked', booked_by_name: 'Matt',
+};
+await check('rooms', () => roomsPage({
+  rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18',
+  notice: { tone: 'ok', text: 'Booked: Home group.' },
+}), ['Church Centre', 'Home group', '19:00–21:00', 'Book this room', 'Cancel']);
+await check('rooms (nothing booked)', () => roomsPage({
+  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
+}), ['Nothing booked in this period']);
+await check('edit series', () => editSeriesPage({
+  series: SERIES[0]!, rooms: ROOMS, ctx: CTX,
+}), ['Home group', 'Every Monday', 'Save the whole series', 'Cancel the whole series',
+     'already happened', 'changed on its own', 'cancelled']);
+await check('edit booking', () => editBookingPage({
+  booking: BOOKING, rooms: ROOMS, ctx: CTX,
+}), ['Home group', 'Save changes', '19:00']);
+
+// ---- events --------------------------------------------------------------
+const EVENT = {
+  id: 1, slug: 'harvest-supper', title: 'Harvest Supper',
+  description: 'Bring a friend.', starts_at: '2026-10-11T19:00', ends_at: null,
+  location: 'Church Centre', capacity: 60, booking_closes_at: null,
+  is_published: 1, ask_email: 1, ask_phone: 0, poster_key: null,
+  send_ack: 1, ack_subject: null, ack_body: null, booked: 48, bookings: 19,
+};
+const FIELDS = [
+  { id: 5, event_id: 1, key: 'main_course', label: 'Main course', hint: null,
+    kind: 'select' as const, options: JSON.stringify(['Beef', 'Vegetarian']), required: 1, sort_order: 10 },
+  { id: 6, event_id: 1, key: 'allergies', label: 'Any allergies?', hint: null,
+    kind: 'textarea' as const, options: null, required: 0, sort_order: 20 },
+];
+await check('events list', () => eventsListPage({ events: [EVENT], ctx: CTX }),
+  ['Harvest Supper', 'Taking bookings', 'Add an event', '12']);
+await check('events list (empty)', () => eventsListPage({ events: [], ctx: CTX }),
+  ['No events yet']);
+await check('new event', () => newEventPage({ ctx: CTX }), ['Create the event', 'How many can come']);
+await check('event admin', () => eventAdminPage({
+  event: EVENT, fields: FIELDS,
+  bookings: [{ id: 1, name: 'Sue', email: null, phone: null, party_size: 2,
+    status: 'booked', created_at: '2026-09-18T10:00', answers: { '5': 'Beef' } }],
+  ctx: CTX, origin: 'https://breamchurch.stack66.com',
+}), ['Harvest Supper', '48', '12', 'Main course', 'Any allergies?', 'Add this question',
+     'https://breamchurch.stack66.com/events/harvest-supper']);
+await check('public booking', () => publicBookingPage({ event: EVENT, fields: FIELDS }),
+  ['Harvest Supper', 'Book my place', 'Main course', 'Beef', 'Vegetarian', '>12</strong> places left']);
+await check('public booking (full)', () => publicBookingPage({
+  event: { ...EVENT, booked: 60 }, fields: FIELDS,
+}), ['now full', 'waiting list']);
+await check('booking done', () => bookingDonePage(EVENT, 2), ['You are booked in', 'Harvest Supper']);
+
+// ---- self-service --------------------------------------------------------
+await check('my rota', () => myRotaPage({
+  duties: [{ assignment_id: 1, service_id: 1, service_date: '2026-11-15',
+    service_time: '10:30', title: 'Worship', role_name: 'Reader',
+    status: 'confirmed', request_status: null }],
+  away: [{ id: 1, from_date: '2026-12-20', to_date: '2026-12-28', reason: 'Away' }],
+  ctx: CTX,
+}), ['Reader', 'I cannot do this', 'When you are away', 'Sun 20 Dec 2026']);
+await check('my rota (nothing on)', () => myRotaPage({ duties: [], away: [], ctx: CTX }),
+  ['not down for anything']);
+await check('change requests', () => requestsPage({
+  requests: [{ id: 1, person_name: 'Sue', role_name: 'Welcome team',
+    service_date: '2026-11-15', service_time: '10:30', title: 'Worship',
+    kind: 'cannot_do', message: 'Away that weekend', status: 'open',
+    created_at: '2026-09-18' }],
+  ctx: CTX,
+}), ['Sue', 'Welcome team', 'Take them off', 'Away that weekend']);
+await check('change requests (none)', () => requestsPage({ requests: [], ctx: CTX }),
+  ['Nothing outstanding']);
+
+await check('people by role', () => peopleByRolePage({
+  roles, role: roles[0]!,
+  people: [
+    { id: 1, display_name: 'Steve', needs_review: 0, can_do: 1,
+      max_per_period: 2, period_days: 30, min_gap_days: null, done: 15 },
+    { id: 2, display_name: 'Matt R', needs_review: 1, can_do: 1,
+      max_per_period: null, period_days: null, min_gap_days: 91, done: 2 },
+    { id: 3, display_name: 'Sue', needs_review: 0, can_do: 0,
+      max_per_period: null, period_days: null, min_gap_days: null, done: 0 },
+  ],
+  ctx: CTX,
+}), [
+  'Who can do Preacher', 'Steve', 'Sue',
+  // The hidden list of who was shown is what stops a filtered save wiping
+  // everybody it did not display, so its absence must fail the test.
+  'name="shown"',
+  'Save who can do Preacher', 'possible duplicate', 'thin pool',
+]);
+
+// --- searching ------------------------------------------------------------
+// The filter runs in the browser, so what this can prove is that every row
+// carries the text to match on and that the box points at the right container.
+// A row with no data-search attribute is invisible to the search however it is
+// typed, and that failure would be silent.
+await check('people list has a search box', () => peoplePage([
+  {
+    id: 1, display_name: 'Andy E', full_name: 'Andy Ewens', email: 'andy@example.org',
+    is_active: 1, is_admin: 0, needs_review: 0, review_note: null, happy_with_anyone: 1,
+    role_names: 'Preacher, Reader', role_count: 2,
+  },
+], CTX), [
+  'data-search-target="people-list"',
+  'id="people-list"',
+  'data-search="Andy E Andy Ewens andy@example.org Preacher, Reader"',
+]);
+
+// --- one role against every other ----------------------------------------
+await check('combination rules by role', () => combinationsByRolePage({
+  roles, role: roles[0]!,
+  others: [
+    { role_id: 2, role_name: 'Service leader', communion_only: 0,
+      verdict: 'amber', reason: 'a lot for one person', observed: 6 },
+    { role_id: 3, role_name: 'Reader', communion_only: 0,
+      verdict: null, reason: null, observed: 0 },
+    { role_id: 6, role_name: 'Communion preside', communion_only: 1,
+      verdict: 'red', reason: null, observed: 0 },
+  ],
+  ctx: CTX,
+}), [
+  'What else can the Preacher do?',
+  'Service leader', 'Already done 6 times', 'a lot for one person',
+  'Not allowed', 'Not decided',
+  // The same trap as the by-role people editor: a radio group with nothing
+  // chosen submits nothing at all, so the list of what was on the page has to
+  // travel with it or a save would look like "everything undecided".
+  'name="shown"', 'name="v_2"', 'name="reason_2"',
+  // That a blank means "allowed" is the single most important thing this page
+  // has to say, because it is the opposite of what people assume.
+  'Not decided</span>',
+]);
+
+// --- bookings the office changes by hand ---------------------------------
+await check('amend a booking', () => bookingEditPage({
+  event: EVENT, fields: FIELDS,
+  booking: {
+    id: 5, name: 'Sue Baker', email: 'sue@example.org', phone: '01594 000000',
+    party_size: 3, status: 'booked', created_at: '2026-09-10 11:00:00',
+    answers: { '5': 'Vegetarian', '6': 'No nuts' },
+  },
+  ctx: CTX,
+}), [
+  'Sue Baker', 'sue@example.org', '01594 000000',
+  // The event's own questions have to appear here too, with the stored answer
+  // already chosen. A question missing from the office form is a hole in the
+  // caterer's list that nobody would notice until the day.
+  'Main course', 'value="Vegetarian" selected', 'No nuts',
+  'Delete this booking for good', 'name="status"',
+]);
+
+await check('take a booking by phone', () => bookingEditPage({
+  event: EVENT, fields: FIELDS, ctx: CTX,
+}), ['Take a booking over the phone', 'Add this booking', 'Main course'],
+  // There is nothing to delete before it exists.
+  ['Delete this booking for good']);
+
+await check('a cancelled booking says so', () => bookingEditPage({
+  event: EVENT, fields: FIELDS,
+  booking: {
+    id: 6, name: 'John Hale', email: null, phone: null, party_size: 2,
+    status: 'cancelled', created_at: '2026-09-10 11:00:00', answers: {},
+  },
+  ctx: CTX,
+}), ['This booking is cancelled', 'does not count towards the numbers']);
+
+await check('the event page lists cancelled bookings too', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, ctx: CTX, origin: 'https://breamchurch.stack66.com',
+  bookings: [
+    { id: 1, name: 'Sue Baker', email: 'sue@example.org', phone: null, party_size: 3,
+      status: 'booked', created_at: '2026-09-10 11:00:00', answers: { '5': 'Beef' } },
+    { id: 2, name: 'John Hale', email: null, phone: '01594 111111', party_size: 2,
+      status: 'cancelled', created_at: '2026-09-11 11:00:00', answers: {} },
+  ],
+}), [
+  'Take a booking by phone', 'row-cancelled', 'Cancelled', 'Put back',
+  'data-search-target="bookings-list"',
+  // A cancelled party is shown in brackets so it cannot be read as counting.
+  '(2)',
+]);
+
+// --- a person's sign-in ---------------------------------------------------
+const WITH_ACCOUNT = {
+  id: 7, display_name: 'Sue Baker', full_name: null, email: null,
+  needs_review: 0, review_note: null, is_active: 1, is_admin: 0,
+  settings: new Map<number, never>(),
+};
+
+await check('person with no sign-in', () => personPage({
+  person: { ...WITH_ACCOUNT, account: null }, roles, ctx: CTX,
+}), ['has no sign-in'], ['Last signed in']);
+
+await check('person who has never signed in', () => personPage({
+  person: {
+    ...WITH_ACCOUNT,
+    account: { username: 'sue.baker', email: null, profile_name: 'Volunteer',
+      last_sign_in_at: null, must_change: 1 },
+  },
+  roles, ctx: CTX,
+}), ['Last signed in', 'Never', 'still on the temporary password',
+     'read it out to them', 'Reset their password']);
+
+await check('person who has signed in', () => personPage({
+  person: {
+    ...WITH_ACCOUNT,
+    account: { username: 'sue.baker', email: 'sue@example.org', profile_name: 'Volunteer',
+      last_sign_in_at: '2026-09-15 09:30:00', must_change: 0 },
+  },
+  roles, ctx: CTX, today: new Date('2026-09-18T12:00:00Z'),
+}), [
+  'Last signed in',
+  // 09:30 UTC in mid-September is 10:30 in Britain. Slicing the string would
+  // have printed 09:30, so this is the assertion that catches that.
+  'Tue 15 Sep 2026 at 10:30',
+  '3 days ago', 'Email it to sue@example.org',
+]);
+
+// --- the menu -------------------------------------------------------------
+// Generating a rota was reachable only from the foot of the home page. It is
+// one of the two or three things the system is for, so it belongs in the menu.
+await check('the rota menu offers the generator', () => rotaDashboard(
+  [], { ...CTX, path: '/app/rota', areas: ADMIN_AREAS },
+), ['Generate a rota', 'Readings and sermons', 'subnav']);
+
+await check('a volunteer is not offered the generator', () => rotaDashboard(
+  [], { ...CTX, path: '/app/rota', areas: VOLUNTEER_AREAS },
+), ['Calendar'], ['Generate a rota', 'Change requests']);
+
+
+console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
+process.exit(failures === 0 ? 0 : 1);

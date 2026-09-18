@@ -1,0 +1,66 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bream-church-rota",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-17",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "account_id": "2f8bae07d603e4dd5594805c91247958",
+
+  // The landing page is hand-authored static HTML in ./public, served straight
+  // from Cloudflare's edge — a request for it never bills a Worker invocation.
+  //
+  // `not_found_handling` is left at its default ("none") ON PURPOSE. The two
+  // other values both break the API: "single-page-application" and
+  // "404-page" answer unmatched paths from the assets themselves, so /api/*
+  // would be swallowed before the Worker ever ran. With the default, anything
+  // that is not a file in ./public falls through to src/index.ts, which is
+  // exactly what the /app and /api/* routes need.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  // Event posters. Images live here rather than in D1: a photo in a database row
+  // would be read back by every query that touches the event, and D1 caps a row
+  // at 2MB anyway.
+  // Cloudflare Email Sending, for the acknowledgement after an event booking.
+  // stack66.com was onboarded on 2026-09-18; the SPF, DKIM and bounce records
+  // live on cf-bounce.stack66.com and the apex is untouched.
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      "bucket_name": "bream-church-images"
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bream-church",
+      "database_id": "209f74c0-d602-4215-9c58-bd58a7db4608",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // workers.dev is off: this Worker answers on its own hostname only.
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "breamchurch.stack66.com", "custom_domain": true }
+  ],
+
+  "vars": {
+    // Where an acknowledgement comes from. Must be on the onboarded domain.
+    "ACK_FROM": "bookings@stack66.com"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

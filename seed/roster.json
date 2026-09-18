@@ -1,0 +1,1105 @@
+{
+  "roster": [
+    {
+      "display_name": "Steve",
+      "appearances": 57,
+      "roles": [
+        "children_yr6_14",
+        "communion_distribution",
+        "communion_preside",
+        "preacher",
+        "reader",
+        "service_leader",
+        "sound_desk",
+        "steward",
+        "worship_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Don",
+      "appearances": 26,
+      "roles": [
+        "communion_distribution",
+        "prayer_ministry",
+        "preacher",
+        "reader",
+        "service_leader",
+        "steward"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Pete",
+      "appearances": 18,
+      "roles": [
+        "children_rec_yr5",
+        "children_yr6_14",
+        "reader",
+        "tea_coffee",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Robert",
+      "appearances": 18,
+      "roles": [
+        "communion_distribution",
+        "communion_preside",
+        "preacher",
+        "service_leader",
+        "sound_desk"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Dave",
+      "appearances": 16,
+      "roles": [
+        "communion_distribution",
+        "computer",
+        "sound_desk",
+        "worship_leader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Dave S"
+    },
+    {
+      "display_name": "Christine",
+      "appearances": 14,
+      "roles": [
+        "communion_distribution",
+        "prayer_ministry",
+        "steward",
+        "tea_coffee"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Christine E"
+    },
+    {
+      "display_name": "Sue",
+      "appearances": 14,
+      "roles": [
+        "tea_coffee",
+        "welcome_team"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Sue N"
+    },
+    {
+      "display_name": "Liv",
+      "appearances": 13,
+      "roles": [
+        "computer",
+        "sound_desk"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Marion",
+      "appearances": 12,
+      "roles": [
+        "children_yr6_14",
+        "prayer_ministry",
+        "reader",
+        "tea_coffee",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Iain",
+      "appearances": 11,
+      "roles": [
+        "children_yr6_14",
+        "communion_distribution",
+        "prayer_ministry",
+        "service_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Kay",
+      "appearances": 11,
+      "roles": [
+        "children_rec_yr5",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Ruth",
+      "appearances": 11,
+      "roles": [
+        "children_rec_yr5",
+        "children_yr6_14",
+        "tea_coffee",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Barry",
+      "appearances": 10,
+      "roles": [
+        "prayer_ministry",
+        "preacher",
+        "service_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Lou",
+      "appearances": 10,
+      "roles": [
+        "children_rec_yr5",
+        "communion_preside",
+        "computer",
+        "reader",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Anna",
+      "appearances": 9,
+      "roles": [
+        "children_rec_yr5",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Jane",
+      "appearances": 9,
+      "roles": [
+        "communion_distribution",
+        "prayer_ministry",
+        "steward",
+        "welcome_team"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Jane S"
+    },
+    {
+      "display_name": "Matt R",
+      "appearances": 9,
+      "roles": [
+        "children_yr6_14",
+        "service_leader",
+        "worship_leader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Matt"
+    },
+    {
+      "display_name": "Heather",
+      "appearances": 8,
+      "roles": [
+        "communion_distribution",
+        "reader",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Joanne",
+      "appearances": 8,
+      "roles": [
+        "reader",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Kev",
+      "appearances": 8,
+      "roles": [
+        "prayer_ministry",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Louisa",
+      "appearances": 8,
+      "roles": [
+        "children_rec_yr5",
+        "computer",
+        "steward"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Sheila",
+      "appearances": 8,
+      "roles": [
+        "tea_coffee",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Andy",
+      "appearances": 7,
+      "roles": [
+        "communion_distribution",
+        "steward",
+        "welcome_team"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Andy E, Andy Ewens"
+    },
+    {
+      "display_name": "Dorothy",
+      "appearances": 7,
+      "roles": [
+        "reader",
+        "tea_coffee"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Gail",
+      "appearances": 7,
+      "roles": [
+        "prayer_ministry",
+        "tea_coffee"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Hannah",
+      "appearances": 7,
+      "roles": [
+        "children_yr6_14",
+        "communion_distribution",
+        "prayer_ministry"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Liz",
+      "appearances": 7,
+      "roles": [
+        "communion_distribution",
+        "prayer_ministry",
+        "reader",
+        "welcome_team"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Liz E, Liz Ewens"
+    },
+    {
+      "display_name": "Rhys",
+      "appearances": 7,
+      "roles": [
+        "children_rec_yr5",
+        "tea_coffee"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Chris L",
+      "appearances": 6,
+      "roles": [
+        "prayer_ministry",
+        "reader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Lesley",
+      "appearances": 6,
+      "roles": [
+        "tea_coffee"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Matt",
+      "appearances": 6,
+      "roles": [
+        "communion_distribution",
+        "prayer_ministry"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Matt R, Matt W"
+    },
+    {
+      "display_name": "Annie",
+      "appearances": 5,
+      "roles": [
+        "communion_distribution",
+        "communion_preside",
+        "service_leader",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Caitlin",
+      "appearances": 5,
+      "roles": [
+        "children_rec_yr5",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Cheri",
+      "appearances": 5,
+      "roles": [
+        "children_rec_yr5",
+        "communion_preside"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Glenn",
+      "appearances": 5,
+      "roles": [
+        "tea_coffee"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Jasmine",
+      "appearances": 5,
+      "roles": [
+        "children_rec_yr5",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Scilla",
+      "appearances": 5,
+      "roles": [
+        "prayer_ministry",
+        "reader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Sergio",
+      "appearances": 5,
+      "roles": [
+        "children_rec_yr5",
+        "communion_distribution"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Shirley",
+      "appearances": 5,
+      "roles": [
+        "computer",
+        "reader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Shirley D"
+    },
+    {
+      "display_name": "Sveta",
+      "appearances": 5,
+      "roles": [
+        "tea_coffee",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Alla",
+      "appearances": 4,
+      "roles": [
+        "tea_coffee",
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Artur",
+      "appearances": 4,
+      "roles": [
+        "sound_desk"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Dima",
+      "appearances": 4,
+      "roles": [
+        "sound_desk"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Jane S",
+      "appearances": 4,
+      "roles": [
+        "communion_distribution",
+        "reader",
+        "steward"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Jane"
+    },
+    {
+      "display_name": "Shirley D",
+      "appearances": 4,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Shirley"
+    },
+    {
+      "display_name": "Suzi",
+      "appearances": 4,
+      "roles": [
+        "worship_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Alaha",
+      "appearances": 3,
+      "roles": [
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Alex",
+      "appearances": 3,
+      "roles": [
+        "sound_desk"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Dick",
+      "appearances": 3,
+      "roles": [
+        "prayer_ministry"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Josie",
+      "appearances": 3,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Matt W",
+      "appearances": 3,
+      "roles": [
+        "preacher",
+        "service_leader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Matt"
+    },
+    {
+      "display_name": "Volodymyr",
+      "appearances": 3,
+      "roles": [
+        "children_rec_yr5"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Andy E",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Andy"
+    },
+    {
+      "display_name": "Andy Ewens",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Andy"
+    },
+    {
+      "display_name": "Chris B",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Christine E",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Christine"
+    },
+    {
+      "display_name": "Claire",
+      "appearances": 2,
+      "roles": [
+        "tea_coffee"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Craig",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Jean",
+      "appearances": 2,
+      "roles": [
+        "worship_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Liz Ewens",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Liz"
+    },
+    {
+      "display_name": "Nat",
+      "appearances": 2,
+      "roles": [
+        "worship_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Sally C",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Sally H",
+      "appearances": 2,
+      "roles": [
+        "tea_coffee"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Sean",
+      "appearances": 2,
+      "roles": [
+        "preacher"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Sergii",
+      "appearances": 2,
+      "roles": [
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Stu",
+      "appearances": 2,
+      "roles": [
+        "worship_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Zee",
+      "appearances": 2,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Daisy",
+      "appearances": 1,
+      "roles": [
+        "children_yr6_14"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Dave S",
+      "appearances": 1,
+      "roles": [
+        "worship_leader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Dave"
+    },
+    {
+      "display_name": "Erin",
+      "appearances": 1,
+      "roles": [
+        "computer"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Jan Pembry",
+      "appearances": 1,
+      "roles": [
+        "worship_leader"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Jonathan",
+      "appearances": 1,
+      "roles": [
+        "communion_distribution"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Liz E",
+      "appearances": 1,
+      "roles": [
+        "reader"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Liz"
+    },
+    {
+      "display_name": "Marian",
+      "appearances": 1,
+      "roles": [
+        "prayer_ministry"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Paul L",
+      "appearances": 1,
+      "roles": [
+        "preacher"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Rob",
+      "appearances": 1,
+      "roles": [
+        "sound_desk"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Shelia",
+      "appearances": 1,
+      "roles": [
+        "welcome_team"
+      ],
+      "needs_review": false,
+      "review_reason": null
+    },
+    {
+      "display_name": "Sue N",
+      "appearances": 1,
+      "roles": [
+        "welcome_team"
+      ],
+      "needs_review": true,
+      "review_reason": "may be the same person as: Sue"
+    }
+  ],
+  "pairs": [
+    {
+      "a": "Sheila",
+      "b": "Sue",
+      "times": 8
+    },
+    {
+      "a": "Pete",
+      "b": "Ruth",
+      "times": 8
+    },
+    {
+      "a": "Heather",
+      "b": "Pete",
+      "times": 7
+    },
+    {
+      "a": "Glenn",
+      "b": "Sue",
+      "times": 5
+    },
+    {
+      "a": "Caitlin",
+      "b": "Jasmine",
+      "times": 5
+    },
+    {
+      "a": "Andy",
+      "b": "Liz",
+      "times": 4
+    },
+    {
+      "a": "Artur",
+      "b": "Dima",
+      "times": 4
+    },
+    {
+      "a": "Kay",
+      "b": "Sveta",
+      "times": 3
+    },
+    {
+      "a": "Alaha",
+      "b": "Anna",
+      "times": 3
+    },
+    {
+      "a": "Anna",
+      "b": "Volodymyr",
+      "times": 3
+    },
+    {
+      "a": "Dorothy",
+      "b": "Lesley",
+      "times": 3
+    },
+    {
+      "a": "Jane",
+      "b": "Kev",
+      "times": 3
+    },
+    {
+      "a": "Kay",
+      "b": "Louisa",
+      "times": 3
+    },
+    {
+      "a": "Christine",
+      "b": "Lesley",
+      "times": 3
+    },
+    {
+      "a": "Andy Ewens",
+      "b": "Liz Ewens",
+      "times": 2
+    },
+    {
+      "a": "Dorothy",
+      "b": "Sally H",
+      "times": 2
+    },
+    {
+      "a": "Joanne",
+      "b": "Josie",
+      "times": 2
+    },
+    {
+      "a": "Craig",
+      "b": "Zee",
+      "times": 2
+    },
+    {
+      "a": "Claire",
+      "b": "Rhys",
+      "times": 2
+    },
+    {
+      "a": "Chris L",
+      "b": "Don",
+      "times": 2
+    },
+    {
+      "a": "Alla",
+      "b": "Sergii",
+      "times": 2
+    },
+    {
+      "a": "Nat",
+      "b": "Stu",
+      "times": 2
+    },
+    {
+      "a": "Hannah",
+      "b": "Iain",
+      "times": 2
+    },
+    {
+      "a": "Joanne",
+      "b": "Kay",
+      "times": 2
+    },
+    {
+      "a": "Barry",
+      "b": "Marion",
+      "times": 2
+    },
+    {
+      "a": "Alla",
+      "b": "Sveta",
+      "times": 2
+    },
+    {
+      "a": "Christine",
+      "b": "Don",
+      "times": 2
+    },
+    {
+      "a": "Joanne",
+      "b": "Marion",
+      "times": 2
+    },
+    {
+      "a": "Gail",
+      "b": "Matt",
+      "times": 2
+    },
+    {
+      "a": "Gail",
+      "b": "Marion",
+      "times": 2
+    },
+    {
+      "a": "Don",
+      "b": "Shirley D",
+      "times": 2
+    }
+  ],
+  "observed_combinations": [
+    {
+      "role_a": "communion_preside",
+      "role_b": "service_leader",
+      "times": 10
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "communion_preside",
+      "times": 9
+    },
+    {
+      "role_a": "preacher",
+      "role_b": "service_leader",
+      "times": 8
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "preacher",
+      "times": 8
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "service_leader",
+      "times": 8
+    },
+    {
+      "role_a": "communion_preside",
+      "role_b": "preacher",
+      "times": 6
+    },
+    {
+      "role_a": "service_leader",
+      "role_b": "worship_leader",
+      "times": 6
+    },
+    {
+      "role_a": "prayer_ministry",
+      "role_b": "steward",
+      "times": 4
+    },
+    {
+      "role_a": "children_rec_yr5",
+      "role_b": "reader",
+      "times": 2
+    },
+    {
+      "role_a": "prayer_ministry",
+      "role_b": "preacher",
+      "times": 2
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "prayer_ministry",
+      "times": 2
+    },
+    {
+      "role_a": "reader",
+      "role_b": "steward",
+      "times": 2
+    },
+    {
+      "role_a": "children_rec_yr5",
+      "role_b": "tea_coffee",
+      "times": 2
+    },
+    {
+      "role_a": "prayer_ministry",
+      "role_b": "reader",
+      "times": 2
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "computer",
+      "times": 1
+    },
+    {
+      "role_a": "prayer_ministry",
+      "role_b": "service_leader",
+      "times": 1
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "reader",
+      "times": 1
+    },
+    {
+      "role_a": "preacher",
+      "role_b": "reader",
+      "times": 1
+    },
+    {
+      "role_a": "steward",
+      "role_b": "welcome_team",
+      "times": 1
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "steward",
+      "times": 1
+    },
+    {
+      "role_a": "communion_preside",
+      "role_b": "steward",
+      "times": 1
+    },
+    {
+      "role_a": "preacher",
+      "role_b": "steward",
+      "times": 1
+    },
+    {
+      "role_a": "service_leader",
+      "role_b": "steward",
+      "times": 1
+    },
+    {
+      "role_a": "computer",
+      "role_b": "sound_desk",
+      "times": 1
+    },
+    {
+      "role_a": "reader",
+      "role_b": "welcome_team",
+      "times": 1
+    },
+    {
+      "role_a": "children_yr6_14",
+      "role_b": "reader",
+      "times": 1
+    },
+    {
+      "role_a": "communion_distribution",
+      "role_b": "worship_leader",
+      "times": 1
+    },
+    {
+      "role_a": "communion_preside",
+      "role_b": "worship_leader",
+      "times": 1
+    },
+    {
+      "role_a": "tea_coffee",
+      "role_b": "welcome_team",
+      "times": 1
+    },
+    {
+      "role_a": "preacher",
+      "role_b": "sound_desk",
+      "times": 1
+    },
+    {
+      "role_a": "children_rec_yr5",
+      "role_b": "welcome_team",
+      "times": 1
+    }
+  ]
+}

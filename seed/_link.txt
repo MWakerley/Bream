@@ -1,0 +1,47 @@
+
+/**
+ * "This is me" — joins a rota record to the signed-in account.
+ *
+ * The setup form creates an account under whatever name somebody types, and the
+ * rota was imported from a spreadsheet of short names, so "Matt Wakerley" and
+ * "Matt W" end up as two records and My dates looks empty.
+ *
+ * Only records with NO login of their own can be claimed. Without that check any
+ * signed-in volunteer could absorb somebody else's account.
+ */
+app.post('/app/me/link', async (c) => {
+  const form = await c.req.formData();
+  const otherId = Number(form.get('person_id'));
+  const me = c.get('person').id;
+  if (!Number.isInteger(otherId) || otherId === me) {
+    return myView(c, { tone: 'bad', text: 'That record could not be found.' });
+  }
+
+  const other = await c.env.DB.prepare(
+    `SELECT p.id, p.display_name, p.email,
+            (SELECT COUNT(*) FROM credentials x WHERE x.person_id = p.id) AS has_login
+       FROM people p WHERE p.id = ?1`,
+  ).bind(otherId).first<{ display_name: string; email: string | null; has_login: number }>();
+
+  if (!other) return myView(c, { tone: 'bad', text: 'That record no longer exists.' });
+  if (other.has_login > 0) {
+    return myView(c, {
+      tone: 'bad',
+      text: `${other.display_name} already has their own sign-in, so it cannot be joined to yours. `
+        + 'An administrator can merge them under Settings.',
+    });
+  }
+
+  try {
+    await mergePeople(c.env.DB, me, [otherId]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('link failed', { me, otherId, message });
+    return myView(c, { tone: 'bad', text: `Nothing was changed. The database said: ${message}` });
+  }
+
+  return myView(c, {
+    tone: 'ok',
+    text: `Joined "${other.display_name}" to your account — their dates are now yours.`,
+  });
+});

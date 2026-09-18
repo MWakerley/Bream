@@ -1,0 +1,766 @@
+/* Bream Church — Rota and Diary Management System.
+
+   Brand taken from breamchurch.org.uk: navy #324158, a soft gold #E6D488, an
+   off-white ground, and an all-caps geometric display face (the site uses Lulo
+   Clean; Montserrat is the closest face that can actually be served here).
+   Body text is Nunito Sans, which sits where the site's Avenir does.
+
+   THE LOGO RULE. The supplied file is fully opaque, so it was keyed out to make
+   logo-transparent.png. Even keyed, it goes on LIGHT grounds only: the "Church"
+   half of the wordmark is charcoal and falls to about 1.6:1 on the navy. Light
+   bar, navy around it — which is how the church's own site does it.
+
+   Colour is doing real work here, so nothing depends on colour ALONE: every
+   status carries a word or an icon as well as a tint. */
+
+:root {
+  --navy:        #324158;
+  --navy-deep:   #26303f;
+  --navy-soft:   #47587a;
+  --navy-wash:   #eef1f6;
+
+  --gold:        #e6d488;
+  --gold-warm:   #d8c05f;
+  --gold-wash:   #fbf6e4;
+  /* Gold is 1.4:1 on white and can never be text on a light ground. This is the
+     darkened version for that job. */
+  --gold-ink:    #7a6413;
+
+  --ground:      #f4f5f7;
+  --paper:       #ffffff;
+  --ink:         #242a34;   /* 14.6:1 on paper */
+  --ink-2:       #586072;   /* 6.4:1 on paper */
+  --rule:        #dfe3ea;
+  --rule-strong: #b9c0cd;
+
+  --ok:          #1f6b4a;
+  --ok-wash:     #e8f4ee;
+  --warn:        #8a5a00;
+  --warn-wash:   #fdf2dc;
+  --bad:         #a32a1c;
+  --bad-wash:    #fbecea;
+
+  --display: "Montserrat", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --body: "Nunito Sans", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(36, 42, 52, .06), 0 6px 18px rgba(36, 42, 52, .07);
+  --shadow-lg: 0 2px 6px rgba(36, 42, 52, .08), 0 18px 40px rgba(36, 42, 52, .12);
+
+  color-scheme: light; /* the logo cannot survive a UA dark treatment */
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  /* Reserve the scrollbar track: without it the page width changes with the page
+     height, which shows up as a flicker whenever content loads or a menu opens. */
+  scrollbar-gutter: stable;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  /* 17px floor. The readers are volunteers, several of them in their seventies,
+     often on an iPad. */
+  font: 400 1.0625rem/1.6 var(--body);
+}
+
+img { max-width: 100%; height: auto; }
+
+h1, h2, h3, .display {
+  font-family: var(--display);
+  font-weight: 800;
+  letter-spacing: .02em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+a { color: var(--navy); text-underline-offset: .15em; }
+a:hover { color: var(--navy-deep); }
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--gold-warm);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+.skip {
+  position: absolute; left: .5rem; top: .5rem; z-index: 50;
+  transform: translateY(-160%);
+  background: var(--navy); color: #fff; padding: .75rem 1.1rem;
+  border-radius: var(--radius); text-decoration: none; font-weight: 700;
+}
+.skip:focus { transform: translateY(0); }
+
+.wrap {
+  width: 100%; max-width: 74rem; margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2.5rem);
+}
+
+/* ---- Top bar ------------------------------------------------------------- */
+
+.topbar {
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  box-shadow: 0 2px 0 0 var(--gold);
+  position: sticky; top: 0; z-index: 20;
+}
+.topbar-inner {
+  width: 100%; max-width: 74rem; margin-inline: auto;
+  padding: .6rem clamp(1rem, 4vw, 2.5rem);
+  display: flex; align-items: center; gap: 1rem 1.5rem; flex-wrap: wrap;
+}
+/* The logo sits on --paper. Never move it onto the navy. */
+.brand { display: inline-flex; align-items: center; flex: none; }
+.brand img { width: 170px; height: auto; display: block; }
+
+.mainnav {
+  display: flex; flex-wrap: wrap; gap: .25rem; flex: 1 1 auto;
+}
+.mainnav a {
+  display: inline-block;
+  padding: .55rem .9rem;
+  border-radius: var(--radius);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: .8125rem;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--navy);
+}
+.mainnav a:hover { background: var(--navy-wash); }
+.mainnav a.is-active { background: var(--navy); color: #fff; }
+
+.topbar-end { display: flex; align-items: center; gap: .85rem; flex: none; }
+.who { color: var(--ink-2); font-size: .9375rem; font-weight: 600; }
+.inline-form { display: inline; margin: 0; }
+
+.btn-quiet {
+  background: none; border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  padding: .45rem .8rem; font: 600 .875rem var(--body); color: var(--ink-2); cursor: pointer;
+}
+.btn-quiet:hover { border-color: var(--navy); color: var(--navy); }
+
+.topbar-bare { position: static; box-shadow: 0 2px 0 0 var(--gold); }
+
+/* ---- Page head ----------------------------------------------------------- */
+
+.page { padding-block: clamp(1.5rem, 4vw, 2.75rem) 4rem; }
+
+.back {
+  display: inline-block; margin-bottom: .75rem;
+  font-weight: 700; font-size: .9375rem; text-decoration: none;
+}
+.back::before { content: "← "; }
+.back:hover { text-decoration: underline; }
+
+.eyebrow {
+  margin: 0 0 .4rem;
+  font-family: var(--display); font-weight: 700; font-size: .75rem;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--gold-ink);
+}
+
+.page-h1 {
+  margin: 0 0 .6rem;
+  font-size: clamp(1.75rem, 1.2rem + 2.2vw, 2.75rem);
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.page-intro { margin: 0 0 2rem; max-width: 62ch; font-size: 1.125rem; color: var(--ink-2); }
+
+.section-h2 {
+  margin: 2.5rem 0 1rem;
+  font-size: 1.25rem; text-transform: uppercase; letter-spacing: .08em; color: var(--navy);
+}
+
+/* ---- The three areas ----------------------------------------------------- */
+
+.areas { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.25rem; }
+@media (min-width: 54rem) { .areas { grid-template-columns: repeat(3, 1fr); } }
+
+.area {
+  display: flex; flex-direction: column; gap: .6rem;
+  padding: 1.6rem 1.5rem 1.4rem;
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  text-decoration: none; color: inherit;
+  border-top: 5px solid var(--navy);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.area:nth-child(2) { border-top-color: var(--gold-warm); }
+.area:nth-child(3) { border-top-color: var(--ok); }
+.area:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+.area-icon {
+  width: 48px; height: 48px; border-radius: 12px;
+  display: grid; place-items: center; font-size: 1.5rem;
+  background: var(--navy-wash); color: var(--navy);
+}
+.area:nth-child(2) .area-icon { background: var(--gold-wash); color: var(--gold-ink); }
+.area:nth-child(3) .area-icon { background: var(--ok-wash); color: var(--ok); }
+.area h2 { margin: 0; font-size: 1.25rem; text-transform: uppercase; color: var(--navy); }
+.area p { margin: 0; color: var(--ink-2); font-size: 1rem; }
+.area-go { margin-top: auto; padding-top: .6rem; font-weight: 700; color: var(--navy); }
+
+/* ---- Tiles: the admin shortcuts ------------------------------------------ */
+
+.tiles {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: .85rem;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+.tile {
+  display: flex; flex-direction: column; gap: .15rem;
+  padding: .95rem 1.1rem; min-height: 100%;
+  background: var(--paper); border-radius: var(--radius);
+  border-left: 4px solid var(--gold-warm);
+  box-shadow: var(--shadow); text-decoration: none; color: inherit;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-left-color: var(--navy); }
+.tile-label {
+  font-family: var(--display); font-weight: 700; font-size: .875rem;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--navy);
+}
+.tile-note { font-size: .9375rem; color: var(--ink-2); }
+
+/* ---- Big numbers --------------------------------------------------------- */
+
+.stat-row {
+  display: grid; gap: 1rem; margin-bottom: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+}
+.stat {
+  background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 1.1rem 1.25rem; border-top: 4px solid var(--navy);
+  display: flex; flex-direction: column; gap: .1rem;
+}
+.stat-n {
+  font-family: var(--display); font-weight: 800; font-size: 2.25rem;
+  line-height: 1; color: var(--navy);
+}
+.stat-l {
+  font-size: .8125rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-2);
+}
+.stat-full { border-top-color: var(--bad); }
+.stat-full .stat-n { color: var(--bad); }
+
+/* ---- Cards, tables ------------------------------------------------------- */
+
+.card {
+  background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: clamp(1.1rem, 3vw, 1.6rem); margin-bottom: 1.25rem;
+}
+.card > :first-child { margin-top: 0; }
+.card > :last-child { margin-bottom: 0; }
+.card h2, .card h3 { color: var(--navy); text-transform: uppercase; font-size: 1.05rem; letter-spacing: .06em; }
+
+.table-scroll { overflow-x: auto; border-radius: var(--radius); box-shadow: var(--shadow); background: var(--paper); }
+table.grid { width: 100%; border-collapse: collapse; font-size: 1rem; }
+table.grid th, table.grid td { text-align: left; padding: .8rem .9rem; vertical-align: top; }
+table.grid thead th {
+  background: var(--navy); color: #fff;
+  font-family: var(--display); font-weight: 700; font-size: .75rem;
+  letter-spacing: .1em; text-transform: uppercase; white-space: nowrap;
+}
+table.grid tbody tr { border-top: 1px solid var(--rule); }
+table.grid tbody tr:nth-child(even) { background: #fbfcfd; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* A row needing attention. The tint is never the only signal — the cell also
+   says so in words. */
+.row-gap { background: var(--bad-wash) !important; box-shadow: inset 4px 0 0 0 var(--bad); }
+
+/* ---- Chips --------------------------------------------------------------- */
+
+.chip {
+  display: inline-block; padding: .2rem .6rem; border-radius: 999px;
+  font-family: var(--display); font-weight: 700; font-size: .6875rem;
+  letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+}
+.chip-green   { color: var(--ok);   background: var(--ok-wash); }
+.chip-amber   { color: var(--warn); background: var(--warn-wash); }
+.chip-red     { color: var(--bad);  background: var(--bad-wash); }
+.chip-neutral { color: var(--ink-2); background: var(--ground); }
+.chip-navy    { color: #fff; background: var(--navy); }
+
+/* ---- Buttons ------------------------------------------------------------- */
+
+.btn-primary, .btn-secondary, .btn-danger {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .8rem 1.5rem; border-radius: var(--radius);
+  font-family: var(--display); font-weight: 700; font-size: .875rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  text-decoration: none; cursor: pointer; border: 2px solid transparent;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+}
+.btn-primary { background: var(--navy); color: #fff; box-shadow: var(--shadow); }
+.btn-primary:hover { background: var(--navy-deep); color: #fff; transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.btn-secondary { background: var(--paper); color: var(--navy); border-color: var(--navy); }
+.btn-secondary:hover { background: var(--navy-wash); color: var(--navy); }
+.btn-gold { background: var(--gold); color: var(--navy); }
+.btn-gold:hover { background: var(--gold-warm); color: var(--navy-deep); }
+.btn-danger { background: var(--paper); color: var(--bad); border-color: var(--bad); }
+.btn-danger:hover { background: var(--bad-wash); }
+.btn-row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+
+.linkish {
+  background: none; border: 0; padding: 0; font: inherit; font-weight: 600;
+  color: var(--navy); text-decoration: underline; text-underline-offset: .15em; cursor: pointer;
+}
+
+/* ---- Forms --------------------------------------------------------------- */
+
+.field { margin-bottom: 1.15rem; }
+.field > label { display: block; font-weight: 700; margin-bottom: .3rem; }
+.field .hint { display: block; font-size: .9375rem; color: var(--ink-2); margin-bottom: .4rem; }
+
+/* Fields sitting side by side.
+
+   Their labels are one line but their hints are not — some fields have a hint
+   and some do not — so laid out naively the inputs sit at different heights and
+   the row looks broken. Each field becomes a flex column and the control is
+   pushed to the bottom, so every input in a row lines up however much text sits
+   above it. */
+.grid-fields {
+  display: grid; gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  align-items: stretch;
+}
+.grid-fields > .field { display: flex; flex-direction: column; margin-bottom: 0; }
+.grid-fields > .field > :is(input, select, textarea) { margin-top: auto; }
+.grid-fields > .field .hint { margin-bottom: .4rem; }
+/* Exactly three across once there is room, rather than however many auto-fit
+   decides — used where the three fields belong together as one line. */
+@media (min-width: 44rem) {
+  .grid-fields.grid-3 { grid-template-columns: repeat(3, 1fr); }
+}
+
+input[type=text], input[type=email], input[type=password], input[type=date],
+input[type=time], input[type=number], input[type=tel], select, textarea {
+  width: 100%; padding: .7rem .8rem; font: inherit;
+  border: 2px solid var(--rule-strong); border-radius: var(--radius);
+  background: var(--paper); color: var(--ink);
+}
+input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
+
+/* Role pickers and the like. Big targets — these get used on a tablet. */
+.checks { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.check {
+  display: flex; align-items: flex-start; gap: .65rem;
+  padding: .7rem .85rem; border: 2px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper); cursor: pointer;
+}
+.check:hover { border-color: var(--navy-soft); background: var(--navy-wash); }
+.check input { width: 1.25rem; height: 1.25rem; margin: .15rem 0 0; flex: none; accent-color: var(--navy); }
+.check:has(input:checked) { border-color: var(--navy); background: var(--navy-wash); }
+.check-label { font-weight: 700; }
+.check-note { display: block; font-weight: 400; font-size: .875rem; color: var(--ink-2); }
+
+/* ---- The next service, at the top of the rota ---------------------------- */
+
+.next-up {
+  background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow);
+  border-top: 5px solid var(--navy);
+  padding: clamp(1.2rem, 3vw, 1.75rem); margin-bottom: 1.75rem;
+}
+.next-up-head {
+  display: flex; flex-wrap: wrap; gap: .75rem 1.5rem;
+  align-items: flex-start; justify-content: space-between; margin-bottom: 1rem;
+}
+.next-up-when {
+  margin: 0 0 .15rem;
+  font-family: var(--display); font-weight: 700; font-size: .75rem;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--gold-ink);
+}
+.next-up-title {
+  margin: 0; font-size: 1.5rem; text-transform: uppercase; color: var(--navy);
+}
+.next-up-where { margin: .2rem 0 0; color: var(--ink-2); font-size: .9375rem; }
+.next-up-readings {
+  margin: 0 0 1rem; padding: .6rem .8rem;
+  background: var(--gold-wash); border-radius: 6px; font-size: .9375rem;
+}
+
+/* Two columns on anything but a phone. A role and its people read as a pair, so
+   they stay on one line and wrap together. */
+.next-up-roles {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: .1rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 40rem) { .next-up-roles { grid-template-columns: 1fr 1fr; gap: .1rem 1.5rem; } }
+.next-up-roles li {
+  display: flex; gap: .75rem; align-items: baseline;
+  padding: .45rem .5rem; border-bottom: 1px solid var(--rule);
+}
+.nu-role {
+  flex: 0 0 11rem; font-size: .8125rem; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2);
+}
+.nu-who { flex: 1 1 auto; font-weight: 600; }
+/* Empty is the part worth seeing, so it says so in words as well as colour. */
+.next-up-roles li.is-empty { background: var(--bad-wash); border-radius: 4px; }
+.next-up-roles li.is-empty .nu-who { color: var(--bad); }
+.next-up-more { margin: 1.25rem 0 0; }
+
+/* ---- The list of services ------------------------------------------------ */
+
+/* Each service is its own card. A whole row washed red reads as an error; a
+   coloured edge and a chip say "somebody still to find" without shouting. */
+.svc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .85rem; }
+
+.svc {
+  display: flex; align-items: stretch; gap: 1rem;
+  background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow);
+  border-left: 5px solid var(--ok);
+  padding: .9rem 1.1rem; text-decoration: none; color: inherit;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.svc:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.svc-short { border-left-color: var(--warn); }
+.svc-gap { border-left-color: var(--bad); }
+
+/* A little tear-off date, so the eye finds the day before anything else. */
+.svc-date {
+  flex: 0 0 3.6rem; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: .05rem;
+  background: var(--navy-wash); border-radius: 8px; padding: .4rem .2rem;
+}
+.svc-gap .svc-date { background: var(--bad-wash); }
+.svc-short .svc-date { background: var(--warn-wash); }
+.svc-dow {
+  font-family: var(--display); font-weight: 700; font-size: .625rem;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2);
+}
+.svc-dd {
+  font-family: var(--display); font-weight: 800; font-size: 1.5rem;
+  line-height: 1; color: var(--navy);
+}
+.svc-gap .svc-dd { color: var(--bad); }
+.svc-mon {
+  font-family: var(--display); font-weight: 700; font-size: .625rem;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2);
+}
+
+.svc-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.svc-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .75rem; }
+.svc-title {
+  font-family: var(--display); font-weight: 700; font-size: 1.0625rem;
+  letter-spacing: .02em; color: var(--navy);
+}
+.svc-time { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ink-2); font-size: .9375rem; }
+.svc-where { color: var(--ink-2); font-size: .9375rem; }
+.svc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-top: .15rem; }
+.svc-detail { color: var(--ink-2); font-size: .9375rem; }
+.svc-gap .svc-detail { color: var(--bad); font-weight: 600; }
+
+.svc-go {
+  flex: 0 0 auto; align-self: center;
+  font-size: 1.25rem; font-weight: 700; color: var(--navy-soft);
+}
+.svc:hover .svc-go { color: var(--navy); }
+
+@media (max-width: 34rem) {
+  .svc { gap: .75rem; padding: .8rem .85rem; }
+  .svc-go { display: none; }
+}
+
+/* ---- Tabs ---------------------------------------------------------------- */
+
+.tabs {
+  display: flex; gap: .35rem; margin-bottom: 1.25rem;
+  border-bottom: 2px solid var(--rule); flex-wrap: wrap;
+}
+.tab {
+  padding: .6rem 1.1rem; margin-bottom: -2px;
+  border-bottom: 3px solid transparent; border-radius: var(--radius) var(--radius) 0 0;
+  font-family: var(--display); font-weight: 700; font-size: .8125rem;
+  letter-spacing: .08em; text-transform: uppercase;
+  text-decoration: none; color: var(--ink-2);
+}
+.tab:hover { background: var(--navy-wash); color: var(--navy); }
+.tab.is-on { color: var(--navy); border-bottom-color: var(--gold-warm); background: var(--paper); }
+
+/* The room / service-type switcher above a calendar. */
+.pills { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.pill {
+  padding: .5rem 1rem; border-radius: 999px; border: 2px solid var(--rule);
+  background: var(--paper); text-decoration: none; color: var(--ink);
+  font-weight: 700; font-size: .9375rem;
+}
+.pill:hover { border-color: var(--navy-soft); }
+.pill.is-on { background: var(--navy); border-color: var(--navy); color: #fff; }
+.pill-n { opacity: .7; font-weight: 400; }
+
+/* ---- Month calendar ------------------------------------------------------ */
+
+.cal-head { display: flex; align-items: center; gap: .6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.cal-head .btn-secondary { padding: .5rem .9rem; }
+.cal-month {
+  margin: 0; flex: 1 1 auto; font-size: 1.35rem;
+  text-transform: uppercase; color: var(--navy);
+}
+
+/* The grid is the one thing allowed to scroll sideways, and only on a phone. */
+.cal-scroll { overflow-x: auto; }
+.cal { min-width: 44rem; background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.cal-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-names { background: var(--navy); }
+.cal-name {
+  padding: .6rem .5rem; color: #fff;
+  font-family: var(--display); font-weight: 700; font-size: .75rem;
+  letter-spacing: .1em; text-transform: uppercase; text-align: center;
+}
+.cal-day {
+  min-height: 7.5rem; padding: .4rem .45rem;
+  border-top: 1px solid var(--rule); border-left: 1px solid var(--rule);
+  display: flex; flex-direction: column; gap: .2rem;
+}
+.cal-row > .cal-day:first-child { border-left: 0; }
+.cal-out { background: #fafbfc; }
+.cal-out .cal-n { color: var(--rule-strong); }
+.cal-today { background: var(--gold-wash); }
+.cal-today .cal-n {
+  background: var(--navy); color: #fff; border-radius: 999px;
+  width: 1.6rem; height: 1.6rem; display: grid; place-items: center;
+}
+.cal-n { font-weight: 700; font-size: .875rem; color: var(--ink-2); }
+
+.cal-item {
+  display: block; padding: .25rem .4rem; border-radius: 6px;
+  font-size: .8125rem; line-height: 1.25; text-decoration: none;
+  border-left: 3px solid var(--navy); background: var(--navy-wash); color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.cal-item:hover { background: var(--navy); color: #fff; }
+.cal-item:hover strong { color: #fff; }
+.cal-item strong { color: var(--navy); font-variant-numeric: tabular-nums; }
+.cal-gold  { border-left-color: var(--gold-warm); background: var(--gold-wash); }
+.cal-green { border-left-color: var(--ok); background: var(--ok-wash); }
+.cal-red   { border-left-color: var(--bad); background: var(--bad-wash); }
+.cal-red strong { color: var(--bad); }
+
+@media (max-width: 40rem) {
+  .cal-day { min-height: 5.5rem; }
+}
+
+/* How-often controls: a number, a word, a number, a unit. They wrap as a unit on
+   a narrow screen rather than breaking mid-sentence. */
+.freq { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.freq select { width: auto; min-width: 7rem; padding: .45rem .5rem; }
+.freq input { padding: .45rem .5rem; }
+.freq > span { color: var(--ink-2); font-size: .9375rem; white-space: nowrap; }
+
+/* ---- Notices ------------------------------------------------------------- */
+
+.notice {
+  padding: 1rem 1.15rem; border-radius: var(--radius); margin-bottom: 1.5rem;
+  border-left: 5px solid currentColor;
+}
+.notice > :first-child { margin-top: 0; }
+.notice > :last-child { margin-bottom: 0; }
+.notice-ok   { color: var(--ok);   background: var(--ok-wash); }
+.notice-warn { color: var(--warn); background: var(--warn-wash); }
+.notice-bad  { color: var(--bad);  background: var(--bad-wash); }
+.notice-info { color: var(--navy); background: var(--navy-wash); }
+.notice p, .notice li { color: var(--ink); }
+.notice strong { color: inherit; }
+
+/* A username and a one-time password, shown once. Big, spaced and monospaced,
+   because it gets read off the screen and typed somewhere else — or dictated
+   over the phone, where an l and a 1 have to be distinguishable. */
+.creds {
+  display: flex; flex-wrap: wrap; gap: 1rem 2.5rem;
+  background: var(--paper); border-radius: var(--radius);
+  padding: 1rem 1.15rem; margin: .5rem 0 1rem;
+}
+.creds > span { display: flex; flex-direction: column; gap: .15rem; }
+.creds-l {
+  font-family: var(--display); font-weight: 700; font-size: .6875rem;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2);
+}
+.creds strong {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 1.125rem; color: var(--ink); user-select: all;
+}
+
+/* ---- Sign in ------------------------------------------------------------- */
+
+.signin-wrap { max-width: 28rem; margin-inline: auto; }
+
+/* ---- The combination matrix ---------------------------------------------- */
+
+.combo-grid { font-size: .9375rem; }
+.combo-grid th[scope="row"] {
+  text-transform: none; letter-spacing: 0; font-size: .9375rem; font-family: var(--body);
+  white-space: nowrap; position: sticky; left: 0; background: var(--paper); font-weight: 700;
+}
+.combo-head {
+  height: 13.5rem; vertical-align: bottom; padding: 0 !important; background: var(--navy);
+}
+.combo-head > span {
+  display: block; writing-mode: vertical-rl; transform: rotate(180deg);
+  text-align: left; padding: .6rem .4rem; white-space: nowrap;
+}
+.combo-grid td { text-align: center; font-weight: 800; border-left: 1px solid var(--rule); }
+.combo-green { color: var(--ok);   background: var(--ok-wash); }
+.combo-amber { color: var(--warn); background: var(--warn-wash); }
+.combo-red   { color: var(--bad);  background: var(--bad-wash); }
+.combo-unset { color: var(--rule-strong); }
+.combo-self  { background: var(--ground); color: var(--rule-strong); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  .area:hover, .btn-primary:hover { transform: none; }
+}
+
+@media (forced-colors: active) {
+  .brand img { forced-color-adjust: none; background: #fff; }
+  .btn-primary, .btn-secondary { border: 2px solid; }
+}
+
+/* ---------------------------------------------------------------------------
+   Search boxes.
+
+   These filter a list that is already on the page, so there is no Search
+   button: results narrow as you type. The running count underneath is a
+   live region, because on a long list the only visible sign that anything
+   happened may be rows disappearing off the bottom of the screen.
+   --------------------------------------------------------------------------- */
+
+.searchbar { margin-bottom: 1.25rem; }
+
+.search-label {
+  display: block; font-weight: 700; font-family: var(--display);
+  text-transform: uppercase; letter-spacing: .03em; font-size: .9375rem;
+  margin-bottom: .15rem;
+}
+
+.search-field { position: relative; display: flex; align-items: center; }
+
+.search-icon {
+  position: absolute; left: .85rem; font-size: 1.1rem; line-height: 1;
+  pointer-events: none;
+}
+
+input[type=search].search-input {
+  width: 100%; padding: .8rem 1rem .8rem 2.75rem; font: inherit;
+  border: 2px solid var(--rule-strong); border-radius: var(--radius);
+  background: var(--paper); color: var(--ink);
+  -webkit-appearance: none; appearance: none;
+}
+input[type=search].search-input:hover { border-color: var(--navy-soft); }
+input[type=search].search-input::placeholder { color: var(--ink-2); }
+/* Safari and Chrome draw their own clear cross, which sits on top of ours. */
+input[type=search].search-input::-webkit-search-cancel-button { display: none; }
+
+.search-clear {
+  position: absolute; right: .4rem;
+  border: 0; background: var(--navy-wash); color: var(--navy);
+  font: inherit; font-weight: 700; font-size: .9375rem;
+  padding: .45rem .85rem; border-radius: var(--radius); cursor: pointer;
+}
+.search-clear:hover { background: var(--gold-wash); }
+
+.search-count {
+  margin: .4rem 0 0; color: var(--ink-2); font-size: .9375rem; min-height: 1.4em;
+}
+.search-count-none { color: var(--bad); font-weight: 700; }
+
+/* A short list of facts about something — label above value, wrapping across
+   the card rather than stacking into a long thin column on a tablet. */
+.facts { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); margin: 0; }
+.facts dt {
+  font-family: var(--display); text-transform: uppercase; letter-spacing: .03em;
+  font-size: .8125rem; font-weight: 700; color: var(--ink-2);
+}
+.facts dd { margin: .2rem 0 0; }
+
+/* A temporary password, shown once. Monospace and spaced out because it gets
+   read aloud over the phone, where "rn" and "m" are the whole problem. */
+.temp-password {
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 1.375rem; font-weight: 700; letter-spacing: .04em;
+  background: var(--paper); border: 2px dashed var(--gold-warm);
+  border-radius: var(--radius); padding: .75rem 1rem; display: inline-block;
+}
+
+/* A cancelled booking. Kept on the list as a record, but visibly not counting:
+   struck through AND greyed AND labelled, so it never rests on colour alone. */
+.row-cancelled > td { color: var(--ink-2); background: var(--ground); }
+.row-cancelled > td:first-child { text-decoration: line-through; }
+
+/* ---------------------------------------------------------------------------
+   Setting one role against another.
+
+   Big tap targets that show their state without relying on colour: each choice
+   carries its own word, and the selected one gets a filled border as well as a
+   tint, so it reads the same to somebody who cannot tell amber from green.
+   --------------------------------------------------------------------------- */
+
+.combo-card { padding-block: 1.1rem; }
+.combo-card-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem;
+  margin-bottom: .85rem;
+}
+
+.verdicts { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+
+.verdict {
+  display: flex; align-items: flex-start; gap: .6rem; cursor: pointer;
+  padding: .7rem .8rem; border: 2px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper);
+}
+.verdict:hover { border-color: var(--navy-soft); }
+.verdict input { margin-top: .2rem; flex: none; width: auto; }
+.verdict .check-label { display: block; font-weight: 700; }
+.verdict .check-note { display: block; font-size: .875rem; color: var(--ink-2); }
+
+/* :has() is what makes the whole box light up rather than just the dot. Where it
+   is not supported the control still works — it simply looks like a plain box,
+   which is why the words never depend on the tint. */
+.verdict-green:has(input:checked)  { border-color: var(--ok);   background: var(--ok-wash); }
+.verdict-amber:has(input:checked)  { border-color: var(--warn); background: var(--warn-wash); }
+.verdict-red:has(input:checked)    { border-color: var(--bad);  background: var(--bad-wash); }
+.verdict-unset:has(input:checked)  { border-color: var(--navy); background: var(--navy-wash); }
+.verdict:has(input:focus-visible) { outline: 3px solid var(--gold-warm); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------------------
+   The second row of the menu.
+
+   Once you are inside an area, its jobs sit here — so "Generate a rota", which
+   is one of the main things this system is for, is one click away from anywhere
+   in the rota rather than buried at the foot of the home page. Navy ground so it
+   reads as part of the header rather than as content, and it scrolls sideways on
+   a phone instead of wrapping into three lines.
+   --------------------------------------------------------------------------- */
+
+.subbar { background: var(--navy); }
+.subnav {
+  width: 100%; max-width: 74rem; margin-inline: auto;
+  padding: .35rem clamp(1rem, 4vw, 2.5rem);
+  display: flex; gap: .2rem; align-items: center;
+  overflow-x: auto; scrollbar-width: thin;
+}
+.subnav a {
+  display: inline-block; white-space: nowrap;
+  padding: .5rem .85rem; border-radius: var(--radius);
+  font-family: var(--display); font-weight: 700; font-size: .8125rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  text-decoration: none; color: #e8ecf3;
+}
+.subnav a:hover { background: var(--navy-soft); color: #fff; }
+/* The current page is marked by a gold ground AND aria-current, so it is not
+   colour alone doing the work. */
+.subnav a.is-active { background: var(--gold); color: var(--navy-deep); }
