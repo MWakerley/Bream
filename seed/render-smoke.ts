@@ -769,6 +769,28 @@ await check('the home page shows what has changed', () => homePage({
   'recent-bad', 'recent-warn',
 ]);
 
+// The panel is for things somebody has to DO something about. The church has
+// some 760 room bookings, every one imported from Google Calendar in the same
+// second, and when they were in here they buried every genuine change under a
+// wall of "the main church is booked". An event EXISTING is news; sixty people
+// booking a place at it is not.
+await check('a room booking is not news', () => homePage({
+  ctx: CTX, gapCount: 0, isAdmin: true,
+  now: new Date('2026-09-18T12:00:00Z'),
+  activity: [
+    { when: '2026-09-18 09:00:00', icon: '⚠️', tone: 'bad', who: 'Don Ellie',
+      what: 'cannot do Preacher on Sun 20 Sep 2026 — still needs somebody',
+      href: '/app/rota/service/4', area: 'rota' },
+    { when: '2026-09-17 09:00:00', icon: '🎟️', tone: 'ok', who: 'Harvest Supper',
+      what: 'is on Sun 11 Oct 2026 and taking bookings',
+      href: '/app/events/1', area: 'events' },
+  ],
+}), ['Don Ellie', 'cannot do Preacher', 'Harvest Supper', 'taking bookings'],
+  // What must never come back. Chosen because each appears ONLY in a
+  // room-booking row — 'Church Centre' and 'bookings' are both in the static
+  // area tiles further down the page, so they would pass whatever happened.
+  ['booked the', '/app/rooms/', '🚪']);
+
 // A quiet week must not leave an empty box sitting there looking broken.
 await check('and nothing at all on a quiet week', () => homePage({
   ctx: CTX, gapCount: 0, isAdmin: true, activity: [],

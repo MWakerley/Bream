@@ -8,9 +8,22 @@ import { formatDate } from './views/rota.js';
  * change like that needs to reach the person who can do something about it, and
  * the home page is the only screen everybody opens.
  *
- * Built from five small queries merged in JavaScript rather than one UNION.
- * D1 refuses a compound SELECT of even eight terms, and merging here also lets
- * each source keep the columns that make sense for it instead of being bent
+ * WHAT BELONGS HERE, and the rule is narrow on purpose:
+ *   * somebody coming OFF the rota — cannot do it, asked to swap, gone away,
+ *     taking a break
+ *   * a new event existing
+ *
+ * Nothing else. Room bookings were here and had to come out: the church has
+ * some 760 of them, every one imported from Google Calendar in the same second,
+ * so they buried every genuine change under a wall of "the main church is
+ * booked". The test of whether something belongs is not "did it happen" but
+ * "would somebody need to DO something about it" — and a routine room booking
+ * is somebody doing their job, not news. Event BOOKINGS are out for the same
+ * reason: sixty people booking a supper is sixty rows and one fact.
+ *
+ * Built from small queries merged in JavaScript rather than one UNION. D1
+ * refuses a compound SELECT of even eight terms, and merging here also lets
+ * each source keep the columns that make sense for it rather than being bent
  * into one shape.
  */
 
@@ -36,7 +49,10 @@ export async function recentActivity(
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
 
-  // 1. Somebody saying they cannot do something. The reason this exists.
+  // 1. Somebody dropping off a service. The reason this panel exists.
+  //
+  // 'note' is excluded: a note attached to an assignment is a message, not a
+  // change, and this list is only for things that alter who is serving.
   if (areas.has('rota')) {
     const { results } = await db
       .prepare(
@@ -48,6 +64,7 @@ export async function recentActivity(
            JOIN assignments a ON a.id = cr.assignment_id
            JOIN roles r       ON r.id = a.role_id
            JOIN services s    ON s.id = a.service_id
+          WHERE cr.kind IN ('cannot_do', 'swap')
           ORDER BY cr.created_at DESC
           LIMIT 12`,
       )
@@ -61,9 +78,7 @@ export async function recentActivity(
         who: r.display_name,
         what: r.kind === 'cannot_do'
           ? `cannot do ${r.role_name} on ${when}${r.status === 'open' ? ' — still needs somebody' : ''}`
-          : r.kind === 'swap'
-            ? `has asked to swap ${r.role_name} on ${when}`
-            : `left a note about ${r.role_name} on ${when}`,
+          : `has asked to swap ${r.role_name} on ${when}`,
         href: `/app/rota/service/${r.service_id}`,
         area: 'rota',
       });
@@ -97,44 +112,17 @@ export async function recentActivity(
     }
   }
 
-  // 3. Rooms booked.
-  if (areas.has('rooms')) {
-    const { results } = await db
-      .prepare(
-        `SELECT b.created_at, b.id, b.title, b.starts_at, b.status,
-                rm.name AS room_name, p.display_name
-           FROM room_bookings b
-           JOIN rooms rm ON rm.id = b.room_id
-           LEFT JOIN people p ON p.id = b.booked_by
-          WHERE b.starts_at >= datetime('now', '-1 day')
-          ORDER BY b.created_at DESC
-          LIMIT 8`,
-      )
-      .all<any>();
-    for (const r of results) {
-      items.push({
-        when: r.created_at,
-        icon: r.status === 'cancelled' ? '🚫' : '🚪',
-        tone: r.status === 'cancelled' ? 'warn' : 'navy',
-        who: r.display_name ?? 'The office',
-        what: `${r.status === 'cancelled' ? 'cancelled' : 'booked'} the ${r.room_name} `
-          + `for ${r.title} on ${formatDate(r.starts_at.slice(0, 10))}`,
-        href: `/app/rooms/${r.id}`,
-        area: 'rooms',
-      });
-    }
-  }
-
-  // 4. Event bookings, as a count per event rather than one line each — twenty
-  //    people booking a supper is one piece of news, not twenty.
+  // 3. A new event.
+  //
+  // The event itself, NOT the bookings people make for it. Somebody booking a
+  // place is routine and there can be sixty of them; the event existing is the
+  // thing worth telling everybody about once.
   if (areas.has('events')) {
     const { results } = await db
       .prepare(
-        `SELECT MAX(b.created_at) AS created_at, COUNT(*) AS n,
-                SUM(b.party_size) AS people, e.id, e.title
-           FROM event_bookings b JOIN events e ON e.id = b.event_id
-          WHERE b.status = 'booked' AND b.created_at >= datetime('now', '-14 days')
-          GROUP BY e.id
+        `SELECT created_at, id, title, starts_at, is_published
+           FROM events
+          WHERE created_at >= datetime('now', '-30 days')
           ORDER BY created_at DESC
           LIMIT 5`,
       )
@@ -144,15 +132,16 @@ export async function recentActivity(
         when: r.created_at,
         icon: '🎟️',
         tone: 'ok',
-        who: `${r.n} ${r.n === 1 ? 'booking' : 'bookings'}`,
-        what: `for ${r.title}${r.people !== r.n ? ` — ${r.people} people` : ''}`,
+        who: r.title,
+        what: `is on ${formatDate(r.starts_at.slice(0, 10))}`
+          + (r.is_published ? ' and taking bookings' : ' — not published yet'),
         href: `/app/events/${r.id}`,
         area: 'events',
       });
     }
   }
 
-  // 5. People stepping back. A break nobody has ended is worth noticing.
+  // 4. People stepping back. A break nobody has ended is worth noticing.
   if (areas.has('rota')) {
     const { results } = await db
       .prepare(
@@ -176,7 +165,7 @@ export async function recentActivity(
   }
 
   // Newest first, then trimmed. Sorting here rather than in SQL is what lets
-  // five different tables share one list without a compound SELECT.
+  // four different tables share one list without a compound SELECT.
   return items
     .filter((i) => i.when)
     .sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0))
