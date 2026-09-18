@@ -795,5 +795,53 @@ await check('a room booking is not news', () => homePage({
 await check('and nothing at all on a quiet week', () => homePage({
   ctx: CTX, gapCount: 0, isAdmin: true, activity: [],
 }), ['Welcome'], ['Lately', 'recent-list']);
+
+// --- every kind of question renders its own control ----------------------
+//
+// This is the shape of a real bug: the renderer tested textarea, number,
+// select and radio, and everything else fell off the end into a "Yes" tick.
+// 'text' has no branch of its own, so "Do you have any food allergies?" — a
+// REQUIRED short answer on a live event — was a checkbox, and the answer the
+// question asked for could not be given at all.
+//
+// So every kind is asserted, and each one also asserts that it is NOT the
+// control the bug produced. A test that only checked "does a text field render
+// an input" would have passed while the checkbox sat there beside it.
+{
+  const field = (kind: string, over = {}) => ({
+    id: 9, event_id: 1, key: 'q', label: 'The question', hint: null,
+    kind: kind as any, options: JSON.stringify(['Beef', 'Vegetarian']),
+    required: 1, sort_order: 0, ...over,
+  });
+  const render = (kind: string) => () => publicBookingPage({
+    event: EVENT, fields: [field(kind)],
+  });
+
+  await check('a short answer is a text box', render('text'),
+    ['type="text"', 'name="f_9"', 'required'],
+    // The bug, named so it cannot come back quietly.
+    ['type="checkbox"', 'check-label">Yes']);
+
+  await check('a long answer is a textarea', render('textarea'),
+    ['<textarea', 'name="f_9"'], ['type="checkbox"']);
+
+  await check('a number is a number box', render('number'),
+    ['type="number"', 'name="f_9"'], ['type="checkbox"']);
+
+  await check('a list is a dropdown', render('select'),
+    ['<select', 'Please choose', 'Beef', 'Vegetarian'], ['type="checkbox"']);
+
+  await check('choose-one is radio buttons', render('radio'),
+    ['type="radio"', 'Beef', 'Vegetarian'], ['type="checkbox"']);
+
+  await check('and a tickbox really is a tickbox', render('checkbox'),
+    ['type="checkbox"', 'Yes']);
+
+  // A kind nobody recognises is a bug either way, but a text box still
+  // captures what the person came to say. A checkbox throws it away and
+  // stores the word "Yes".
+  await check('an unknown kind falls back to a text box, not a tick',
+    render('something-new'), ['type="text"'], ['type="checkbox"']);
+}
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

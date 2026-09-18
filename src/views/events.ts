@@ -710,29 +710,60 @@ export function customQuestions(fields: FieldRow[], v: Record<string, string>) {
     return html`<div class="field">
       <label for="${name}">${fl.label}</label>
       ${fl.hint ? html`<span class="hint">${fl.hint}</span>` : ''}
-      ${fl.kind === 'textarea'
-        ? html`<textarea id="${name}" name="${name}" rows="3" ${fl.required ? 'required' : ''}>${val}</textarea>`
-        : fl.kind === 'number'
-          ? html`<input id="${name}" name="${name}" type="number" value="${val}" ${fl.required ? 'required' : ''}>`
-          : fl.kind === 'select'
-            ? html`<select id="${name}" name="${name}" ${fl.required ? 'required' : ''}>
-                <option value="">Please choose…</option>
-                ${choices.map((o) => html`<option value="${o}" ${val === o ? 'selected' : ''}>${o}</option>`)}
-              </select>`
-            : fl.kind === 'radio'
-              ? html`<div class="checks">
-                  ${choices.map((o) => html`<label class="check">
-                    <input type="radio" name="${name}" value="${o}" ${val === o ? 'checked' : ''}
-                           ${fl.required ? 'required' : ''}>
-                    <span class="check-label">${o}</span>
-                  </label>`)}
-                </div>`
-              : html`<label class="check" style="max-width:24rem">
-                  <input type="checkbox" name="${name}" value="Yes" ${val ? 'checked' : ''}>
-                  <span class="check-label">Yes</span>
-                </label>`}
+      ${control(fl, name, val, choices)}
     </div>`;
   });
+}
+
+/**
+ * One question's control.
+ *
+ * Written as early returns rather than a chain of nested ternaries, because a
+ * chain is exactly how this went wrong: every kind was tested except 'text',
+ * which fell off the end into the final else and rendered a "Yes" tick. Somebody
+ * asking for a line of text got a checkbox, and the answer they wanted was
+ * impossible to give.
+ *
+ * The fallback is now a TEXT BOX, not a checkbox. A kind nobody recognises is a
+ * bug either way, but a text box still captures whatever the person came to say;
+ * a checkbox silently throws it away and stores the word "Yes".
+ */
+function control(
+  fl: FieldRow,
+  name: string,
+  val: string,
+  choices: string[],
+) {
+  const required = fl.required ? 'required' : '';
+
+  if (fl.kind === 'textarea') {
+    return html`<textarea id="${name}" name="${name}" rows="3" ${required}>${val}</textarea>`;
+  }
+  if (fl.kind === 'number') {
+    return html`<input id="${name}" name="${name}" type="number" value="${val}" ${required}>`;
+  }
+  if (fl.kind === 'select') {
+    return html`<select id="${name}" name="${name}" ${required}>
+      <option value="">Please choose…</option>
+      ${choices.map((o) => html`<option value="${o}" ${val === o ? 'selected' : ''}>${o}</option>`)}
+    </select>`;
+  }
+  if (fl.kind === 'radio') {
+    return html`<div class="checks">
+      ${choices.map((o) => html`<label class="check">
+        <input type="radio" name="${name}" value="${o}" ${val === o ? 'checked' : ''} ${required}>
+        <span class="check-label">${o}</span>
+      </label>`)}
+    </div>`;
+  }
+  if (fl.kind === 'checkbox') {
+    return html`<label class="check" style="max-width:24rem">
+      <input type="checkbox" name="${name}" value="Yes" ${val ? 'checked' : ''} ${required}>
+      <span class="check-label">Yes</span>
+    </label>`;
+  }
+  // 'text', and anything unrecognised.
+  return html`<input id="${name}" name="${name}" type="text" value="${val}" ${required}>`;
 }
 
 /** The public booking form. No sign-in, no chrome, no menu — it is for people
