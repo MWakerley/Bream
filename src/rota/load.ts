@@ -1,4 +1,5 @@
 import { epochDay } from './generate.js';
+import { getRotaRules } from '../db.js';
 import type { GenCapability, GeneratorInput, GenPair, GenService, Verdict } from './types.js';
 
 /** How far back to look for cadence. A quarter's rota needs roughly a year of
@@ -85,9 +86,12 @@ export async function loadGeneratorInput(
       // Both are only ever excluded from work the generator INVENTS. Neither
       // stops a human putting them on a service deliberately.
       db.prepare(
-        `SELECT pr.person_id, pr.role_id, pr.max_per_period, pr.period_days, pr.min_gap_days
+        `SELECT pr.person_id, pr.role_id, pr.max_per_period, pr.period_days,
+                pr.min_gap_days, pr.ask_any_time,
+                r.default_min_gap_days, r.default_target_days
            FROM person_roles pr
            JOIN people p ON p.id = pr.person_id
+           JOIN roles  r ON r.id = pr.role_id
           WHERE pr.can_do = 1 AND pr.willing = 1
             AND p.is_active = 1 AND p.needs_review = 0
             AND p.on_break = 0 AND p.is_guest = 0
@@ -129,6 +133,10 @@ export async function loadGeneratorInput(
   const histRows = rows<any>(6);
   const pinRows = rows<any>(7);
 
+  // Read outside the batch rather than inside it: it is one tiny row, and
+  // adding a ninth statement would renumber every rows<T>(i) index above.
+  const rulesRow = await getRotaRules(db);
+
   // Every role, not just the active ones: a name is still needed to explain an
   // allocation made before a role was retired.
   const roleNameRows = (await db.prepare('SELECT id, name FROM roles')
@@ -154,13 +162,27 @@ export async function loadGeneratorInput(
   // rather than an explicit target, so the target is derived: an explicit floor
   // IS the rhythm they asked for; a cap implies one of window/count. Where
   // neither is set the generator falls back to their fair share of the role.
+  //
+  // THE ORDER OF PRECEDENCE, which is the whole point of the settings page:
+  //   1. what this person said for themselves
+  //   2. what the church set for this role
+  //   3. the fair share, worked out from the size of the team
+  //
+  // The role default is deliberately NOT routed into desiredEveryDays. Today a
+  // person's own min_gap_days does double duty as the rhythm the debt score is
+  // measured against; giving every preacher the role's floor as a target too
+  // would push most of the pool past DEBT_CAP, collapse the ordering onto the
+  // tie-break hash, and make the draft reach a newcomer later than it does now.
+  // The target has its own setting instead.
   const capabilities: GenCapability[] = capRows.map((c) => ({
     personId: c.person_id,
     roleId: c.role_id,
-    desiredEveryDays: c.min_gap_days ?? (c.max_per_period && c.period_days
-      ? c.period_days / c.max_per_period
-      : null),
-    minGapDays: c.min_gap_days ?? null,
+    desiredEveryDays: c.min_gap_days
+      ?? (c.max_per_period && c.period_days ? c.period_days / c.max_per_period : null)
+      ?? c.default_target_days
+      ?? null,
+    minGapDays: c.min_gap_days ?? c.default_min_gap_days ?? null,
+    askAnyTime: !!c.ask_any_time,
     maxPerWindow: c.max_per_period && c.period_days
       ? { count: c.max_per_period, windowDays: c.period_days }
       : null,
@@ -183,8 +205,36 @@ export async function loadGeneratorInput(
     note: p.note,
   }));
 
+  // The settings page stores words; the generator wants numbers. Translating
+  // here keeps the generator ignorant of where a figure came from — it is a pure
+  // function and should stay one.
+  //
+  // The two hard gaps are 8 and 15, not 7 and 14. Consecutive Sundays are
+  // exactly 7 days apart and the test is `sinceAny < hardDays`, so a 7 would
+  // permit precisely what "never on two Sundays running" forbids.
+  const GAPS: Record<string, { hard: number; soft: number }> = {
+    none: { hard: 0, soft: 0 },
+    week_prefer: { hard: 0, soft: 7 },
+    fortnight_prefer: { hard: 0, soft: 14 },
+    month_prefer: { hard: 0, soft: 30 },
+    not_two_sundays: { hard: 8, soft: 14 },
+    fortnight_rule: { hard: 15, soft: 14 },
+  };
+  const FAIRNESS: Record<string, number> = { even: 70, balanced: 40, best_fit: 15 };
+  const gap = GAPS[rulesRow.any_role_gap] ?? GAPS.fortnight_prefer!;
+
   return {
     services: [...services.values()],
+    rules: {
+      anyRoleHardDays: gap.hard,
+      anyRoleSoftDays: gap.soft,
+      maxRolesPerService: rulesRow.max_roles_per_service,
+      whenShort: (['leave_empty', 'bend_gap', 'bend_both'].includes(rulesRow.when_short)
+        ? rulesRow.when_short
+        : 'bend_both') as 'leave_empty' | 'bend_gap' | 'bend_both',
+      fairWeight: FAIRNESS[rulesRow.fairness] ?? 40,
+      listEveryEmptyPlace: !!rulesRow.list_every_empty_place,
+    },
     people: peopleRows.map((p) => ({ id: p.id, name: p.display_name })),
     roleNames,
     capabilities,

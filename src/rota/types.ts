@@ -17,6 +17,11 @@ export interface GenPerson {
 }
 
 export interface GenCapability {
+  /** "Ask them as often as needed" — this person is exempt from the role's
+   *  default gap and from the gap between any two jobs. Their OWN stated
+   *  minimum, if they have one, still applies: the tick removes a rule set on
+   *  their behalf, not one they set themselves. */
+  askAnyTime?: boolean;
   personId: number;
   roleId: number;
   /** The rhythm this person wants in this role. Null means "no view", and the
@@ -70,8 +75,44 @@ export interface GeneratorInput {
   history: ServedRecord[];
   /** Assignments already inside the horizon that must be kept exactly. */
   pinned: { serviceId: number; roleId: number; slot: number; personId: number }[];
+  /** The church's own rules, from Settings. Optional so every existing caller
+   *  and every existing test keeps working and keeps meaning what it meant. */
+  rules?: GenRules;
   runSeed: string;
 }
+
+/**
+ * What the church has decided about how a draft is built.
+ *
+ * Deliberately plain numbers and flags rather than the words the settings page
+ * uses: the generator should not know that 'fortnight_prefer' is a thing
+ * somebody picked from a dropdown, only that there is a soft gap of 15 days.
+ * The translation happens once, in load.ts.
+ */
+export interface GenRules {
+  /** A hard refusal between any two jobs, whatever the role. 0 = none. */
+  anyRoleHardDays: number;
+  /** A preference, costing points rather than refusing. 0 = none. */
+  anyRoleSoftDays: number;
+  /** Most jobs one person may hold at a single service. Null = no limit. */
+  maxRolesPerService: number | null;
+  /** How far the generator may bend when a service would otherwise be short. */
+  whenShort: 'leave_empty' | 'bend_gap' | 'bend_both';
+  /** The weight on the brake that stops one capable person doing everything. */
+  fairWeight: number;
+  /** Report a place left empty even where the service still meets its minimum. */
+  listEveryEmptyPlace: boolean;
+}
+
+/** What the generator does today, for any caller that passes no rules. */
+export const DEFAULT_RULES: GenRules = {
+  anyRoleHardDays: 0,
+  anyRoleSoftDays: 14,
+  maxRolesPerService: null,
+  whenShort: 'bend_both',
+  fairWeight: 40,
+  listEveryEmptyPlace: false,
+};
 
 export interface Allocation {
   serviceId: number;

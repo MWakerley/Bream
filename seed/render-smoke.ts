@@ -24,6 +24,7 @@ import { profilesPage, addPersonPage, changePasswordPage } from '../src/views/pr
 import { noAccessPage } from '../src/views/noaccess.js';
 import { peopleByRolePage } from '../src/views/byrole.js';
 import { combinationsByRolePage } from '../src/views/combinations.js';
+import { draftRulesPage } from '../src/views/draftrules.js';
 import type { ViewCtx } from '../src/views/layout.js';
 import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
 
@@ -31,6 +32,7 @@ const role = (id: number, name: string, min = 1, ideal = 1, communion = 0): Role
   id, key: name.toLowerCase().replace(/\W+/g, '_'), name, sheet_heading: name,
   sort_order: id * 10, min_needed: min, ideal_needed: ideal,
   communion_only: communion, is_active: 1,
+  default_min_gap_days: null, default_target_days: null,
 });
 
 const roles: RoleRow[] = [
@@ -600,5 +602,57 @@ await check('the people list marks breaks and guests', () => peoplePage([
 ], CTX), ['Taking a break', 'Guest', 'OK',
   // Searchable by state, so "who is on a break" is one thing to type.
   'taking a break', 'guest']);
+
+// --- the rules a draft is built to ---------------------------------------
+// Every figure on this page already existed: the generator derived it from the
+// size of a team and refused people on it without ever saying so. The page's
+// job is to say that plainly, because somebody who thinks they are adding a
+// new rule will set it differently from somebody who knows they are correcting
+// one that has been running all along.
+await check('the draft rules page', () => draftRulesPage({
+  roles: [
+    { ...role(1, 'Preacher'), default_min_gap_days: 21, default_target_days: null },
+    { ...role(2, 'Service leader'), default_min_gap_days: 28, default_target_days: 91 },
+    { ...role(3, 'Reader', 2, 2), default_min_gap_days: null, default_target_days: null },
+  ],
+  rules: {
+    any_role_gap: 'fortnight_prefer', max_roles_per_service: null,
+    when_short: 'bend_both', fairness: 'balanced', list_every_empty_place: 0,
+  },
+  ctx: CTX,
+}), [
+  'Rules for draft rotas',
+  'Preacher', 'Service leader', 'Reader',
+  // 21 days reads back as 3 weeks, and 91 as 1 quarter — the unit somebody
+  // would actually have typed, which is what toUnits() exists for.
+  'value="3"', 'value="1"',
+  'name="gapn_1"', 'name="targetn_2"',
+  'Before someone', 'Most jobs one person may have at a single service',
+  'If a service would still be short', 'Spreading the work out',
+  // The framing that makes the whole page make sense.
+  'These figures are not new',
+  // The firm option has to be described as firm.
+  'Never on two Sundays running',
+]);
+
+// The churchwarden's own "unless of course someone is doing them frequently",
+// asked at the moment a tightened figure would push somebody off.
+await check('tightening a rule names back who it would push off', () => draftRulesPage({
+  roles: [{ ...role(1, 'Preacher'), default_min_gap_days: 28, default_target_days: null }],
+  rules: {
+    any_role_gap: 'fortnight_prefer', max_roles_per_service: 2,
+    when_short: 'leave_empty', fairness: 'even', list_every_empty_place: 1,
+  },
+  ctx: CTX,
+  affected: [{ role_id: 1, role_name: 'Preacher', people: [
+    { id: 5, name: 'Steve', every: 14 },
+  ] }],
+}), [
+  'already do these jobs more often',
+  'Ask Steve as often as needed', 'about every 14 days',
+  'value="1:5"',
+  // The whole-rota rules come back selected as they were saved.
+  'value="2"', 'Save these exceptions',
+]);
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

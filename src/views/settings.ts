@@ -48,6 +48,7 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
         <a class="btn-secondary" href="/app/settings/profiles">What people can see</a>
         <a class="btn-secondary" href="/app/settings/roles">Roles and numbers</a>
         <a class="btn-secondary" href="/app/settings/combinations">Combination rules</a>
+        <a class="btn-secondary" href="/app/settings/draft-rules">Draft rota rules</a>
         <a class="btn-secondary" href="/app/settings/pairs">Who works with whom</a>
       </div>
 

@@ -15,7 +15,9 @@ import {
   countServicesWithGaps,
   getServiceDetail,
   listUpcomingServices,
+  getRotaRules,
   listCandidatesForRole,
+  saveRotaRules,
   listCombinations,
   type Candidate,
   listCombinationsForRole,
@@ -32,6 +34,7 @@ import { homePage } from './views/home.js';
 import { setupPage, signInPage } from './views/signin.js';
 import { combinationsPage, pairsPage, peoplePage, rolesPage } from './views/settings.js';
 import { combinationsByRolePage } from './views/combinations.js';
+import { draftRulesPage } from './views/draftrules.js';
 import { gapsPage, readingsPage, rotaDashboard, servicePage } from './views/rota.js';
 import { servicesPage, type ServiceListRow, type ServiceTypeOption } from './views/services.js';
 import { generateFormPage, previewPage, type PreviewService } from './views/generate.js';
@@ -1323,6 +1326,117 @@ app.post('/app/settings/roles/new', async (c) => {
     tone: 'ok',
     text: `Added "${name}". Nobody is marked as able to do it yet — set that on each person.`,
   }));
+});
+
+/**
+ * The rules the draft rota is built to.
+ *
+ * Everything here already existed as a number the generator derived from the
+ * size of a team and never showed anybody. Migration 0017 wrote those numbers
+ * down; this page is where they become somebody's decision rather than an
+ * accident of how many people happen to be on a list.
+ */
+async function draftRulesView(
+  c: Context<{ Bindings: Env; Variables: Vars }>,
+  notice?: { tone: 'ok' | 'bad'; text: string },
+  affected?: { role_name: string; role_id: number; people: { id: number; name: string; every: number }[] }[],
+) {
+  const [roles, rules] = await Promise.all([listRoles(c.env.DB), getRotaRules(c.env.DB)]);
+  return c.html(draftRulesPage({ roles, rules, ctx: viewCtx(c), notice, affected }));
+}
+
+app.get('/app/settings/draft-rules', (c) => draftRulesView(c));
+
+app.post('/app/settings/draft-rules', async (c) => {
+  const form = await c.req.formData();
+  const roles = await listRoles(c.env.DB);
+
+  // What each role's floor was before this save, so the page can name back the
+  // people a TIGHTENED figure would newly push off. Loosening one pushes nobody
+  // off, so only an increase is worth asking about.
+  const before = new Map(roles.map((r) => [r.id, r.default_min_gap_days]));
+
+  const writes = roles.map((r) => {
+    const gap = readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`);
+    const target = readUnitPair(form, `targetn_${r.id}`, `targetu_${r.id}`);
+    return c.env.DB.prepare(
+      'UPDATE roles SET default_min_gap_days = ?2, default_target_days = ?3 WHERE id = ?1',
+    ).bind(r.id, gap, target);
+  });
+  for (const chunk of chunked(writes, 100)) await c.env.DB.batch(chunk);
+
+  const maxRoles = Number(form.get('max_roles'));
+  await saveRotaRules(c.env.DB, {
+    any_role_gap: String(form.get('any_role_gap') ?? 'fortnight_prefer'),
+    max_roles_per_service: Number.isInteger(maxRoles) && maxRoles > 0 ? maxRoles : null,
+    when_short: String(form.get('when_short') ?? 'bend_both'),
+    fairness: String(form.get('fairness') ?? 'balanced'),
+    list_every_empty_place: form.get('list_every_empty_place') ? 1 : 0,
+  });
+
+  // Who a newly tightened figure would push off. This is the churchwarden's own
+  // "unless of course someone is doing them frequently", asked at the moment it
+  // arises rather than left as something he has to know to go and do.
+  const affected = [];
+  for (const r of roles) {
+    const now = readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`);
+    const was_ = before.get(r.id) ?? null;
+    if (now == null || (was_ != null && now <= was_)) continue;
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT p.id, p.display_name AS name,
+              CAST((julianday(MAX(s.service_date)) - julianday(MIN(s.service_date)))
+                   / MAX(COUNT(*) - 1, 1) AS INTEGER) AS every
+         FROM assignments a
+         JOIN services s ON s.id = a.service_id
+         JOIN people p   ON p.id = a.person_id
+         LEFT JOIN person_roles pr ON pr.person_id = p.id AND pr.role_id = ?1
+        WHERE a.role_id = ?1
+          AND s.service_date >= date('now', '-400 days')
+          AND COALESCE(pr.ask_any_time, 0) = 0
+          AND pr.min_gap_days IS NULL
+        GROUP BY p.id
+       HAVING COUNT(*) >= 2 AND every < ?2
+        ORDER BY every`,
+    ).bind(r.id, now).all<{ id: number; name: string; every: number }>();
+
+    if (results.length) affected.push({ role_id: r.id, role_name: r.name, people: results });
+  }
+
+  return draftRulesView(c, {
+    tone: 'ok',
+    text: affected.length
+      ? 'Saved. Some people already do these jobs more often than you have just asked for — see below.'
+      : 'Saved. The next draft you generate will follow these rules.',
+  }, affected.length ? affected : undefined);
+});
+
+/** "Ask them as often as needed", ticked against the names the save named back. */
+app.post('/app/settings/draft-rules/exempt', async (c) => {
+  const form = await c.req.formData();
+  const picked = form.getAll('exempt').map(String);
+
+  const writes = picked.map((v) => {
+    const [roleId, personId] = v.split(':').map(Number);
+    if (!Number.isInteger(roleId) || !Number.isInteger(personId)) return null;
+    // The row always exists — they have been ticked as able to do the role —
+    // but ON CONFLICT keeps this safe if it somehow does not.
+    return c.env.DB.prepare(
+      `INSERT INTO person_roles (person_id, role_id, can_do, ask_any_time)
+       VALUES (?1, ?2, 1, 1)
+       ON CONFLICT(person_id, role_id) DO UPDATE SET ask_any_time = 1`,
+    ).bind(personId, roleId);
+  }).filter(Boolean) as D1PreparedStatement[];
+
+  if (writes.length) {
+    for (const chunk of chunked(writes, 100)) await c.env.DB.batch(chunk);
+  }
+  return draftRulesView(c, {
+    tone: 'ok',
+    text: writes.length
+      ? `${writes.length} ${writes.length === 1 ? 'person' : 'people'} will now be asked as often as needed.`
+      : 'Nothing ticked, so nothing changed.',
+  });
 });
 
 app.get('/app/settings/combinations', async (c) => {

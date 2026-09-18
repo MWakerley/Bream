@@ -78,6 +78,7 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
       { href: '/app/settings/people', label: 'People', match: '^/app/settings/people', area: 'settings' },
       { href: '/app/settings/roles', label: 'Roles', match: '^/app/settings/roles', area: 'settings' },
       { href: '/app/settings/combinations', label: 'Combination rules', match: '^/app/settings/combinations', area: 'settings' },
+      { href: '/app/settings/draft-rules', label: 'Draft rota rules', match: '^/app/settings/draft-rules', area: 'settings' },
       { href: '/app/settings/pairs', label: 'Who works with whom', match: '^/app/settings/pairs', area: 'settings' },
       { href: '/app/settings/services', label: 'Services', match: '^/app/settings/services', area: 'settings' },
       { href: '/app/settings/rooms', label: 'Rooms', match: '^/app/settings/rooms', area: 'settings' },

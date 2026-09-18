@@ -1,3 +1,4 @@
+import { DEFAULT_RULES } from './types.js';
 import type {
   Allocation, Gap, GenCapability, GeneratorInput, GeneratorResult, GenService, ServedRecord, Verdict,
 } from './types.js';
@@ -61,6 +62,14 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     services, people, roleNames, capabilities, combinations, pairs,
     unavailable, history, pinned, runSeed,
   } = input;
+  // The church's own rules. Absent means exactly what the generator did before
+  // there was a settings page, which is what every existing test asserts.
+  const rules = input.rules ?? DEFAULT_RULES;
+  // Only ONE weight is settable, and it is read through a per-run copy so the
+  // module-level W stays immutable — a Workers isolate is reused between
+  // requests, and a mutated constant would leak one church's setting into the
+  // next request.
+  const w = { ...W, fair: rules.fairWeight };
 
   // ---- indexes ------------------------------------------------------------
   const personById = new Map(people.map((p) => [p.id, p]));
@@ -121,7 +130,14 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
   };
   const floorGap = (personId: number, roleId: number): number => {
     const c = capBy.get(`${personId}:${roleId}`);
+    // What they asked for themselves always wins, exemption or not: the tick
+    // removes a rule set on somebody's behalf, never one they set themselves.
     if (c?.minGapDays != null) return c.minGapDays;
+    // "Ask them as often as needed". Without this the implied floor below would
+    // still refuse the vicar at about half his fair share — which is precisely
+    // the case the churchwarden meant by "unless someone is doing them
+    // frequently", and it would have gone on happening invisibly.
+    if (c?.askAnyTime) return 0;
     return targetInterval(personId, roleId) * IMPLIED_FLOOR;
   };
 
@@ -303,6 +319,12 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
       const heldRoles = held.get(personId) ?? [];
       if (heldRoles.includes(roleId)) return 'already in this role here';
 
+      if (rules.maxRolesPerService != null
+          && heldRoles.length >= rules.maxRolesPerService
+          && !opts.allowOverCap) {
+        return 'already doing enough at this service';
+      }
+
       for (const other of heldRoles) {
         if (verdictFor(roleId, other) === 'red') {
           return `cannot also be ${roleNames.get(other) ?? 'in that role'} at the same service`;
@@ -322,6 +344,29 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
         const floor = floorGap(personId, roleId);
         if (since < floor && !(opts.allowInsideGap && since >= RELAX_FLOOR_DAYS)) {
           return 'too soon after their last time in this role';
+        }
+      }
+
+      // A gap before their next job of ANY kind.
+      //
+      // The `sinceAny > 0` guard is load-bearing and must not be removed.
+      // record() writes lastAnyRole = svc.day as each allocation commits, so
+      // within one service a person who has just been given a role has
+      // sinceAny === 0. Without the guard, ANY non-zero setting here would
+      // forbid every second role at a single service — silently retiring the
+      // whole green/amber/red combinations page, which records this church
+      // doubling preside+leader ten times and preacher+leader eight.
+      //
+      // How many jobs at one service is the separate rule above. This one is
+      // about the gap between Sundays.
+      if (rules.anyRoleHardDays > 0 && !capBy.get(k)?.askAnyTime) {
+        const lastAny = lastAnyRole.get(personId);
+        if (lastAny != null && Number.isFinite(lastAny)) {
+          const sinceAny = svc.day - lastAny;
+          if (sinceAny > 0 && sinceAny < rules.anyRoleHardDays
+              && !(opts.allowInsideGap && sinceAny >= RELAX_FLOOR_DAYS)) {
+            return 'on something else too recently';
+          }
         }
       }
 
@@ -386,11 +431,15 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
 
       const expect = expectedLoad.get(personId) ?? 1;
       const done = (runTotal.get(personId) ?? 0);
-      score -= W.fair * Math.max(0, done / Math.max(0.5, expect) - 1);
+      score -= w.fair * Math.max(0, done / Math.max(0.5, expect) - 1);
 
-      const any = lastAnyRole.get(personId);
-      if (any != null && Number.isFinite(any)) {
-        score -= W.rest * Math.max(0, 1 - (svc.day - any) / 14);
+      // The soft version of the same idea: a preference that costs points
+      // rather than refusing. Skipped entirely when set to none.
+      if (rules.anyRoleSoftDays > 0) {
+        const any = lastAnyRole.get(personId);
+        if (any != null && Number.isFinite(any)) {
+          score -= W.rest * Math.max(0, 1 - (svc.day - any) / rules.anyRoleSoftDays);
+        }
       }
 
       // Pairing competes through the score rather than pre-empting a seat, so a
@@ -464,9 +513,11 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
         // Tier 0, then relaxations — and only ever to reach the MINIMUM. A place
         // between minimum and ideal is left empty rather than bending somebody's
         // stated preference merely to make the rota tidy.
-        const tiers = belowMinimum
-          ? [{}, { allowInsideGap: true }, { allowInsideGap: true, allowOverCap: true }]
-          : [{}];
+        const allTiers = [{}, { allowInsideGap: true }, { allowInsideGap: true, allowOverCap: true }];
+        const howFar = rules.whenShort === 'leave_empty' ? 1
+          : rules.whenShort === 'bend_gap' ? 2
+            : 3;
+        const tiers = belowMinimum ? allTiers.slice(0, howFar) : [{}];
 
         let chosen: number | null = null;
         let relaxed: string | null = null;
@@ -509,7 +560,7 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
         }
 
         if (chosen === null) {
-          if (belowMinimum) {
+          if (belowMinimum || rules.listEveryEmptyPlace) {
             const reasons = Object.entries(because).sort((a, b) => b[1] - a[1]);
             gaps.push({
               serviceId: svc.id, roleId: role.roleId, slot,

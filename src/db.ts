@@ -63,6 +63,56 @@ export interface RoleRow {
   ideal_needed: number;
   communion_only: number;
   is_active: number;
+  /**
+   * The hard floor between two turns at this role, for anybody who has not
+   * said otherwise. Null means "work it out from the size of the team", which
+   * is what the generator has always done — see migration 0017.
+   */
+  default_min_gap_days: number | null;
+  /** The rhythm the draft aims at. Null means an even share of the work. */
+  default_target_days: number | null;
+}
+
+export interface RotaRulesRow {
+  any_role_gap: string;
+  max_roles_per_service: number | null;
+  when_short: string;
+  fairness: string;
+  list_every_empty_place: number;
+}
+
+/** The whole-rota rules. One row; created by migration 0017, so it is there. */
+export async function getRotaRules(db: D1Database): Promise<RotaRulesRow> {
+  const row = await db
+    .prepare(
+      `SELECT any_role_gap, max_roles_per_service, when_short, fairness,
+              list_every_empty_place
+         FROM rota_rules WHERE id = 1`,
+    )
+    .first<RotaRulesRow>();
+  // Falling back to today's behaviour rather than throwing: a missing row must
+  // not stop anybody generating a rota.
+  return row ?? {
+    any_role_gap: 'fortnight_prefer',
+    max_roles_per_service: null,
+    when_short: 'bend_both',
+    fairness: 'balanced',
+    list_every_empty_place: 0,
+  };
+}
+
+export async function saveRotaRules(db: D1Database, r: RotaRulesRow): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE rota_rules
+          SET any_role_gap = ?1, max_roles_per_service = ?2, when_short = ?3,
+              fairness = ?4, list_every_empty_place = ?5,
+              updated_at = datetime('now')
+        WHERE id = 1`,
+    )
+    .bind(r.any_role_gap, r.max_roles_per_service, r.when_short, r.fairness,
+      r.list_every_empty_place)
+    .run();
 }
 
 export interface SessionPerson {

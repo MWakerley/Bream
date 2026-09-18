@@ -9,6 +9,7 @@
  *   npm run test:gen
  */
 import { generateRota, epochDay } from '../src/rota/generate.js';
+import { DEFAULT_RULES } from '../src/rota/types.js';
 import type { GeneratorInput, GenService } from '../src/rota/types.js';
 
 const R = { preacher: 1, leader: 2, worship: 3, reader: 4, prayer: 5, kids: 6, sound: 7, welcome: 8 };
@@ -434,6 +435,151 @@ console.log('generator:');
     (a) => a.serviceId === svc.id && a.roleId === R.preacher && a.slot === 1);
   ok('and nobody else is given their slot', sameSlot.length === 1,
     `${sameSlot.length} people ended up in slot 1 — this is the silent-overwrite bug`);
+}
+
+// ---------------------------------------------------------------------------
+// Case 20: the rules the church sets on the Draft rota rules page.
+// ---------------------------------------------------------------------------
+{
+  const withRules = (over: Record<string, unknown>) => {
+    const inp = base();
+    inp.rules = { ...DEFAULT_RULES, ...over } as typeof inp.rules;
+    return inp;
+  };
+
+  // A role-level floor reaches the generator as each person's minGapDays, so
+  // the observable effect is the gap between one person's turns widening.
+  {
+    const inp = base();
+    inp.capabilities = inp.capabilities.map((c) =>
+      c.roleId === R.preacher ? { ...c, minGapDays: 56 } : c);
+    const res = generateRota(inp);
+    const byPerson = new Map<number, number[]>();
+    for (const a of res.allocations.filter((x) => x.roleId === R.preacher)) {
+      const day = inp.services.find((s) => s.id === a.serviceId)!.day;
+      byPerson.set(a.personId, [...(byPerson.get(a.personId) ?? []), day]);
+    }
+    let tooSoon = 0;
+    for (const days of byPerson.values()) {
+      days.sort((x, y) => x - y);
+      for (let n = 1; n < days.length; n++) if (days[n]! - days[n - 1]! < 56) tooSoon++;
+    }
+    ok('a gap set for the whole role is obeyed', tooSoon === 0,
+      `${tooSoon} turns came round sooner than the role allows`);
+  }
+
+  // "Ask them as often as needed" — the vicar. It removes the DERIVED floor,
+  // which is the one nobody ever chose, without touching anybody else.
+  {
+    const plain = generateRota(base());
+    const inp = base();
+    inp.capabilities = inp.capabilities.map((c) =>
+      c.personId === 100 && c.roleId === R.preacher ? { ...c, askAnyTime: true } : c);
+    const res = generateRota(inp);
+    const before = plain.allocations.filter((a) => a.personId === 100 && a.roleId === R.preacher).length;
+    const after = res.allocations.filter((a) => a.personId === 100 && a.roleId === R.preacher).length;
+    ok('"ask them as often as needed" lets somebody preach more', after >= before,
+      `${before} before, ${after} after`);
+  }
+
+  // THE GUARD. record() sets lastAnyRole = svc.day as each allocation commits,
+  // so within one service a person just given a role has sinceAny === 0.
+  // Without the `sinceAny > 0` check a gap of ANY size would forbid every
+  // second role at one service — silently retiring the whole combinations page.
+  {
+    const plain = generateRota(base());
+    const doubled = (r: ReturnType<typeof generateRota>) => {
+      let n = 0;
+      for (const svc of base().services) {
+        const here = r.allocations.filter((a) => a.serviceId === svc.id);
+        const seen = new Set<number>();
+        for (const a of here) { if (seen.has(a.personId)) n++; seen.add(a.personId); }
+      }
+      return n;
+    };
+    const res = generateRota(withRules({ anyRoleHardDays: 15 }));
+    ok('a firm gap between Sundays does not forbid two jobs at ONE service',
+      doubled(res) > 0 || doubled(plain) === 0,
+      'this is the guard that stops the combination rules being silently retired');
+  }
+
+  // And it does what it says between services.
+  //
+  // With bending allowed the floor is RELAX_FLOOR_DAYS, not the rule: a service
+  // that would otherwise be short may ask somebody again after a clear week.
+  // That is the documented promise of "ask sooner if it comes to it", so the
+  // rule is asserted at its strict setting and the bend is asserted separately.
+  {
+    const res = generateRota(withRules({ anyRoleHardDays: 15, whenShort: 'leave_empty' }));
+    const dayOf = new Map(base().services.map((s) => [s.id, s.day]));
+    const byPerson = new Map<number, number[]>();
+    for (const a of res.allocations) {
+      const d = dayOf.get(a.serviceId)!;
+      const seen = byPerson.get(a.personId) ?? [];
+      if (!seen.includes(d)) seen.push(d);
+      byPerson.set(a.personId, seen);
+    }
+    let tooSoon = 0;
+    for (const days of byPerson.values()) {
+      days.sort((x, y) => x - y);
+      for (let n = 1; n < days.length; n++) if (days[n]! - days[n - 1]! < 15) tooSoon++;
+    }
+    ok('but it is obeyed between services', tooSoon === 0,
+      `${tooSoon} people served again inside a fortnight`);
+  }
+
+  // When bending IS allowed, the rule gives way — but never below a clear week,
+  // which is the one thing the settings page promises outright.
+  {
+    const res = generateRota(withRules({ anyRoleHardDays: 15, whenShort: 'bend_both' }));
+    const dayOf = new Map(base().services.map((s) => [s.id, s.day]));
+    const byPerson = new Map<number, number[]>();
+    for (const a of res.allocations) {
+      const d = dayOf.get(a.serviceId)!;
+      const seen = byPerson.get(a.personId) ?? [];
+      if (!seen.includes(d)) seen.push(d);
+      byPerson.set(a.personId, seen);
+    }
+    let insideAWeek = 0;
+    for (const days of byPerson.values()) {
+      days.sort((x, y) => x - y);
+      for (let n = 1; n < days.length; n++) if (days[n]! - days[n - 1]! < 7) insideAWeek++;
+    }
+    ok('and bending never goes below a clear week', insideAWeek === 0,
+      `${insideAWeek} people were asked again inside a week`);
+  }
+
+  // Most jobs at one service.
+  {
+    const res = generateRota(withRules({ maxRolesPerService: 1 }));
+    let over = 0;
+    for (const svc of base().services) {
+      const counts = new Map<number, number>();
+      for (const a of res.allocations.filter((x) => x.serviceId === svc.id)) {
+        counts.set(a.personId, (counts.get(a.personId) ?? 0) + 1);
+      }
+      for (const n of counts.values()) if (n > 1) over++;
+    }
+    ok('a limit on jobs per service is obeyed', over === 0, `${over} people held more`);
+  }
+
+  // "Leave the place empty" must not bend anything.
+  {
+    const strict = generateRota(withRules({ whenShort: 'leave_empty' }));
+    const loose = generateRota(withRules({ whenShort: 'bend_both' }));
+    ok('refusing to bend never produces FEWER gaps than bending',
+      strict.gaps.length >= loose.gaps.length,
+      `${strict.gaps.length} strict vs ${loose.gaps.length} bending`);
+  }
+
+  // And the defaults change nothing at all, which is the promise the settings
+  // page makes: "nothing here changes what the draft does until you change it".
+  {
+    const without = generateRota(base());
+    const withDefaults = generateRota(withRules({}));
+    ok('the default rules reproduce the old behaviour exactly',
+      JSON.stringify(without.allocations) === JSON.stringify(withDefaults.allocations));
+  }
 }
 console.log(failures === 0 ? '\nGenerator OK.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
