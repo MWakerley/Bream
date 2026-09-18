@@ -40,6 +40,8 @@ const PATHS: [string, string | null][] = [
   ['/app/settings/combinations/by-role', 'settings'],
   ['/app/events/12/bookings/new', 'events'],
   ['/app/events/12/bookings/5', 'events'],
+  ['/app/rota/service/3/role/2/add', 'rota'],
+  ['/app/rota/service/3/assignment/9/remove', 'rota'],
 ];
 for (const [path, want] of PATHS) {
   const got = areaForPath(path);
@@ -66,6 +68,15 @@ ok('a volunteer cannot switch a role off for a service',
 ok('a volunteer CAN still record being away',
   mayAccess(VOLUNTEER, '/app/me/away', 'POST'),
   'their own dates are theirs to change');
+
+ok('a volunteer cannot put somebody on a service',
+  !mayAccess(VOLUNTEER, '/app/rota/service/3/role/2/add', 'POST'),
+  'seeing the rota must not mean being able to change it');
+ok('nor take somebody off',
+  !mayAccess(VOLUNTEER, '/app/rota/service/3/assignment/9/remove', 'POST'));
+ok('a coordinator can put somebody on', mayAccess(COORD, '/app/rota/service/3/role/2/add', 'POST'),
+  'this is the only way a guest preacher ever reaches a service');
+ok('and take somebody off', mayAccess(COORD, '/app/rota/service/3/assignment/9/remove', 'POST'));
 
 ok('the room profile can book', mayAccess(ROOMS, '/app/rooms/book', 'POST'));
 ok('the room profile can change a booking', mayAccess(ROOMS, '/app/rooms/42', 'POST'));

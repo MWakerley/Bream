@@ -57,7 +57,18 @@
 
   "vars": {
     // Where an acknowledgement comes from. Must be on the onboarded domain.
-    "ACK_FROM": "bookings@stack66.com"
+    "ACK_FROM": "bookings@stack66.com",
+
+    // Cloudflare Turnstile, on the PUBLIC event booking form only — the one page
+    // anybody on the internet can post to. The site key is public by design: it
+    // is rendered into the page. Its partner, TURNSTILE_SECRET, is a Worker
+    // secret and is the half that actually proves anything.
+    //
+    // The widget is locked to breamchurch.stack66.com, so the key is useless
+    // anywhere else. If either value is missing the booking form still works
+    // without a challenge, because a mis-set key must not stop the church taking
+    // bookings.
+    "TURNSTILE_SITEKEY": "0x4AAAAAAE8EA4uLyrI3qm9X"
   },
 
   "observability": {

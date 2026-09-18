@@ -21,6 +21,11 @@ export function peopleByRolePage(opts: {
   const { roles, role, people, ctx, notice } = opts;
   const can = people.filter((p) => p.can_do);
   const flagged = people.filter((p) => p.can_do && p.needs_review).length;
+  // Who the generator can actually draw on. A tick says somebody COULD do it;
+  // this is how many it may currently pick, which is the number the thin-pool
+  // warning exists to alarm about.
+  const available = can.filter((p) => !p.needs_review && !p.on_break && !p.is_guest);
+  const heldBack = can.length - available.length;
 
   return layout(
     {
@@ -62,17 +67,23 @@ export function peopleByRolePage(opts: {
           <span class="stat-n">${role.min_needed}${role.ideal_needed !== role.min_needed ? `–${role.ideal_needed}` : ''}</span>
           <span class="stat-l">needed per service</span>
         </div>
-        <div class="stat ${can.length > 0 && can.length < role.min_needed * 3 ? 'stat-full' : ''}">
-          <span class="stat-n">${people.length}</span>
-          <span class="stat-l">people to choose from</span>
+        <div class="stat ${available.length > 0 && available.length < role.min_needed * 3 ? 'stat-full' : ''}">
+          <span class="stat-n">${available.length}</span>
+          <span class="stat-l">the rota can use now</span>
         </div>
       </div>
 
-      ${can.length > 0 && can.length < role.min_needed * 3
+      ${available.length > 0 && available.length < role.min_needed * 3
         ? html`<div class="notice notice-warn"><p style="margin:0">
-            Only ${can.length} ${can.length === 1 ? 'person' : 'people'} can do this, and every
-            service needs ${role.min_needed}. That is a thin pool — the rota will have to use
-            the same people often, or leave places empty.
+            The rota can only draw on ${available.length}
+            ${available.length === 1 ? 'person' : 'people'} for this, and every service needs
+            ${role.min_needed}. That is a thin pool — it will have to use the same people
+            often, or leave places empty.
+            ${heldBack
+              ? html`(${can.length} are ticked, but ${heldBack} of them
+                  ${heldBack === 1 ? 'is' : 'are'} taking a break, a guest, or flagged as a
+                  possible duplicate.)`
+              : ''}
           </p></div>`
         : ''}
 
@@ -125,6 +136,8 @@ export function peopleByRolePage(opts: {
                   <td>
                     <a href="/app/settings/people/${p.id}"><strong>${p.display_name}</strong></a>
                     ${p.needs_review ? html`<div>${chip('amber', 'possible duplicate')}</div>` : ''}
+                    ${p.on_break ? html`<div>${chip('amber', 'taking a break')}</div>` : ''}
+                    ${p.is_guest ? html`<div>${chip('navy', 'guest')}</div>` : ''}
                   </td>
                   <td class="num">${p.done || ''}</td>
                   <td>

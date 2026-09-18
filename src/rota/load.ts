@@ -8,13 +8,23 @@ const HISTORY_DAYS = 400;
 /**
  * Reads everything the generator needs out of D1.
  *
- * Two deliberate exclusions:
+ * Four deliberate exclusions, and they are not all excluded in the same way:
  *   * people flagged `needs_review` are left out entirely. The import cannot
  *     tell Matt R from Matt W, and a rota that guesses which one is meant is
  *     worse than one that says a place is empty.
+ *   * people marked `on_break` are left out of the CANDIDATE POOL but kept in
+ *     the people list. They are still one of us; they are simply not to be put
+ *     on anything new until the box is unticked.
+ *   * people marked `is_guest` likewise. A visiting preacher is put on a
+ *     service by name, never drawn from the pool, and never counted as part of
+ *     it when the system asks whether a pool is thin.
  *   * assignments already CONFIRMED inside the window become pins, not
  *     suggestions. The September rota is what the church is already running;
  *     regenerating must not quietly rewrite it.
+ *
+ * The distinction between the first exclusion and the middle two is the whole
+ * reason there are two queries below rather than one. Read the comments on them
+ * before moving a WHERE clause from one to the other.
  */
 export async function loadGeneratorInput(
   db: D1Database,
@@ -45,17 +55,42 @@ export async function loadGeneratorInput(
           ORDER BY s.service_date, s.service_time, r.sort_order`,
       ).bind(fromDate, toDate),
 
+      // Everybody the generator is allowed to KNOW ABOUT.
+      //
+      // Deliberately NOT filtered on on_break or is_guest, and this is
+      // load-bearing rather than an oversight. generate.ts builds personById
+      // from this list and skips any pin whose person is missing from it; a
+      // dropped pin leaves its slot looking free, the slot is handed to somebody
+      // else, and apply's INSERT OR REPLACE then overwrites the CONFIRMED row on
+      // the unique (service_id, role_id, slot). Filtering here would quietly
+      // delete arrangements the church has already made and printed.
+      //
+      // Absence from the ROTA is achieved by the next query instead.
       db.prepare(
         `SELECT id, display_name FROM people
           WHERE is_active = 1 AND needs_review = 0 ORDER BY id`,
       ),
 
+      // What each person is available to be PICKED for.
+      //
+      // This is the single enforcement point for "do not put them on anything
+      // new". It feeds capBy and eligible, which between them supply every
+      // candidate pool, the fair-share denominator, the expected-load maths and
+      // the capacity audit — so a person absent here is absent from all of it,
+      // while their existing pins above still stand.
+      //
+      //   on_break — still one of us, just not at the moment
+      //   is_guest — a visitor, put on by name or not at all
+      //
+      // Both are only ever excluded from work the generator INVENTS. Neither
+      // stops a human putting them on a service deliberately.
       db.prepare(
         `SELECT pr.person_id, pr.role_id, pr.max_per_period, pr.period_days, pr.min_gap_days
            FROM person_roles pr
            JOIN people p ON p.id = pr.person_id
           WHERE pr.can_do = 1 AND pr.willing = 1
             AND p.is_active = 1 AND p.needs_review = 0
+            AND p.on_break = 0 AND p.is_guest = 0
           ORDER BY pr.person_id, pr.role_id`,
       ),
 

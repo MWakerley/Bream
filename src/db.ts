@@ -16,6 +16,12 @@ export interface Env {
   /** One-time ticket for /admin/setup. Set with `wrangler secret put`, deleted
    *  once the first admin exists. Absent in normal operation. */
   ADMIN_BOOTSTRAP_TOKEN?: string;
+  /** Turnstile, guarding the one public form. The site key is rendered into the
+   *  page and is meant to be visible; the secret is a Worker secret. Both are
+   *  optional, and the booking form works without a challenge if either is
+   *  missing — see src/turnstile.ts for why that is the right failure. */
+  TURNSTILE_SITEKEY?: string;
+  TURNSTILE_SECRET?: string;
 }
 
 export interface PersonRow {
@@ -28,6 +34,23 @@ export interface PersonRow {
   needs_review: number;
   review_note: string | null;
   happy_with_anyone: number;
+  /**
+   * Still one of us, just not at the moment.
+   *
+   * Distinct from is_active, which means they have stopped. Somebody on a break
+   * keeps their roles, their history and their place on the roster; the
+   * generator simply does not pick them until it is unticked.
+   */
+  on_break: number;
+  on_break_since: string | null;
+  /**
+   * A visiting preacher or worship leader.
+   *
+   * They can be put on a service by hand — that is the whole point of them —
+   * but they are never drawn from the pool automatically, and never counted
+   * when the system asks whether a pool is big enough.
+   */
+  is_guest: number;
 }
 
 export interface RoleRow {
@@ -115,6 +138,8 @@ export interface PersonForRole {
   id: number;
   display_name: string;
   needs_review: number;
+  on_break: number;
+  is_guest: number;
   can_do: number;
   max_per_period: number | null;
   period_days: number | null;
@@ -137,7 +162,7 @@ export async function listPeopleForRole(
 ): Promise<PersonForRole[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.id, p.display_name, p.needs_review,
+      `SELECT p.id, p.display_name, p.needs_review, p.on_break, p.is_guest,
               COALESCE(pr.can_do, 0) AS can_do,
               pr.max_per_period, pr.period_days, pr.min_gap_days,
               (SELECT COUNT(*) FROM assignments a
@@ -149,6 +174,57 @@ export async function listPeopleForRole(
     )
     .bind(roleId)
     .all<PersonForRole>();
+  return results;
+}
+
+export interface Candidate {
+  id: number;
+  display_name: string;
+  /** They are ticked as able to do this role. */
+  can_do: number;
+  on_break: number;
+  is_guest: number;
+  /** They are already on this service, in some role. */
+  already_here: number;
+  /** They have said they are away on this date. */
+  away: number;
+}
+
+/**
+ * Who could be put on this role at this service, by hand.
+ *
+ * Everybody active, not only those the generator would pick — that is the point
+ * of doing it by hand. A guest preacher exists precisely to be chosen this way
+ * and would never appear otherwise, and somebody on a break may still say yes
+ * when asked directly.
+ *
+ * Nobody is excluded. What the list does instead is SAY things: who cannot
+ * normally do this role, who is away that day, who is already on this service.
+ * The person clicking is a churchwarden who knows more than the database does,
+ * so the job here is to inform the decision rather than to overrule it.
+ */
+export async function listCandidatesForRole(
+  db: D1Database,
+  serviceId: number,
+  roleId: number,
+): Promise<Candidate[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT p.id, p.display_name, p.on_break, p.is_guest,
+              COALESCE(pr.can_do, 0) AS can_do,
+              EXISTS (SELECT 1 FROM assignments a
+                       WHERE a.service_id = ?1 AND a.person_id = p.id) AS already_here,
+              EXISTS (SELECT 1 FROM unavailability u
+                       JOIN services s ON s.id = ?1
+                      WHERE u.person_id = p.id
+                        AND s.service_date BETWEEN u.from_date AND u.to_date) AS away
+         FROM people p
+         LEFT JOIN person_roles pr ON pr.person_id = p.id AND pr.role_id = ?2
+        WHERE p.is_active = 1 AND p.needs_review = 0
+        ORDER BY COALESCE(pr.can_do, 0) DESC, p.display_name`,
+    )
+    .bind(serviceId, roleId)
+    .all<Candidate>();
   return results;
 }
 
@@ -420,7 +496,25 @@ export interface ServiceRoleDetail {
   role_name: string;
   min_needed: number;
   ideal_needed: number;
-  people: string[];
+  /**
+   * Who is on it.
+   *
+   * Objects rather than names, because a name cannot be taken off again. Each
+   * carries the assignment id that a remove button posts to, and the status so
+   * the page can tell a confirmed arrangement from one the generator suggested
+   * and would replace anyway.
+   */
+  people: ServiceAssignee[];
+}
+
+export interface ServiceAssignee {
+  assignment_id: number;
+  person_id: number;
+  display_name: string;
+  status: string;
+  /** They are on this service despite being on a break or being a guest. */
+  on_break: number;
+  is_guest: number;
 }
 
 export interface ServiceDetail {
@@ -464,17 +558,18 @@ export async function getServiceDetail(
 
   const { results: people } = await db
     .prepare(
-      `SELECT a.role_id, p.display_name
+      `SELECT a.id AS assignment_id, a.role_id, a.status,
+              p.id AS person_id, p.display_name, p.on_break, p.is_guest
          FROM assignments a JOIN people p ON p.id = a.person_id
         WHERE a.service_id = ?1
         ORDER BY a.role_id, a.slot`,
     )
     .bind(id)
-    .all<{ role_id: number; display_name: string }>();
-  const byRole = new Map<number, string[]>();
+    .all<ServiceAssignee & { role_id: number }>();
+  const byRole = new Map<number, ServiceAssignee[]>();
   for (const p of people) {
     const arr = byRole.get(p.role_id) ?? [];
-    arr.push(p.display_name);
+    arr.push(p);
     byRole.set(p.role_id, arr);
   }
 

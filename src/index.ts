@@ -15,7 +15,9 @@ import {
   countServicesWithGaps,
   getServiceDetail,
   listUpcomingServices,
+  listCandidatesForRole,
   listCombinations,
+  type Candidate,
   listCombinationsForRole,
   saveCombinationsForRole,
   listPairings,
@@ -50,6 +52,7 @@ import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookin
 import { myRotaPage, requestsPage, type MyDuty, type AwayRow, type ChangeRequestRow } from './views/me.js';
 import { roomsCalendarPage, rotaCalendarPage } from './views/calendars.js';
 import { thisMonth } from './views/calendar.js';
+import { verifyTurnstile, turnstileReady } from './turnstile.js';
 import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listEventBookings,
          makeSlug, fieldKey, readBookingForm, hasRoom,
          getBooking as getEventBooking, saveBooking } from './events.js';
@@ -936,7 +939,8 @@ async function personView(
 ) {
   const [person, roles, settings] = await Promise.all([
     c.env.DB.prepare(
-      `SELECT id, display_name, full_name, email, needs_review, review_note, is_active, is_admin
+      `SELECT id, display_name, full_name, email, needs_review, review_note, is_active, is_admin,
+              on_break, on_break_since, is_guest
          FROM people WHERE id = ?1`,
     ).bind(id).first<any>(),
     listRoles(c.env.DB),
@@ -970,12 +974,36 @@ async function personView(
   // already has a profile, and the page does not offer to pick one again.
   const profiles = account ? [] : await listProfiles(c.env.DB);
 
+  // What a person on a break is still down for.
+  //
+  // Going on a break stops them being put on anything NEW; it does not cancel
+  // what was already arranged, which the three independent reviews of this
+  // agreed on unanimously. But leaving that silent is the real risk — somebody
+  // ticks the box in September believing it is handled and finds out in
+  // November. So the arrangements are listed, and the status comes with them:
+  // a confirmed place needs a human decision, a draft one will clear itself the
+  // next time a rota is generated.
+  const upcoming = person.on_break
+    ? (await c.env.DB.prepare(
+        `SELECT a.id AS assignment_id, a.service_id, a.status,
+                s.service_date, s.service_time, r.name AS role_name
+           FROM assignments a
+           JOIN services s ON s.id = a.service_id
+           JOIN roles r    ON r.id = a.role_id
+          WHERE a.person_id = ?1
+            AND s.is_cancelled = 0
+            AND s.service_date >= date('now')
+          ORDER BY s.service_date, s.service_time`,
+      ).bind(id).all<any>()).results
+    : [];
+
   return c.html(personPage({
     person: {
       ...person,
       settings: new Map(settings.results.map((s: any) => [s.role_id, s])),
       account,
       profiles,
+      upcoming,
     },
     roles,
     ctx: viewCtx(c),
@@ -1160,11 +1188,22 @@ app.post('/app/settings/people/:id', async (c) => {
         SET display_name = ?2, full_name = ?3, email = ?4, is_active = ?5,
             needs_review = CASE WHEN ?6 = 1 THEN 0 ELSE needs_review END,
             review_note  = CASE WHEN ?6 = 1 THEN NULL ELSE review_note END,
+            on_break = ?7,
+            -- Stamped from the row's own current value rather than from one read
+            -- a moment ago, so saving the page twice does not restart the break
+            -- and two administrators saving at once cannot lose the date.
+            on_break_since = CASE
+              WHEN ?7 = 1 AND on_break = 0 THEN datetime('now')
+              WHEN ?7 = 0 THEN NULL
+              ELSE on_break_since
+            END,
+            is_guest = ?8,
             updated_at = datetime('now')
       WHERE id = ?1`,
   ).bind(
     id, str('display_name') ?? 'Unnamed', str('full_name'), str('email'),
     form.get('is_active') ? 1 : 0, form.get('clear_review') ? 1 : 0,
+    form.get('on_break') ? 1 : 0, form.get('is_guest') ? 1 : 0,
   ).run();
 
   const roles = await listRoles(c.env.DB);
@@ -1453,7 +1492,76 @@ app.get('/app/rota/service/:id', async (c) => {
   if (!Number.isInteger(id)) return c.notFound();
   const detail = await getServiceDetail(c.env.DB, id);
   if (!detail) return c.notFound();
-  return c.html(servicePage(detail, viewCtx(c)));
+
+  // The pickers are only drawn for somebody who may actually change the rota.
+  // Offering a control that will refuse you is worse than not offering it.
+  const mayEdit = c.get('areas')?.has('rota.manage') ?? false;
+  const candidates = mayEdit ? new Map<number, Candidate[]>() : undefined;
+  if (candidates) {
+    // One query per role rather than one big one: each needs its own "can they
+    // do THIS role" and "are they already on THIS service" columns, and a dozen
+    // small queries is well inside what D1 is happy with.
+    for (const r of detail.roles) {
+      candidates.set(r.role_id, await listCandidatesForRole(c.env.DB, id, r.role_id));
+    }
+  }
+  return c.html(servicePage(detail, viewCtx(c), candidates));
+});
+
+/**
+ * Put somebody on a role by hand.
+ *
+ * This is how a guest preacher gets on a service at all — they are never drawn
+ * from the pool, by definition — and how a coordinator overrides anything the
+ * generator decided. Nobody is refused here: the page says who is on a break,
+ * who is away and who does not normally do the role, and then the person
+ * clicking decides. They rang round on Saturday night; they know more than the
+ * roster does.
+ */
+app.post('/app/rota/service/:id/role/:roleId/add', async (c) => {
+  const id = Number(c.req.param('id'));
+  const roleId = Number(c.req.param('roleId'));
+  const personId = Number((await c.req.formData()).get('person_id'));
+  if (!Number.isInteger(id) || !Number.isInteger(roleId)) return c.notFound();
+  if (!Number.isInteger(personId) || personId <= 0) {
+    return c.redirect(`/app/rota/service/${id}`, 303);
+  }
+
+  const person = await c.env.DB.prepare(
+    'SELECT display_name FROM people WHERE id = ?1 AND is_active = 1',
+  ).bind(personId).first<{ display_name: string }>();
+  if (!person) return c.notFound();
+
+  // The lowest free slot, worked out from the slots actually taken rather than
+  // from a count — the same rule the generator uses, so a pin at slot 3 does not
+  // collide with a new slot 1.
+  const { results: taken } = await c.env.DB.prepare(
+    'SELECT slot FROM assignments WHERE service_id = ?1 AND role_id = ?2',
+  ).bind(id, roleId).all<{ slot: number }>();
+  const used = new Set(taken.map((t) => t.slot));
+  let slot = 1;
+  while (used.has(slot)) slot++;
+
+  // 'confirmed' and generated = 0: a human put this here deliberately, so the
+  // next generation must treat it as a pin and leave it exactly alone.
+  await c.env.DB.prepare(
+    `INSERT INTO assignments (service_id, role_id, slot, person_id, status, generated, reason)
+     VALUES (?1, ?2, ?3, ?4, 'confirmed', 0, ?5)`,
+  ).bind(id, roleId, slot, personId, `Put on by ${c.get('person').display_name}`).run();
+
+  return c.redirect(`/app/rota/service/${id}`, 303);
+});
+
+/** Take somebody off a role at one service. The person stays on the roster. */
+app.post('/app/rota/service/:id/assignment/:assignmentId/remove', async (c) => {
+  const id = Number(c.req.param('id'));
+  const assignmentId = Number(c.req.param('assignmentId'));
+  if (!Number.isInteger(id) || !Number.isInteger(assignmentId)) return c.notFound();
+
+  // Scoped to the service in the path, so a stray id cannot reach into another.
+  await c.env.DB.prepare('DELETE FROM assignments WHERE id = ?1 AND service_id = ?2')
+    .bind(assignmentId, id).run();
+  return c.redirect(`/app/rota/service/${id}`, 303);
 });
 
 /**
@@ -2240,6 +2348,7 @@ async function eventAdminView(
   return c.html(eventAdminPage({
     event, fields, bookings, ctx: viewCtx(c), origin: new URL(c.req.url).origin, notice,
     emailReady: Boolean(c.env.EMAIL && c.env.ACK_FROM),
+    captchaReady: turnstileReady(c.env),
   }));
 }
 
@@ -2803,7 +2912,7 @@ app.get('/events/:slug', async (c) => {
   const event = await getEventBySlug(c.env.DB, c.req.param('slug'));
   if (!event || !event.is_published) return c.notFound();
   const fields = await listFields(c.env.DB, event.id);
-  return c.html(publicBookingPage({ event, fields }));
+  return c.html(publicBookingPage({ event, fields, turnstileSitekey: c.env.TURNSTILE_SITEKEY }));
 });
 
 app.post('/events/:slug', async (c) => {
@@ -2815,19 +2924,34 @@ app.post('/events/:slug', async (c) => {
   const values: Record<string, string> = {};
   for (const [k, v] of form.entries()) values[k] = String(v);
 
+  // Checked before anything else, so a bot never reaches the capacity query or
+  // the insert. Everything typed is handed back on the redrawn page, because
+  // failing this check is usually a human who left the tab open, not a bot.
+  const human = await verifyTurnstile(
+    c.env,
+    String(form.get('cf-turnstile-response') ?? ''),
+    c.req.header('CF-Connecting-IP'),
+  );
+  if (!human.ok) {
+    return c.html(publicBookingPage({
+      event, fields, values, error: human.error,
+      turnstileSitekey: c.env.TURNSTILE_SITEKEY,
+    }), 400);
+  }
+
   if (event.booking_closes_at && new Date().toISOString().slice(0, 10) > event.booking_closes_at) {
     return c.html(publicBookingPage({
-      event, fields, values, error: 'Bookings for this event have closed.',
+      event, fields, values, turnstileSitekey: c.env.TURNSTILE_SITEKEY, error: 'Bookings for this event have closed.',
     }), 400);
   }
 
   const parsed = readBookingForm(form, fields);
   if (!parsed.ok) {
-    return c.html(publicBookingPage({ event, fields, values, error: parsed.error }), 400);
+    return c.html(publicBookingPage({ event, fields, values, error: parsed.error, turnstileSitekey: c.env.TURNSTILE_SITEKEY }), 400);
   }
   if (event.send_ack && !parsed.value.email) {
     return c.html(publicBookingPage({
-      event, fields, values,
+      event, fields, values, turnstileSitekey: c.env.TURNSTILE_SITEKEY,
       error: 'Please give an email address — we send a confirmation to it.',
     }), 400);
   }
@@ -2838,7 +2962,7 @@ app.post('/events/:slug', async (c) => {
   const room = await hasRoom(c.env.DB, event.id, parsed.value.partySize);
   if (!room.ok) {
     return c.html(publicBookingPage({
-      event, fields, values,
+      event, fields, values, turnstileSitekey: c.env.TURNSTILE_SITEKEY,
       error: room.left === 0
         ? 'Sorry — the last places went while you were filling this in.'
         : `Sorry — there ${room.left === 1 ? 'is' : 'are'} only ${room.left} place${room.left === 1 ? '' : 's'} left.`,

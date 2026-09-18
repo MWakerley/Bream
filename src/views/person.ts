@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import type { RoleRow } from '../db.js';
-import { formatDateTime } from './rota.js';
+import { formatDate, formatDateTime } from './rota.js';
 import { UNITS, toUnits } from '../frequency.js';
 
 const BACK = { href: '/app/settings/people', label: 'People and roles' };
@@ -26,6 +26,20 @@ export interface PersonEditData {
   review_note: string | null;
   is_active: number;
   is_admin: number;
+  /** Still one of us, but not to be put on anything for now. */
+  on_break: number;
+  /** When the break started, so a break nobody has ended can be noticed. */
+  on_break_since: string | null;
+  /** A visitor: assignable by hand, never drawn from the pool automatically. */
+  is_guest: number;
+  /** Services they are still down for. Only loaded when it matters — that is,
+   *  when they are on a break and somebody should see what was already agreed. */
+  upcoming?: {
+    service_id: number; service_date: string; role_name: string;
+    /** 'confirmed' needs a human decision; 'draft' clears itself next time a
+     *  rota is generated, so it is not worth anybody's Saturday. */
+    status: string;
+  }[];
   settings: Map<number, PersonRoleSetting>;
   /** Their sign-in, if they have one at all. Most of the roster does not. */
   account?: PersonAccount | null;
@@ -88,6 +102,11 @@ export function personPage(opts: {
 }) {
   const { person: p, roles, ctx } = opts;
   const today = opts.today ?? new Date();
+  // A confirmed place is a promise somebody made and needs a person to unmake.
+  // A draft one the generator will drop by itself, and asking a churchwarden to
+  // action it would be wasting their Saturday.
+  const firm = (p.upcoming ?? []).filter((u) => u.status !== 'draft');
+  const loose = (p.upcoming ?? []).filter((u) => u.status === 'draft');
 
   return layout(
     {
@@ -102,6 +121,50 @@ export function personPage(opts: {
       ${opts.notice
         ? html`<div class="notice notice-${opts.notice.tone}" role="status">
             <p style="margin:0">${opts.notice.text}</p></div>`
+        : ''}
+
+      ${p.on_break
+        ? html`<div class="notice notice-warn">
+            <p style="margin-top:0">
+              <strong>${p.display_name} is taking a break${p.on_break_since
+                ? ` — since ${formatDate(p.on_break_since.slice(0, 10))}`
+                : ''}.</strong>
+              They will not be put on anything when a rota is generated. Untick
+              <strong>Taking a break</strong> below and they carry on exactly as before — nothing
+              else about them has changed.
+            </p>
+            ${firm.length
+              ? html`<p style="margin-bottom:0">
+                  They are still down for
+                  <strong>${firm.length}</strong> service${firm.length === 1 ? '' : 's'}
+                  arranged before the break. Going on a break does not cancel something already
+                  agreed, so ${firm.length === 1 ? 'it is' : 'they are'} left exactly as
+                  ${firm.length === 1 ? 'it is' : 'they are'} — open
+                  ${firm.length === 1 ? 'it' : 'each one'} and use <strong>Take off</strong> if
+                  they cannot do it after all:
+                  ${firm.map((u, i) => html`${i ? ', ' : ''}<a
+                    href="/app/rota/service/${u.service_id}">${formatDate(u.service_date)} (${u.role_name})</a>`)}.
+                </p>`
+              : ''}
+            ${loose.length
+              ? html`<p style="margin-bottom:0;color:var(--ink-2)">
+                  ${loose.length} more ${loose.length === 1 ? 'is' : 'are'} only a draft
+                  suggestion, so ${loose.length === 1 ? 'it' : 'they'} will drop off by
+                  ${loose.length === 1 ? 'itself' : 'themselves'} the next time a rota is
+                  generated. Nothing to do.
+                </p>`
+              : ''}
+          </div>`
+        : ''}
+
+      ${p.is_guest
+        ? html`<div class="notice notice-info">
+            <p style="margin:0">
+              <strong>${p.display_name} is a guest.</strong> Put them on a service yourself whenever
+              they are coming — the rota simply never picks them on its own, and they are not
+              counted when the system works out whether there are enough people for a role.
+            </p>
+          </div>`
         : ''}
 
       ${p.needs_review
@@ -137,12 +200,29 @@ export function personPage(opts: {
               <input id="email" name="email" type="email" value="${p.email ?? ''}">
             </div>
           </div>
+          <!-- Three ways somebody can be left off a rota, and they mean three
+               different things. Kept side by side so the difference is visible
+               at the moment of ticking, rather than discovered later when the
+               generator quietly skips somebody. -->
           <div class="checks" style="margin-top:.5rem">
             <label class="check">
               <input type="checkbox" name="is_active" value="1" ${p.is_active ? 'checked' : ''}>
               <span><span class="check-label">Still serving</span>
                 <span class="check-note">Turn off when someone stops, rather than deleting them —
                   it keeps their history intact.</span></span>
+            </label>
+            <label class="check">
+              <input type="checkbox" name="on_break" value="1" ${p.on_break ? 'checked' : ''}>
+              <span><span class="check-label">Taking a break</span>
+                <span class="check-note">Still one of us, just not at the moment. They will not be
+                  put on anything new until this is unticked, and then they carry on as
+                  before.</span></span>
+            </label>
+            <label class="check">
+              <input type="checkbox" name="is_guest" value="1" ${p.is_guest ? 'checked' : ''}>
+              <span><span class="check-label">Guest</span>
+                <span class="check-note">A visiting preacher or worship leader. You can still put
+                  them on a service yourself; the rota will never pick them on its own.</span></span>
             </label>
             ${p.needs_review
               ? html`<label class="check">

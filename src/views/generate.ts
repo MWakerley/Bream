@@ -64,6 +64,9 @@ export function generateFormPage(opts: {
               places are listed so you can see exactly what still needs a person.</li>
           <li><strong>People still marked "needs review" are skipped</strong> — the import
               cannot tell which person a first name refers to.</li>
+          <li><strong>Anyone taking a break is left out</strong>, and so is anyone marked as a
+              guest. Neither is cancelled from anything already arranged — they are simply not
+              put on anything new. Guests are added to a service by hand.</li>
           <li>Every choice comes with a sentence saying why.</li>
         </ul>
       </div>

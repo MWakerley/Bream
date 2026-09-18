@@ -788,3 +788,46 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
   padding: .1rem .4rem; border-radius: 4px;
   background: var(--warn); color: #fff;
 }
+
+/* ---------------------------------------------------------------------------
+   A heading with a purpose beside it.
+
+   Used where the heading is a NAME — an event is called "Harvest Supper", which
+   does not tell somebody arriving from a poster what the page is for. Wraps
+   underneath on a phone rather than squeezing the name.
+   --------------------------------------------------------------------------- */
+
+.page-h1-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .9rem;
+}
+.page-h1-row .page-h1 { margin-bottom: 0; }
+.page-h1-aside {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(.8125rem, .7rem + .4vw, 1rem);
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--gold-ink); background: var(--gold-wash);
+  border: 2px solid var(--gold); border-radius: 999px;
+  padding: .3rem .9rem; white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Who is on a role at one service.
+
+   A list rather than a comma-joined line, because each name now carries its own
+   remove button and its own markers. Stays readable on a phone, where a row of
+   four names with four buttons would otherwise become a wall.
+   --------------------------------------------------------------------------- */
+
+.assignees { list-style: none; margin: 0 0 .6rem; padding: 0; }
+.assignees li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .55rem;
+  padding: .3rem 0;
+}
+.assignees li + li { border-top: 1px solid var(--rule); }
+.assignee-name { font-weight: 700; }
+
+/* The picker that puts somebody on. Narrow enough not to dominate the row, and
+   it wraps to its own line on a phone. */
+.add-person { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.add-person select { width: auto; min-width: 12rem; max-width: 100%; flex: 1 1 12rem; padding: .5rem .6rem; }
+.add-person button { flex: none; }

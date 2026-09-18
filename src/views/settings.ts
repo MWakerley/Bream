@@ -71,7 +71,8 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
           <tbody id="people-list">
             ${people.map(
               (p) => html`<tr class="${p.needs_review ? 'row-gap' : ''}"
-                    data-search="${[p.display_name, p.full_name, p.email, p.role_names]
+                    data-search="${[p.display_name, p.full_name, p.email, p.role_names,
+                      p.on_break ? 'taking a break' : '', p.is_guest ? 'guest' : '']
                       .filter(Boolean)
                       .join(' ')}">
                 <td>
@@ -80,12 +81,19 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
                 <td>${p.role_names ?? html`<span style="color:var(--ink-2)">nothing ticked yet</span>`}</td>
                 <td class="num">${p.role_count}</td>
                 <td>
+                  <!-- More than one of these can be true at once, so they are
+                       listed rather than reduced to a single status. Somebody
+                       flagged as a duplicate who is also on a break has two
+                       separate things wanting attention. -->
                   ${p.needs_review
                     ? html`${chip('red', 'Possible duplicate')}
                         <div style="font-size:.9375rem;color:var(--ink-2);margin-top:.25rem">
                           ${p.review_note}
                         </div>`
-                    : chip('green', 'OK')}
+                    : ''}
+                  ${p.on_break ? chip('amber', 'Taking a break') : ''}
+                  ${p.is_guest ? chip('navy', 'Guest') : ''}
+                  ${!p.needs_review && !p.on_break && !p.is_guest ? chip('green', 'OK') : ''}
                 </td>
               </tr>`,
             )}

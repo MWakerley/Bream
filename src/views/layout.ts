@@ -93,6 +93,10 @@ export interface LayoutOptions {
   eyebrow?: string;
   /** A sentence under the heading, for the person who has never seen this page. */
   intro?: string;
+  /** Sits beside the heading, in brand gold. Says what the page is FOR when the
+   *  heading itself is a name — an event is called "Harvest Supper", which does
+   *  not on its own tell a stranger that this is where they book a place. */
+  headingAside?: string;
   back?: { href: string; label: string };
   /** Set false for sign-in and setup, which have no navigation. */
   chrome?: boolean;
@@ -197,7 +201,12 @@ ${chrome
   <div class="wrap">
     ${o.back ? html`<a class="back" href="${o.back.href}">${o.back.label}</a>` : ''}
     ${o.eyebrow ? html`<p class="eyebrow">${o.eyebrow}</p>` : ''}
-    <h1 class="page-h1">${o.heading ?? o.title}</h1>
+    ${o.headingAside
+      ? html`<div class="page-h1-row">
+          <h1 class="page-h1">${o.heading ?? o.title}</h1>
+          <span class="page-h1-aside">${o.headingAside}</span>
+        </div>`
+      : html`<h1 class="page-h1">${o.heading ?? o.title}</h1>`}
     ${o.intro ? html`<p class="page-intro">${o.intro}</p>` : ''}
     ${body}
   </div>

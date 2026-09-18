@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import { viewTabs } from './calendar.js';
-import type { ServiceDetail, ServiceSummary } from '../db.js';
+import type { Candidate, ServiceDetail, ServiceSummary } from '../db.js';
 
 const BACK = { href: '/app', label: 'All areas' };
 
@@ -155,7 +155,7 @@ function nextServiceCard(next: ServiceDetail) {
             <span class="nu-role">${r.role_name}</span>
             <span class="nu-who">
               ${r.people.length
-                ? html`${r.people.join(', ')}${r.people.length < r.min_needed
+                ? html`${r.people.map((a) => a.display_name).join(', ')}${r.people.length < r.min_needed
                     ? html` <span class="nu-note">${r.people.length} of ${r.min_needed}</span>`
                     : ''}`
                 : 'nobody yet'}
@@ -294,7 +294,31 @@ export function gapsPage(services: ServiceSummary[], ctx: ViewCtx) {
   );
 }
 
-export function servicePage(s: ServiceDetail, ctx: ViewCtx) {
+/**
+ * "Sue Baker — on a break, away that day".
+ *
+ * Everything the database knows that the person clicking might not. Nobody is
+ * hidden on the strength of these: a churchwarden ringing round on a Saturday
+ * night knows more than the roster does, and the job of this list is to inform
+ * the decision rather than to overrule it.
+ */
+function candidateLabel(c: Candidate): string {
+  const notes = [
+    c.can_do ? '' : 'does not normally do this',
+    c.on_break ? 'on a break' : '',
+    c.is_guest ? 'guest' : '',
+    c.away ? 'away that day' : '',
+  ].filter(Boolean);
+  return notes.length ? `${c.display_name} — ${notes.join(', ')}` : c.display_name;
+}
+
+export function servicePage(
+  s: ServiceDetail,
+  ctx: ViewCtx,
+  /** Who can be put on each role by hand. Absent means the pickers are hidden,
+   *  which is what a viewer without the right to change the rota sees. */
+  candidatesFor?: Map<number, Candidate[]>,
+) {
   // Nobody on it at all, versus somebody on it but not enough of them. Only
   // the first is a role that needs filling.
   const empty = s.roles.filter((r) => r.people.length === 0);
@@ -353,8 +377,44 @@ export function servicePage(s: ServiceDetail, ctx: ViewCtx) {
                 <td><strong>${r.role_name}</strong></td>
                 <td>
                   ${r.people.length
-                    ? r.people.join(', ')
+                    ? html`<ul class="assignees">
+                        ${r.people.map((a) => html`<li>
+                          <span class="assignee-name">${a.display_name}</span>
+                          ${a.status === 'draft' ? chip('neutral', 'draft') : ''}
+                          ${a.on_break ? chip('amber', 'on a break') : ''}
+                          ${a.is_guest ? chip('navy', 'guest') : ''}
+                          ${candidatesFor
+                            ? html`<form method="post"
+                                action="/app/rota/service/${s.id}/assignment/${a.assignment_id}/remove"
+                                class="inline-form"
+                                onsubmit="return confirm('Take ${a.display_name} off ${r.role_name} for this service?')">
+                            <button class="linkish" type="submit" style="color:var(--bad)"
+                                    title="Take ${a.display_name} off ${r.role_name}">Take off</button>
+                          </form>`
+                            : ''}
+                        </li>`)}
+                      </ul>`
                     : html`<span style="color:var(--bad);font-weight:600">nobody yet</span>`}
+
+                  <!-- Everybody active is offered, not only those the generator
+                       would pick. A guest preacher is chosen exactly this way and
+                       would never appear otherwise, and somebody on a break may
+                       still say yes when asked directly. The list says who is on
+                       a break, who is away and who cannot normally do the role,
+                       and then leaves the decision to the person clicking. -->
+                  ${candidatesFor
+                    ? html`<form method="post" action="/app/rota/service/${s.id}/role/${r.role_id}/add"
+                        class="add-person">
+                    <label class="sr-only" for="add-${r.role_id}">Put somebody on ${r.role_name}</label>
+                    <select id="add-${r.role_id}" name="person_id" required>
+                      <option value="">Put somebody on…</option>
+                      ${(candidatesFor?.get(r.role_id) ?? [])
+                        .filter((cand) => !cand.already_here)
+                        .map((cand) => html`<option value="${cand.id}">${candidateLabel(cand)}</option>`)}
+                    </select>
+                    <button class="btn-secondary" type="submit">Add</button>
+                  </form>`
+                    : ''}
                 </td>
                 <td>
                   ${nobody

@@ -199,9 +199,11 @@ export function eventAdminPage(opts: {
   origin: string;
   /** False when no Email Sending domain is onboarded yet. */
   emailReady?: boolean;
+  /** Whether the public form is showing a 'not a robot' check. */
+  captchaReady?: boolean;
   notice?: { tone: 'ok' | 'bad'; text: string };
 }) {
-  const { event: e, fields, bookings, ctx, origin, notice, emailReady } = opts;
+  const { event: e, fields, bookings, ctx, origin, notice, emailReady, captchaReady } = opts;
   const left = placesLeft(e);
   const bookingUrl = `${origin}/events/${e.slug}`;
 
@@ -228,7 +230,14 @@ export function eventAdminPage(opts: {
       <div class="card">
         <h2>The booking page</h2>
         ${e.is_published
-          ? html`<p>Anyone with this link can book — they do not need to sign in.</p>
+          ? html`<p>Anyone with this link can book — they do not need to sign in.
+              ${captchaReady
+                ? html`They are asked a quick <strong>"not a robot"</strong> check first, so the
+                    list does not fill up with junk.`
+                : html`<strong>There is no "not a robot" check on it</strong>, so anybody — or
+                    anything — can submit the form. Worth switching on if this link is going
+                    anywhere public.`}
+            </p>
               <p><a href="${bookingUrl}" class="btn-secondary">${bookingUrl}</a></p>
               <form method="post" action="/app/events/${e.id}/publish" class="inline-form">
                 <input type="hidden" name="publish" value="0">
@@ -682,6 +691,9 @@ export function publicBookingPage(opts: {
   fields: FieldRow[];
   error?: string;
   values?: Record<string, string>;
+  /** Turnstile site key. Absent means no challenge is shown at all, which is
+   *  what happens when the keys are not configured. */
+  turnstileSitekey?: string;
 }) {
   const { event: e, fields, error } = opts;
   const v = opts.values ?? {};
@@ -689,7 +701,15 @@ export function publicBookingPage(opts: {
   const full = left === 0;
 
   return layout(
-    { title: e.title, chrome: false, heading: e.title, eyebrow: 'Bream Church' },
+    {
+      title: e.title,
+      chrome: false,
+      heading: e.title,
+      eyebrow: 'Bream Church',
+      // The heading is the event's NAME. Somebody arriving from a poster needs
+      // telling what this page is, and 'Harvest Supper' alone does not do it.
+      headingAside: 'Book your place',
+    },
     html`
       <div style="max-width:40rem;margin-inline:auto">
         ${e.poster_key
@@ -746,6 +766,29 @@ export function publicBookingPage(opts: {
               </div>
 
               ${customQuestions(fields, v)}
+
+              ${opts.turnstileSitekey
+                ? html`<div class="field">
+                    <label for="robot-hint">Just checking you are not a robot</label>
+                    <span class="hint" id="robot-hint">
+                      This keeps the list honest. Most of the time it passes on its own and
+                      there is nothing for you to do.
+                    </span>
+                    <div class="cf-turnstile" data-sitekey="${opts.turnstileSitekey}"
+                         data-theme="light" data-action="event-booking"
+                         aria-describedby="robot-hint"></div>
+                    <noscript>
+                      <p class="notice notice-warn" style="margin-top:.75rem">
+                        This check needs JavaScript switched on. If you cannot, ring the
+                        church office and they will book you in.
+                      </p>
+                    </noscript>
+                    <!-- Loaded only on the page that has a widget, and only when
+                         a key exists. It finds .cf-turnstile itself. -->
+                    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+                            async defer></script>
+                  </div>`
+                : ''}
 
               <button class="btn-primary" type="submit">Book my place</button>
             </form>`}

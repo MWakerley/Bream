@@ -362,5 +362,78 @@ console.log('generator:');
     `${broken} services had only part of the group`);
 }
 
+
+// ---------------------------------------------------------------------------
+// Case 19: somebody taking a break, or a guest.
+//
+// Both are enforced in SQL by OMITTING their capability rows while leaving them
+// in `people` — see the two queries in src/rota/load.ts and the comment saying
+// why they must not both be filtered. So the test is written the same way: take
+// base(), drop person 100's capabilities, leave 100 in `people`. That is exactly
+// the shape the database produces, which is the only reason this test means
+// anything about the real thing.
+// ---------------------------------------------------------------------------
+{
+  const withoutCaps = (): ReturnType<typeof base> => {
+    const inp = base();
+    inp.capabilities = inp.capabilities.filter((c) => c.personId !== 100);
+    return inp;
+  };
+
+  // The control. Without this, a pool where 100 simply never came up looks
+  // identical to a filter that works, and the test proves nothing.
+  const before = generateRota(base());
+  ok('the control: person 100 IS used when nothing is set',
+    before.allocations.some((a) => a.personId === 100),
+    'if this fails the rest of case 19 is vacuous');
+
+  const after = generateRota(withoutCaps());
+
+  // Every role, not just preacher: base() gives each preacher BOTH preacher and
+  // leader, so checking one role would pass a half-done implementation.
+  ok('somebody on a break is never allocated, in any role',
+    !after.allocations.some((a) => a.personId === 100),
+    `${after.allocations.filter((a) => a.personId === 100).length} allocations`);
+
+  ok('and does not appear in the load report',
+    !after.load.some((l) => l.personId === 100));
+
+  // Leaving somebody off must not knock the rota over. This is what separates
+  // "they were left out" from "the whole thing fell apart".
+  const newGaps = after.gaps.length - before.gaps.length;
+  ok('and the rest of the rota still fills up', newGaps <= 0,
+    `${newGaps} new gaps appeared`);
+
+  // The load-bearing one. blockedBecause gates on capBy BEFORE any relaxation
+  // tier, so a shortage must never quietly bring them back.
+  const squeezed = withoutCaps();
+  squeezed.capabilities = squeezed.capabilities.filter(
+    (c) => c.roleId !== R.preacher || c.personId === 101);
+  const tight = generateRota(squeezed);
+  ok('and is not brought back when the pool runs short',
+    !tight.allocations.some((a) => a.personId === 100),
+    'a break must outrank the relaxation tiers, not lose to them');
+
+  // The keep-and-warn contract: an arrangement already made still stands. This
+  // is why the PEOPLE query is deliberately not filtered — 100 is still in
+  // `people`, so the pin survives and its slot stays taken.
+  const pinned = withoutCaps();
+  const svc = pinned.services[0]!;
+  pinned.pinned = [{ serviceId: svc.id, roleId: R.preacher, slot: 1, personId: 100 }];
+  const kept = generateRota(pinned);
+  const stillOn = kept.allocations.filter(
+    (a) => a.serviceId === svc.id && a.roleId === R.preacher && a.personId === 100);
+  ok('but something already arranged is left exactly as it was',
+    stillOn.length === 1 && stillOn[0]!.pinned,
+    'going on a break must not cancel a confirmed place');
+
+  // And nobody else is handed that slot. If the people query were filtered the
+  // pin would vanish, slot 1 would look free, and apply's INSERT OR REPLACE
+  // would overwrite the confirmed row on the unique (service, role, slot).
+  const sameSlot = kept.allocations.filter(
+    (a) => a.serviceId === svc.id && a.roleId === R.preacher && a.slot === 1);
+  ok('and nobody else is given their slot', sameSlot.length === 1,
+    `${sameSlot.length} people ended up in slot 1 — this is the silent-overwrite bug`);
+}
 console.log(failures === 0 ? '\nGenerator OK.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

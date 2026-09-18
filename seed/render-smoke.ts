@@ -45,16 +45,38 @@ const service = (over: Partial<ServiceSummary> = {}): ServiceSummary => ({
   gaps: [], under: [], short: [], filled: 10, needed: 12, ...over,
 });
 
+/** One assignee. seed/ is NOT type-checked (tsconfig includes only src/**), so
+ *  a fixture that goes stale against a changed interface fails silently rather
+ *  than at compile time. This helper is the only place the shape is written. */
+const on = (id, name, over = {}) => ({
+  assignment_id: id, person_id: id * 10, display_name: name,
+  status: 'confirmed', on_break: 0, is_guest: 0, ...over,
+});
+
 const detail: ServiceDetail = {
   id: 1, service_date: '2026-11-15', service_time: '15:00', title: 'Remembrance',
   location: 'Bream Cenotaph', is_communion: 0, readings: null, sermon_title: null,
   roles: [
-    { role_id: 1, role_name: 'Preacher', min_needed: 1, ideal_needed: 1, people: ['Steve'] },
-    { role_id: 4, role_name: 'Prayer ministry', min_needed: 2, ideal_needed: 4, people: ['Don', 'Christine'] },
+    { role_id: 1, role_name: 'Preacher', min_needed: 1, ideal_needed: 1,
+      people: [on(1, 'Steve', { is_guest: 1 })] },
+    { role_id: 4, role_name: 'Prayer ministry', min_needed: 2, ideal_needed: 4,
+      people: [on(2, 'Don'), on(3, 'Christine', { on_break: 1 })] },
     { role_id: 2, role_name: 'Service leader', min_needed: 1, ideal_needed: 1, people: [] },
   ],
   notApplicable: [{ role_id: 5, role_name: 'Tea and coffee', note: 'Outdoor service' }],
 };
+
+/** Who could be put on a role by hand. */
+const CANDIDATES = new Map([
+  [1, [
+    { id: 11, display_name: 'Sue Baker', can_do: 1, on_break: 0, is_guest: 0, already_here: 0, away: 0 },
+    { id: 12, display_name: 'Roger Vane', can_do: 0, on_break: 0, is_guest: 1, already_here: 0, away: 0 },
+    { id: 13, display_name: 'Pat Doyle', can_do: 1, on_break: 1, is_guest: 0, already_here: 0, away: 1 },
+    { id: 14, display_name: 'Steve', can_do: 1, on_break: 0, is_guest: 0, already_here: 1, away: 0 },
+  ]],
+  [4, []],
+  [2, []],
+]);
 
 const CTX: ViewCtx = { signedInAs: 'Matt', isAdmin: true, path: '/app' };
 
@@ -151,7 +173,31 @@ await check('the gaps page keeps the two apart', () => gapsPage(
   // Nothing is unfilled, so that half says so; the short-handed half names it.
   ['Nothing unfilled', 'Reader 1 of 2', 'Somebody is doing each of these']);
 await check('service detail', () => servicePage(detail, CTX),
-  ['Remembrance', 'Bream Cenotaph', 'nobody yet', 'Not needed here', 'Put it back', 'Tea and coffee']);
+  ['Remembrance', 'Bream Cenotaph', 'nobody yet', 'Not needed here', 'Put it back',
+   'Tea and coffee', 'Steve', 'Don', 'Christine'],
+  // A viewer who may not change the rota is not offered a picker that would
+  // refuse them. Nothing to add, nothing to take off.
+  ['Put somebody on', 'Take off']);
+
+// Putting somebody on by hand is how a GUEST preacher gets on a service at all
+// — they are never drawn from the pool by definition — and how anybody on a
+// break is overridden when they say yes after being asked directly.
+await check('a coordinator can put somebody on', () => servicePage(detail, CTX, CANDIDATES), [
+  'Take off',
+  '/app/rota/service/1/assignment/1/remove',
+  '/app/rota/service/1/role/1/add',
+  'Put somebody on',
+  // Nobody is hidden. The list SAYS what it knows and leaves the decision to
+  // the person clicking, who rang round on Saturday night and knows more.
+  'Sue Baker',
+  'Roger Vane — does not normally do this, guest',
+  'Pat Doyle — on a break, away that day',
+  // Existing assignees carry their own markers.
+  'on a break', 'guest',
+], [
+  // Somebody already on this service is not offered again.
+  'Steve — ',
+]);
 await check('readings', () => readingsPage([service()], CTX, '2026-11-15'),
   ['Gen 1:1-5', 'Sermon title', 'Saved']);
 await check('services', () => servicesPage({
@@ -279,11 +325,11 @@ await check('change requests (none)', () => requestsPage({ requests: [], ctx: CT
 await check('people by role', () => peopleByRolePage({
   roles, role: roles[0]!,
   people: [
-    { id: 1, display_name: 'Steve', needs_review: 0, can_do: 1,
+    { id: 1, display_name: 'Steve', needs_review: 0, on_break: 0, is_guest: 0, can_do: 1,
       max_per_period: 2, period_days: 30, min_gap_days: null, done: 15 },
-    { id: 2, display_name: 'Matt R', needs_review: 1, can_do: 1,
+    { id: 2, display_name: 'Matt R', needs_review: 1, on_break: 1, is_guest: 0, can_do: 1,
       max_per_period: null, period_days: null, min_gap_days: 91, done: 2 },
-    { id: 3, display_name: 'Sue', needs_review: 0, can_do: 0,
+    { id: 3, display_name: 'Sue', needs_review: 0, on_break: 0, is_guest: 1, can_do: 0,
       max_per_period: null, period_days: null, min_gap_days: null, done: 0 },
   ],
   ctx: CTX,
@@ -293,6 +339,9 @@ await check('people by role', () => peopleByRolePage({
   // everybody it did not display, so its absence must fail the test.
   'name="shown"',
   'Save who can do Preacher', 'possible duplicate', 'thin pool',
+  // A tick says somebody COULD do it; the warning counts who the rota may
+  // actually pick, and says why the two numbers differ.
+  'taking a break', 'the rota can use now', 'are ticked, but',
 ]);
 
 // --- searching ------------------------------------------------------------
@@ -455,5 +504,101 @@ await check('a volunteer is not offered the generator', () => rotaDashboard(
 ), ['Calendar'], ['Generate a rota', 'Change requests']);
 
 
+
+// --- the public booking page --------------------------------------------
+await check('the booking page says what it is for', () => publicBookingPage({
+  event: EVENT, fields: FIELDS,
+}), ['Bream Church', 'Harvest Supper', 'Book your place']);
+
+// The challenge appears only when a key exists. With no key the form must
+// still take bookings — a mistyped key must never stop the church booking
+// people in, which is why turnstile.ts fails open.
+await check('a CAPTCHA appears when configured', () => publicBookingPage({
+  event: EVENT, fields: FIELDS, turnstileSitekey: '0xTESTKEY',
+}), [
+  'cf-turnstile', 'data-sitekey="0xTESTKEY"',
+  'challenges.cloudflare.com/turnstile/v0/api.js',
+  'not a robot',
+  // Somebody with scripting off has to be told, not left pressing a dead button.
+  '<noscript>',
+]);
+
+await check('and not when it is not', () => publicBookingPage({
+  event: EVENT, fields: FIELDS,
+}), ['Book my place'], ['cf-turnstile', 'challenges.cloudflare.com']);
+
+await check('the event page says whether the CAPTCHA is on', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test',
+  captchaReady: true,
+}), ['not a robot']);
+
+await check('and warns when it is off', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test',
+  captchaReady: false,
+}), ['There is no', 'anything — can submit the form']);
+
+// --- taking a break, and guests ------------------------------------------
+// Three ways somebody can be off a rota and they mean three different things,
+// so the page has to tell them apart at the moment of ticking.
+await check('the three boxes sit together', () => personPage({
+  person: { ...WITH_ACCOUNT, on_break: 0, on_break_since: null, is_guest: 0 },
+  roles, ctx: CTX,
+}), ['Still serving', 'Taking a break', 'Guest',
+     'name="on_break"', 'name="is_guest"']);
+
+// Ticking the box must say what it will and will not do. The half that says
+// what is NOT cancelled is the half that stops somebody finding out in November.
+await check('somebody on a break is told what still stands', () => personPage({
+  person: {
+    ...WITH_ACCOUNT, on_break: 1, is_guest: 0,
+    on_break_since: '2026-09-15 09:00:00',
+    upcoming: [
+      { service_id: 4, service_date: '2026-10-11', role_name: 'Preacher', status: 'confirmed' },
+      { service_id: 9, service_date: '2026-11-08', role_name: 'Reader', status: 'draft' },
+    ],
+  },
+  roles, ctx: CTX,
+}), [
+  'is taking a break', 'since Tue 15 Sep 2026',
+  'will not be put on anything',
+  // The confirmed one needs a person; the draft one does not.
+  'Sun 11 Oct 2026 (Preacher)', 'Take off',
+  '1 more', 'drop off by', 'Nothing to do',
+  '/app/rota/service/4',
+]);
+
+// An empty list must not render the paragraph at all — an empty fixture cannot
+// otherwise tell "nothing arranged" from "never queried", which is exactly how
+// this half of the notice shipped dead the first time.
+await check('a break with nothing arranged says nothing extra', () => personPage({
+  person: {
+    ...WITH_ACCOUNT, on_break: 1, is_guest: 0, on_break_since: '2026-09-15 09:00:00',
+    upcoming: [],
+  },
+  roles, ctx: CTX,
+}), ['is taking a break'], ['still down for', 'Nothing to do']);
+
+await check('a guest is explained', () => personPage({
+  person: { ...WITH_ACCOUNT, on_break: 0, on_break_since: null, is_guest: 1 },
+  roles, ctx: CTX,
+}), ['is a guest', 'never picks them on its own']);
+
+// The People list has to tell the three states apart at a glance too.
+await check('the people list marks breaks and guests', () => peoplePage([
+  { id: 1, display_name: 'Pat', full_name: null, email: null, is_active: 1, is_admin: 0,
+    needs_review: 0, review_note: null, happy_with_anyone: 1,
+    on_break: 1, on_break_since: '2026-09-15', is_guest: 0,
+    role_names: 'Preacher', role_count: 1 },
+  { id: 2, display_name: 'Roger', full_name: null, email: null, is_active: 1, is_admin: 0,
+    needs_review: 0, review_note: null, happy_with_anyone: 1,
+    on_break: 0, on_break_since: null, is_guest: 1,
+    role_names: 'Preacher', role_count: 1 },
+  { id: 3, display_name: 'Sue', full_name: null, email: null, is_active: 1, is_admin: 0,
+    needs_review: 0, review_note: null, happy_with_anyone: 1,
+    on_break: 0, on_break_since: null, is_guest: 0,
+    role_names: 'Reader', role_count: 1 },
+], CTX), ['Taking a break', 'Guest', 'OK',
+  // Searchable by state, so "who is on a break" is one thing to type.
+  'taking a break', 'guest']);
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
