@@ -7,6 +7,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { rotaXlsx, rotaPdf } from '../src/export/rota.js';
 import { zipStored } from '../src/export/xlsx.js';
+import { attendeesXlsx, attendeesPdf } from '../src/export/attendees.js';
 
 const out = process.argv[2] ?? '.export-test';
 mkdirSync(out, { recursive: true });
@@ -63,6 +64,39 @@ ok('of a sensible size', pdf.length > 2000 && pdf.length < 500_000);
 
 const empty = await rotaPdf([], roles);
 ok('an empty range still makes a pdf', new TextDecoder().decode(empty.slice(0, 5)) === '%PDF-');
+
+// ---- an event's attendees -------------------------------------------------
+const EVENT = {
+  id: 1, slug: 'harvest-supper', title: 'Harvest Supper', description: null,
+  starts_at: '2026-10-10T19:00', ends_at: '2026-10-10T21:30', location: 'Church Centre',
+  capacity: 60, booking_closes_at: null, is_published: 1, ask_email: 1, ask_phone: 1,
+  poster_key: null, send_ack: 0, ack_subject: null, ack_body: null, notify_organisers: 0,
+  max_per_booking: 10, booked: 7, bookings: 3,
+};
+const FIELDS = [
+  { id: 5, event_id: 1, key: 'main', label: 'Main course', hint: null, kind: 'select' as const,
+    options: '["Beef","Vegetarian"]', required: 1, sort_order: 10 },
+  { id: 6, event_id: 1, key: 'allergies', label: 'Any allergies?', hint: null, kind: 'textarea' as const,
+    options: null, required: 0, sort_order: 20 },
+];
+const BOOKINGS = [
+  { id: 1, name: 'Sue Baker', email: 'sue@example.org', phone: '01594 111111', party_size: 4,
+    status: 'booked', created_at: '2026-09-10 11:00:00', answers: { '5': 'Beef', '6': 'Nuts' } },
+  { id: 2, name: 'Seán Ó Briain', email: null, phone: '01594 222222', party_size: 3,
+    status: 'booked', created_at: '2026-09-11 11:00:00', answers: { '5': 'Vegetarian' } },
+  { id: 3, name: 'John Hale', email: 'john@example.org', phone: null, party_size: 2,
+    status: 'cancelled', created_at: '2026-09-12 11:00:00', answers: {} },
+  { id: 4, name: 'Wendy Wait', email: 'wendy@example.org', phone: null, party_size: 2,
+    status: 'waitlist', created_at: '2026-09-13 11:00:00', answers: { '5': 'Beef' } },
+];
+const ax = attendeesXlsx(EVENT, FIELDS, BOOKINGS);
+writeFileSync(`${out}/attendees.xlsx`, ax);
+const axText = new TextDecoder().decode(ax);
+ok('the attendee workbook has three sheets', axText.includes('xl/worksheets/sheet3.xml'));
+ok('with the answers as columns', axText.includes('Any allergies?') && axText.includes('Nuts'));
+const ap = await attendeesPdf(EVENT, FIELDS, BOOKINGS);
+writeFileSync(`${out}/attendees.pdf`, ap);
+ok('the attendee pdf is a pdf', new TextDecoder().decode(ap.slice(0, 5)) === '%PDF-');
 
 // The zip must be readable by something other than itself.
 const z = zipStored([['a.txt', new TextEncoder().encode('hello')]]);

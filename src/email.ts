@@ -139,6 +139,8 @@ export interface OrganiserNotice {
   adminUrl: string;
   /** Taken by the office rather than booked online. */
   byOffice: boolean;
+  /** They asked for the waiting list because the event is full. */
+  waitlist?: boolean;
 }
 
 /**
@@ -155,9 +157,13 @@ export async function notifyOrganisers(
   n: OrganiserNotice,
 ): Promise<{ to: string; result: SendResult }[]> {
   const places = `${n.partySize} ${n.partySize === 1 ? 'place' : 'places'}`;
-  const subject = `New booking for ${n.eventTitle}: ${n.name} (${places})`;
+  const subject = n.waitlist
+    ? `Waiting list for ${n.eventTitle}: ${n.name} (${places})`
+    : `New booking for ${n.eventTitle}: ${n.name} (${places})`;
   const body = [
-    `${n.name} has booked ${places} at ${n.eventTitle}${n.byOffice ? ' (taken by the office)' : ''}.`,
+    n.waitlist
+      ? `${n.name} has asked to go on the waiting list for ${places} at ${n.eventTitle}${n.byOffice ? ' (taken by the office)' : ''}. The event is full, so they do not have a place yet.`
+      : `${n.name} has booked ${places} at ${n.eventTitle}${n.byOffice ? ' (taken by the office)' : ''}.`,
     '',
     ...(n.email ? [`Email: ${n.email}`] : []),
     ...(n.phone ? [`Phone: ${n.phone}`] : []),

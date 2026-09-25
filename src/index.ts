@@ -70,6 +70,7 @@ import { formatDate } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
 import { rotaXlsx, rotaPdf } from './export/rota.js';
+import { attendeesXlsx, attendeesPdf } from './export/attendees.js';
 import { sundaysBetween, createSundays, provisionalSundays, chunked,
          type SundayPlan } from './services.js';
 
@@ -2596,11 +2597,18 @@ app.get('/app/events', async (c) =>
 app.get('/app/events/new', async (c) =>
   c.html(newEventPage({ ctx: viewCtx(c), rooms: await listRooms(c.env.DB) })));
 
+/** The per-booking limit from a form: 1 to 50, and 10 if it is missing or
+ *  nonsense rather than refusing the whole save over it. */
+const perBooking = (v: unknown) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 50 ? n : 10;
+};
+
 app.post('/app/events/new', async (c) => {
   const form = await c.req.formData();
   const s = (k: string) => String(form.get(k) ?? '').trim();
   const echo = Object.fromEntries(
-    ['title', 'description', 'on_date', 'start_time', 'end_time', 'location', 'capacity', 'closes']
+    ['title', 'description', 'on_date', 'start_time', 'end_time', 'location', 'capacity', 'max_per_booking', 'closes']
       .map((k) => [k, s(k)]));
   const rooms = await listRooms(c.env.DB);
   const roomIds = readRoomIds(form).filter((id) => rooms.some((r) => r.id === id));
@@ -2637,12 +2645,12 @@ app.post('/app/events/new', async (c) => {
 
   const res = await c.env.DB.prepare(
     `INSERT INTO events (slug, title, description, starts_at, ends_at, location, capacity,
-                          booking_closes_at, ask_email, ask_phone, notify_organisers)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+                          booking_closes_at, ask_email, ask_phone, notify_organisers, max_per_booking)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
   ).bind(slug, title, s('description') || null, startsAt, endsAt,
     s('location') || null, Number.isInteger(capacity) && capacity > 0 ? capacity : null,
     s('closes') || null, form.get('ask_email') ? 1 : 0, form.get('ask_phone') ? 1 : 0,
-    notify ? 1 : 0).run();
+    notify ? 1 : 0, perBooking(form.get('max_per_booking'))).run();
   const eventId = Number(res.meta.last_row_id);
 
   await saveOrganisers(c.env.DB, eventId, organisers.value);
@@ -2744,10 +2752,10 @@ app.post('/app/events/:id/details', async (c) => {
   await c.env.DB.prepare(
     `UPDATE events
         SET title = ?2, description = ?3, starts_at = ?4, location = ?5,
-            capacity = ?6, booking_closes_at = ?7, ends_at = ?8
+            capacity = ?6, booking_closes_at = ?7, ends_at = ?8, max_per_booking = ?9
       WHERE id = ?1`,
   ).bind(id, title, str('description'), startsAt, str('location'),
-    capacity, str('closes'), endsAt).run();
+    capacity, str('closes'), endsAt, perBooking(form.get('max_per_booking'))).run();
 
   await syncEventRooms(c.env.DB, {
     eventId: id, roomIds, title, startsAt, endsAt: endsAt ?? startsAt, bookedBy: c.get('person').id,
@@ -2774,6 +2782,39 @@ app.post('/app/events/:id/publish', async (c) => {
     tone: 'ok',
     text: publish ? 'Published. The booking link now works.' : 'Bookings closed.',
   });
+});
+
+/**
+ * An event's bookings, for the download. Needs the right to manage events, not
+ * just to see them: a file of everybody's email and phone number travels much
+ * further than a page does.
+ */
+async function attendeesFor(c: Context<{ Bindings: Env; Variables: Vars }>) {
+  if (!(c.get('areas') ?? new Set()).has('events.manage')) return null;
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return null;
+  const [event, fields, bookings] = await Promise.all([
+    getEvent(c.env.DB, id), listFields(c.env.DB, id), listEventBookings(c.env.DB, id),
+  ]);
+  return event ? { event, fields, bookings } : null;
+}
+
+/** 'Harvest Supper' -> 'harvest-supper', for a filename. */
+const fileSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'event';
+
+app.get('/app/events/:id/attendees.xlsx', async (c) => {
+  const a = await attendeesFor(c);
+  if (!a) return c.notFound();
+  return download(attendeesXlsx(a.event, a.fields, a.bookings),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    `${fileSlug(a.event.title)}-attendees.xlsx`);
+});
+
+app.get('/app/events/:id/attendees.pdf', async (c) => {
+  const a = await attendeesFor(c);
+  if (!a) return c.notFound();
+  return download(await attendeesPdf(a.event, a.fields, a.bookings), 'application/pdf',
+    `${fileSlug(a.event.title)}-attendees.pdf`);
 });
 
 app.post('/app/events/:id/organisers', async (c) => {
@@ -2811,6 +2852,7 @@ async function tellOrganisers(
   eventId: number,
   booking: BookingAttempt,
   byOffice: boolean,
+  waitlist = false,
 ) {
   try {
     const event = await getEvent(c.env.DB, eventId);
@@ -2833,6 +2875,7 @@ async function tellOrganisers(
       capacity: event.capacity,
       adminUrl: `${new URL(c.req.url).origin}/app/events/${eventId}`,
       byOffice,
+      waitlist,
     });
     for (const s of sent) {
       if (s.result.status !== 'sent') {
@@ -3039,8 +3082,11 @@ app.post('/app/events/:id/bookings/new', async (c) => {
   await saveBooking(c.env.DB, {
     eventId, booking: parsed.value, status: status as 'booked' | 'cancelled' | 'waitlist',
   });
-  // A waiting-list or cancelled entry is not somebody coming, so it is not news.
-  if (status === 'booked') await tellOrganisers(c, eventId, parsed.value, true);
+  // Somebody coming, or somebody waiting for a place, is news. A booking typed
+  // in already cancelled is only a record.
+  if (status !== 'cancelled') {
+    await tellOrganisers(c, eventId, parsed.value, true, status === 'waitlist');
+  }
   return eventAdminView(c, eventId, {
     tone: 'ok',
     text: `${parsed.value.name} added — ${parsed.value.partySize} ${parsed.value.partySize === 1 ? 'place' : 'places'}.`,
@@ -3421,7 +3467,7 @@ app.post('/events/:slug', async (c) => {
     }), 400);
   }
 
-  const parsed = readBookingForm(form, fields);
+  const parsed = readBookingForm(form, fields, 'self', event.max_per_booking ?? 10);
   if (!parsed.ok) {
     return c.html(publicBookingPage({ event, fields, values, error: parsed.error, turnstileSitekey: c.env.TURNSTILE_SITEKEY }), 400);
   }
@@ -3435,21 +3481,30 @@ app.post('/events/:slug', async (c) => {
   // Checked again here, not just on the page that was drawn: two people can open
   // the last place at the same moment, and the second has to be told rather than
   // quietly overbooking the caterer.
+  //
+  // Somebody who asked for the waiting list and finds a place has come back is
+  // simply booked in: nobody wants to be told they are waiting for something
+  // that is there.
   const room = await hasRoom(c.env.DB, event.id, parsed.value.partySize);
-  if (!room.ok) {
+  const askedToWait = form.get('waitlist') === '1';
+  if (!room.ok && !askedToWait) {
+    // Redrawn from the event as it is now, so a page that has just sold out
+    // offers the waiting list rather than a form that will refuse them again.
+    const now = (await getEventBySlug(c.env.DB, event.slug)) ?? event;
     return c.html(publicBookingPage({
-      event, fields, values, turnstileSitekey: c.env.TURNSTILE_SITEKEY,
+      event: now, fields, values, turnstileSitekey: c.env.TURNSTILE_SITEKEY,
       error: room.left === 0
-        ? 'Sorry — the last places went while you were filling this in.'
+        ? 'Sorry — the last places went while you were filling this in. You can join the waiting list below.'
         : `Sorry — there ${room.left === 1 ? 'is' : 'are'} only ${room.left} place${room.left === 1 ? '' : 's'} left.`,
     }), 409);
   }
+  const status = room.ok ? 'booked' : 'waitlist';
 
   const res = await c.env.DB.prepare(
-    `INSERT INTO event_bookings (event_id, name, email, phone, party_size)
-     VALUES (?1, ?2, ?3, ?4, ?5)`,
+    `INSERT INTO event_bookings (event_id, name, email, phone, party_size, status)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
   ).bind(event.id, parsed.value.name, parsed.value.email, parsed.value.phone,
-    parsed.value.partySize).run();
+    parsed.value.partySize, status).run();
 
   const bookingId = Number(res.meta.last_row_id);
   if (parsed.value.answers.length) {
@@ -3464,7 +3519,10 @@ app.post('/events/:slug', async (c) => {
   // The booking is already committed. Sending happens after, and its outcome is
   // recorded rather than thrown: somebody who booked a place has booked it
   // whether or not our mail provider was reachable.
-  if (event.send_ack && parsed.value.email) {
+  //
+  // Not sent for the waiting list: the acknowledgement thanks them for booking,
+  // and somebody who has not got a place must not be told they have.
+  if (event.send_ack && parsed.value.email && status === 'booked') {
     const result = await sendAcknowledgement(
       c.env.EMAIL, c.env.ACK_FROM, parsed.value.email,
       event.ack_subject ?? DEFAULT_ACK_SUBJECT,
@@ -3486,9 +3544,9 @@ app.post('/events/:slug', async (c) => {
     ).bind(bookingId, result.status, result.error ?? null).run();
   }
 
-  await tellOrganisers(c, event.id, parsed.value, false);
+  await tellOrganisers(c, event.id, parsed.value, false, status === 'waitlist');
 
-  return c.html(bookingDonePage(event, parsed.value.partySize));
+  return c.html(bookingDonePage(event, parsed.value.partySize, status === 'waitlist'));
 });
 
 app.notFound((c) =>

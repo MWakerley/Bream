@@ -983,3 +983,13 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
 .svc-more > summary::before { content: '▸ '; }
 .svc-more[open] > summary::before { content: '▾ '; }
 .svc-more .next-up-roles { margin-top: .25rem; }
+
+/* An event's three booking lists. Each heading carries its own colour key, so
+   a cancelled booking can never be mistaken for one of the real ones. */
+.bookings-h {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .75rem;
+  margin: 1.5rem 0 .6rem; padding-left: .7rem; border-left: 4px solid var(--ok);
+}
+.bookings-h-waiting { border-left-color: var(--warn); }
+.bookings-h-cancelled { border-left-color: var(--rule-strong); color: var(--ink-2); }
+.bookings-count { font-size: .9375rem; font-weight: 600; color: var(--ink-2); }

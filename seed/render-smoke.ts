@@ -387,8 +387,16 @@ await check('but the event page still shows them', () => eventAdminPage({
 
 await check('public booking (full)', () => publicBookingPage({
   event: { ...EVENT, booked: 60 }, fields: FIELDS,
-}), ['Sold out', 'waiting list']);
+}), ['Sold out', 'waiting list', 'Fully booked — add me to the waiting list',
+     'name="waitlist" value="1"'], ['Book my place']);
+await check('a booking is limited to the event\'s own maximum', () => publicBookingPage({
+  event: { ...EVENT, max_per_booking: 6 }, fields: FIELDS,
+}), ['max="6"', 'Up to 6 in one booking', 'Book my place'], ['name="waitlist"']);
 await check('booking done', () => bookingDonePage(EVENT, 2), ['You are booked in', 'Harvest Supper']);
+await check('the waiting list is not told it has a place', () => bookingDonePage(EVENT, 2, true),
+  ['You are on the waiting list', 'This is not a place yet'], ['You are booked in']);
+await check('new events default to ten per booking', () => newEventPage({ ctx: CTX, rooms: [] }),
+  ['name="max_per_booking"', 'value="10"']);
 
 // ---- self-service --------------------------------------------------------
 await check('my rota', () => myRotaPage({
@@ -518,9 +526,35 @@ await check('the event page lists cancelled bookings too', () => eventAdminPage(
 }), [
   'Take a booking by phone', 'row-cancelled', 'Cancelled', 'Put back',
   'data-search-target="bookings-list"',
-  // A cancelled party is shown in brackets so it cannot be read as counting.
-  '(2)',
+  // Their own list, headed as such, with its own count — never mixed in.
+  'bookings-h-cancelled', 'Kept as a record',
+  'attendees.pdf', 'attendees.xlsx',
 ]);
+
+// Three separate tables: the booked one must come first and must not contain
+// the cancelled row. Checked by position rather than by "contains".
+await check('booked, waiting and cancelled are three separate lists', async () => {
+  const out = String(await eventAdminPage({
+    event: EVENT, fields: FIELDS, ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
+    bookings: [
+      { id: 1, name: 'Sue Baker', email: null, phone: null, party_size: 3, status: 'booked', created_at: '2026-09-10 11:00:00', answers: {} },
+      { id: 2, name: 'John Hale', email: null, phone: null, party_size: 2, status: 'cancelled', created_at: '2026-09-11 11:00:00', answers: {} },
+      { id: 3, name: 'Wendy Wait', email: null, phone: null, party_size: 1, status: 'waitlist', created_at: '2026-09-12 11:00:00', answers: {} },
+    ],
+  }));
+  const at = (s: string) => out.indexOf(s);
+  const inOrder = at('bookings-h-booked') < at('Sue Baker')
+    && at('Sue Baker') < at('bookings-h-waiting')
+    && at('bookings-h-waiting') < at('Wendy Wait')
+    && at('Wendy Wait') < at('bookings-h-cancelled')
+    && at('bookings-h-cancelled') < at('John Hale');
+  return inOrder ? out : 'OUT OF ORDER';
+}, ['Give them a place', '3 people', 'Waiting list']);
+
+await check('a viewer is not offered the attendee download', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, ctx: { ...CTX, areas: VOLUNTEER_AREAS }, origin: 'https://x.test', ...EV_EXTRA,
+  bookings: [{ id: 1, name: 'Sue', email: null, phone: null, party_size: 1, status: 'booked', created_at: '2026-09-10 11:00:00', answers: {} }],
+}), ['Sue'], ['attendees.pdf']);
 
 // --- a person's sign-in ---------------------------------------------------
 const WITH_ACCOUNT = {

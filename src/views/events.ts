@@ -23,6 +23,8 @@ export interface EventRow {
   ack_subject: string | null;
   ack_body: string | null;
   notify_organisers: number;
+  /** The most places one booking may take on the public page. */
+  max_per_booking: number;
   booked: number; // sum of party_size
   bookings: number; // number of bookings
 }
@@ -228,6 +230,12 @@ export function newEventPage(opts: {
             <input id="capacity" name="capacity" type="number" min="1" value="${f.capacity ?? ''}">
           </div>
           <div class="field">
+            <label for="max_per_booking">Most places in one booking</label>
+            <span class="hint">Stops one person taking every place.</span>
+            <input id="max_per_booking" name="max_per_booking" type="number" min="1" max="50"
+                   value="${f.max_per_booking ?? '10'}" required>
+          </div>
+          <div class="field">
             <label for="closes">Bookings close</label>
             <span class="hint">Optional.</span>
             <input id="closes" name="closes" type="date" value="${f.closes ?? ''}">
@@ -262,6 +270,70 @@ export function newEventPage(opts: {
   );
 }
 
+/** One of the three booking lists on an event's page. */
+function bookingTable(opts: {
+  heading: string;
+  note?: string;
+  empty?: string;
+  rows: BookingRow[];
+  e: EventRow;
+  fields: FieldRow[];
+}) {
+  const { heading, note, rows, e, fields } = opts;
+  const people = rows.reduce((n, b) => n + b.party_size, 0);
+  const tone = heading === 'Cancelled' ? 'cancelled' : heading === 'Waiting list' ? 'waiting' : 'booked';
+  return html`
+    <h3 class="bookings-h bookings-h-${tone}">${heading}
+      <span class="bookings-count">${rows.length} booking${rows.length === 1 ? '' : 's'} ·
+        ${people} ${people === 1 ? 'person' : 'people'}</span></h3>
+    ${note ? html`<p style="color:var(--ink-2);font-size:.9375rem;margin-top:0">${note}</p>` : ''}
+    ${rows.length === 0
+      ? html`<div class="card"><p style="margin:0">${opts.empty ?? 'None.'}</p></div>`
+      : html`<div class="table-scroll" style="margin-bottom:1.5rem">
+          <table class="grid">
+            <thead>
+              <tr>
+                <th>Name</th><th class="num">Places</th><th>Contact</th>
+                ${fields.map((fl) => html`<th>${fl.label}</th>`)}
+                <th>Booked</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((b) => html`<tr class="${b.status === 'cancelled' ? 'row-cancelled' : ''}"
+                    data-search="${[b.name, b.email, b.phone].filter(Boolean).join(' ')}">
+                  <td><a href="/app/events/${e.id}/bookings/${b.id}"><strong>${b.name}</strong></a></td>
+                  <td class="num">${b.party_size}</td>
+                  <td style="color:var(--ink-2)">
+                    ${b.email ?? b.phone ?? '—'}
+                    ${b.email && b.phone ? html`<div>${b.phone}</div>` : ''}
+                  </td>
+                  ${fields.map((fl) => html`<td>${b.answers[String(fl.id)] ?? '—'}</td>`)}
+                  <td style="color:var(--ink-2)">${b.created_at.slice(0, 10)}</td>
+                  <td>
+                    <a class="linkish" href="/app/events/${e.id}/bookings/${b.id}">Change</a>
+                    ${b.status === 'booked'
+                      ? html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/cancel"
+                                class="inline-form"
+                                onsubmit="return confirm('Cancel ${b.name}\\'s booking? It moves to the cancelled list.')">
+                          <button class="linkish" type="submit" style="color:var(--bad)">Cancel</button>
+                        </form>`
+                      : html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/restore"
+                                class="inline-form">
+                          <button class="linkish" type="submit">${b.status === 'waitlist' ? 'Give them a place' : 'Put back'}</button>
+                        </form>`}
+                    ${b.status === 'waitlist'
+                      ? html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/cancel"
+                                class="inline-form">
+                          <button class="linkish" type="submit" style="color:var(--bad)">Remove</button>
+                        </form>`
+                      : ''}
+                  </td>
+                </tr>`)}
+            </tbody>
+          </table>
+        </div>`}`;
+}
+
 const KINDS: { value: FieldRow['kind']; label: string; note: string }[] = [
   { value: 'text', label: 'Short answer', note: 'A line of text' },
   { value: 'textarea', label: 'Long answer', note: 'A paragraph — allergies, dietary needs' },
@@ -290,6 +362,8 @@ export function eventAdminPage(opts: {
   const { event: e, fields, bookings, ctx, origin, notice, emailReady, captchaReady,
           rooms, roomIds, organisers } = opts;
   const left = placesLeft(e);
+  const waiting = bookings.filter((b) => b.status === 'waitlist');
+  const cancelled = bookings.filter((b) => b.status === 'cancelled');
   const bookingUrl = `${origin}/events/${e.slug}`;
 
   return layout(
@@ -357,6 +431,12 @@ export function eventAdminPage(opts: {
               </span>
               <input id="d_capacity" name="capacity" type="number" min="1" max="2000"
                      value="${e.capacity ?? ''}">
+            </div>
+            <div class="field">
+              <label for="d_max">Most places in one booking</label>
+              <span class="hint">On the booking page. The office can take more by phone.</span>
+              <input id="d_max" name="max_per_booking" type="number" min="1" max="50"
+                     value="${e.max_per_booking ?? 10}" required>
             </div>
             <div class="field">
               <label for="d_closes">Bookings close</label>
@@ -585,6 +665,10 @@ export function eventAdminPage(opts: {
       <h2 class="section-h2">Who has booked</h2>
       <div class="btn-row" style="margin-bottom:1.25rem">
         <a class="btn-primary" href="/app/events/${e.id}/bookings/new">Take a booking by phone</a>
+        ${bookings.length && (!ctx.areas || ctx.areas.has('events.manage'))
+          ? html`<a class="btn-quiet" href="/app/events/${e.id}/attendees.pdf">Download PDF</a>
+              <a class="btn-quiet" href="/app/events/${e.id}/attendees.xlsx">Download for Excel</a>`
+          : ''}
       </div>
 
       ${bookings.length === 0
@@ -599,60 +683,34 @@ export function eventAdminPage(opts: {
               label: 'Find a booking',
               placeholder: 'Start typing a name…',
               noun: 'bookings',
-              hint: 'Matches the name, the email address and the phone number — useful when '
-                + 'somebody rings up to change theirs.',
+              hint: 'Searches all three lists, by name, email address and phone number — useful '
+                + 'when somebody rings up to change theirs.',
             })}
-
-            <div class="table-scroll">
-              <table class="grid">
-                <thead>
-                  <tr>
-                    <th>Name</th><th class="num">Coming</th><th>Contact</th>
-                    ${fields.map((fl) => html`<th>${fl.label}</th>`)}
-                    <th>Booked</th><th>Status</th><th></th>
-                  </tr>
-                </thead>
-                <tbody id="bookings-list">
-                  ${bookings.map(
-                    (b) => html`<tr class="${b.status === 'cancelled' ? 'row-cancelled' : ''}"
-                          data-search="${[b.name, b.email, b.phone].filter(Boolean).join(' ')}">
-                      <td><a href="/app/events/${e.id}/bookings/${b.id}"><strong>${b.name}</strong></a></td>
-                      <td class="num">${b.status === 'booked' ? b.party_size : `(${b.party_size})`}</td>
-                      <td style="color:var(--ink-2)">
-                        ${b.email ?? b.phone ?? '—'}
-                        ${b.email && b.phone ? html`<div>${b.phone}</div>` : ''}
-                      </td>
-                      ${fields.map((fl) => html`<td>${b.answers[String(fl.id)] ?? '—'}</td>`)}
-                      <td style="color:var(--ink-2)">${b.created_at.slice(0, 10)}</td>
-                      <td>
-                        ${b.status === 'booked'
-                          ? chip('green', 'Booked')
-                          : b.status === 'waitlist'
-                            ? chip('amber', 'Waiting list')
-                            : chip('neutral', 'Cancelled')}
-                      </td>
-                      <td>
-                        <a class="linkish" href="/app/events/${e.id}/bookings/${b.id}">Change</a>
-                        ${b.status === 'booked'
-                          ? html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/cancel"
-                                    class="inline-form"
-                                    onsubmit="return confirm('Cancel ${b.name}\\'s booking? It stays on the list, marked cancelled.')">
-                              <button class="linkish" type="submit" style="color:var(--bad)">Cancel</button>
-                            </form>`
-                          : html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/restore"
-                                    class="inline-form">
-                              <button class="linkish" type="submit">Put back</button>
-                            </form>`}
-                      </td>
-                    </tr>`,
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <p style="color:var(--ink-2);font-size:.9375rem">
-              A cancelled booking is greyed out and its numbers are shown in brackets — it is
-              kept as a record but does not count towards the ${e.capacity == null ? 'total' : 'places left'}.
-            </p>`}
+            <!-- Three lists, never one. A cancelled booking sat among the real ones
+                 is how somebody gets a place set for them who is not coming. -->
+            <div id="bookings-list">
+              ${bookingTable({
+                heading: 'Booked',
+                rows: bookings.filter((b) => b.status === 'booked'),
+                empty: 'Nobody is booked in at the moment.',
+                e, fields,
+              })}
+              ${waiting.length
+                ? bookingTable({
+                    heading: 'Waiting list',
+                    note: 'In the order they asked. "Give them a place" books them in if there '
+                      + 'is room.',
+                    rows: waiting, e, fields,
+                  })
+                : ''}
+              ${cancelled.length
+                ? bookingTable({
+                    heading: 'Cancelled',
+                    note: 'Kept as a record. None of these count towards the numbers.',
+                    rows: cancelled, e, fields,
+                  })
+                : ''}
+            </div>`}
     `,
   );
 }
@@ -928,10 +986,12 @@ export function publicBookingPage(opts: {
 
         ${full
           ? html`<div class="notice notice-warn"><p style="margin:0">
-              This event is sold out, so bookings are closed. Please speak to the church office
-              if you would like to be added to a waiting list — places do sometimes come
-              back.</p></div>`
-          : html`<form method="post" class="card">
+              <strong>Fully booked.</strong> You can still add yourself to the waiting list
+              below — places do sometimes come back, and if one does we will be in touch.
+            </p></div>`
+          : ''}
+        ${html`<form method="post" class="card">
+              ${full ? html`<input type="hidden" name="waitlist" value="1">` : ''}
               <div class="field">
                 <label for="name">Your name</label>
                 <input id="name" name="name" type="text" value="${v.name ?? ''}" required autofocus>
@@ -940,10 +1000,10 @@ export function publicBookingPage(opts: {
                    number nobody will ring is a thing not to do by default. -->
               <div class="grid-fields">
                 <div class="field">
-                  <label for="party_size">How many of you are coming</label>
-                  <span class="hint">Including yourself.</span>
-                  <input id="party_size" name="party_size" type="number" min="1" max="50"
-                         value="${v.party_size ?? '1'}" required>
+                  <label for="party_size">How many of you ${full ? 'would like to come' : 'are coming'}</label>
+                  <span class="hint">Including yourself. Up to ${e.max_per_booking ?? 10} in one booking.</span>
+                  <input id="party_size" name="party_size" type="number" min="1"
+                         max="${e.max_per_booking ?? 10}" value="${v.party_size ?? '1'}" required>
                 </div>
                 ${e.ask_email
                   ? html`<div class="field">
@@ -986,14 +1046,37 @@ export function publicBookingPage(opts: {
                   </div>`
                 : ''}
 
-              <button class="btn-primary" type="submit">Book my place</button>
+              <button class="btn-primary" type="submit">${full
+                ? 'Fully booked — add me to the waiting list' : 'Book my place'}</button>
             </form>`}
       </div>
     `,
   );
 }
 
-export function bookingDonePage(e: EventRow, partySize: number) {
+export function bookingDonePage(e: EventRow, partySize: number, waitlist = false) {
+  if (waitlist) {
+    return layout(
+      { title: 'On the waiting list', chrome: false, heading: 'You are on the waiting list', eyebrow: 'Bream Church' },
+      html`
+        <div style="max-width:40rem;margin-inline:auto">
+          <div class="notice notice-warn">
+            <p style="margin:0">
+              Thank you. <strong>${e.title}</strong> is fully booked at the moment, so we have
+              put you on the waiting list for <strong>${partySize}</strong>
+              ${partySize === 1 ? 'place' : 'places'}.
+            </p>
+          </div>
+          <div class="card">
+            <p style="margin:0">
+              This is not a place yet. If one comes back we will be in touch — please do not
+              come along unless we have told you there is room.
+            </p>
+          </div>
+        </div>
+      `,
+    );
+  }
   return layout(
     { title: 'Booked', chrome: false, heading: 'You are booked in', eyebrow: 'Bream Church' },
     html`

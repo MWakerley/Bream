@@ -191,6 +191,8 @@ export function readBookingForm(
    * office is typing in somebody else's.
    */
   who: 'self' | 'office' = 'self',
+  /** The most places one booking may take. The office is held only to 50. */
+  maxParty = 50,
 ): { ok: true; value: BookingAttempt } | { ok: false; error: string } {
   const office = who === 'office';
   const s = (k: string) => String(form.get(k) ?? '').trim();
@@ -200,12 +202,22 @@ export function readBookingForm(
   if (!name) {
     return { ok: false, error: office ? 'Give a name for this booking.' : 'Please give your name.' };
   }
-  if (!Number.isInteger(partySize) || partySize < 1 || partySize > 50) {
+  const most = office ? 50 : Math.min(50, Math.max(1, maxParty));
+  if (!Number.isInteger(partySize) || partySize < 1) {
     return {
       ok: false,
       error: office
         ? 'How many people is this booking for? Give a number from 1 to 50.'
-        : 'How many of you are coming? Give a number from 1 to 50.',
+        : `How many of you are coming? Give a number from 1 to ${most}.`,
+    };
+  }
+  if (partySize > most) {
+    return {
+      ok: false,
+      error: office
+        ? 'One booking can be for at most 50 people. Split a bigger group into two.'
+        : `One booking can be for up to ${most} ${most === 1 ? 'person' : 'people'}. `
+          + 'For a bigger group, please speak to the church office.',
     };
   }
 
