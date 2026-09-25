@@ -75,6 +75,13 @@ export interface GeneratorInput {
   history: ServedRecord[];
   /** Assignments already inside the horizon that must be kept exactly. */
   pinned: { serviceId: number; roleId: number; slot: number; personId: number }[];
+  /**
+   * Existing bookings the draft takes OFF: people now on a break, and guests
+   * the rota picked rather than somebody putting them on by hand. Their places
+   * are left free for the generator to fill, and apply deletes the old rows.
+   * Not read by the generator itself — it only ever sees the free place.
+   */
+  released?: Released[];
   /** The church's own rules, from Settings. Optional so every existing caller
    *  and every existing test keeps working and keeps meaning what it meant. */
   rules?: GenRules;
@@ -141,4 +148,14 @@ export interface GeneratorResult {
   warnings: string[];
   /** Per-person totals, for the fairness report. */
   load: { personId: number; name: string; total: number; byRole: Record<number, number> }[];
+}
+
+export interface Released {
+  assignmentId: number;
+  serviceId: number;
+  roleId: number;
+  slot: number;
+  personId: number;
+  name: string;
+  why: 'break' | 'guest';
 }

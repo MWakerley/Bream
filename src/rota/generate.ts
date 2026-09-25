@@ -290,7 +290,16 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     // Pins first, so every later decision sees them.
     for (const pin of pinned.filter((p) => p.serviceId === svc.id)) {
       const person = personById.get(pin.personId);
-      if (!person) continue;
+      if (!person) {
+        // Somebody the generator may not use (stopped serving, or flagged as a
+        // possible duplicate) but who is still genuinely booked. The slot stays
+        // theirs: treating it as free would hand it to somebody else, and
+        // apply's INSERT OR REPLACE would then overwrite the confirmed row.
+        const t = takenSlots.get(pin.roleId) ?? new Set<number>();
+        t.add(pin.slot);
+        takenSlots.set(pin.roleId, t);
+        continue;
+      }
       allocations.push({
         serviceId: svc.id, roleId: pin.roleId, slot: pin.slot, personId: pin.personId,
         reason: 'Already set — left exactly as it was.', amber: [], pinned: true,

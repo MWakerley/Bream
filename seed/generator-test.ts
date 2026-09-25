@@ -415,9 +415,9 @@ console.log('generator:');
     !tight.allocations.some((a) => a.personId === 100),
     'a break must outrank the relaxation tiers, not lose to them');
 
-  // The keep-and-warn contract: an arrangement already made still stands. This
-  // is why the PEOPLE query is deliberately not filtered — 100 is still in
-  // `people`, so the pin survives and its slot stays taken.
+  // Whatever IS passed in as a pin stands. load.ts now releases a break's
+  // bookings before they get here (so a draft takes them off), but a pin the
+  // generator is handed — a guest put on by hand, say — is never second-guessed.
   const pinned = withoutCaps();
   const svc = pinned.services[0]!;
   pinned.pinned = [{ serviceId: svc.id, roleId: R.preacher, slot: 1, personId: 100 }];
@@ -435,6 +435,18 @@ console.log('generator:');
     (a) => a.serviceId === svc.id && a.roleId === R.preacher && a.slot === 1);
   ok('and nobody else is given their slot', sameSlot.length === 1,
     `${sameSlot.length} people ended up in slot 1 — this is the silent-overwrite bug`);
+
+  // A booking for somebody the generator cannot use at all — stopped serving,
+  // or flagged as a possible duplicate, so absent from `people` — used to be
+  // dropped, leaving the slot looking free for apply to overwrite.
+  const ghost = withoutCaps();
+  const gsvc = ghost.services[0]!;
+  ghost.pinned = [{ serviceId: gsvc.id, roleId: R.preacher, slot: 1, personId: 9999 }];
+  const ghostRun = generateRota(ghost);
+  ok('a booking for someone the generator cannot use still holds its slot',
+    !ghostRun.allocations.some(
+      (a) => a.serviceId === gsvc.id && a.roleId === R.preacher && a.slot === 1),
+    'slot 1 was handed to somebody else, which would overwrite the confirmed row');
 }
 
 // ---------------------------------------------------------------------------

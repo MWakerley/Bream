@@ -65,8 +65,9 @@ export function generateFormPage(opts: {
           <li><strong>People still marked "needs review" are skipped</strong> — the import
               cannot tell which person a first name refers to.</li>
           <li><strong>Anyone taking a break is left out</strong>, and so is anyone marked as a
-              guest. Neither is cancelled from anything already arranged — they are simply not
-              put on anything new. Guests are added to a service by hand.</li>
+              guest. If either is already down for a service in the range, the draft takes them
+              off and fills the place — and names each one before anything is saved. The only
+              exception is a guest somebody put on a service by hand, who stays.</li>
           <li>Every choice comes with a sentence saying why.</li>
         </ul>
       </div>
@@ -95,8 +96,11 @@ export function previewPage(opts: {
   /** Sundays that WILL be created if this draft is accepted. Nothing has been
    *  written yet — a draft that is rejected must leave no trace. */
   createdSundays?: number;
+  /** Existing bookings this draft takes off, with the service they were on. */
+  released?: { name: string; why: 'break' | 'guest'; date: string; roleName: string }[];
 }) {
   const { result, services } = opts;
+  const released = opts.released ?? [];
   const fresh = result.allocations.filter((a) => !a.pinned).length;
   const kept = result.allocations.length - fresh;
   const made = opts.createdSundays ?? 0;
@@ -111,6 +115,19 @@ export function previewPage(opts: {
             nothing has been written yet, so if you close this page now, nothing changes. Any
             service already in the diary is left exactly as it is.
           </p></div>`
+        : ''}
+
+      ${released.length
+        ? html`<div class="notice notice-warn" role="status">
+            <p style="margin-top:0"><strong>${released.length}
+              booking${released.length === 1 ? '' : 's'} will be taken off</strong>, because the
+              person is taking a break or is a guest. Their places are filled below where
+              somebody else could be found.</p>
+            <ul style="margin-bottom:0">
+              ${released.map((r) => html`<li>${formatDate(r.date)} — <strong>${r.name}</strong>,
+                ${r.roleName} (${r.why === 'break' ? 'taking a break' : 'guest'})</li>`)}
+            </ul>
+          </div>`
         : ''}
 
       <p class="page-intro">

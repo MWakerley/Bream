@@ -2012,10 +2012,18 @@ app.post('/app/rota/generate', async (c) => {
     sundays: planned,
     // Which provisional id stood for which date, so Apply can map them back.
     provisional: input.services.filter((s) => s.id < 0).map((s) => ({ id: s.id, date: s.date })),
+    // Bookings this draft takes off. Deleted explicitly on apply: a place the
+    // generator could not refill has no new row to overwrite the old one.
+    released: (input.released ?? []).map((r) => r.assignmentId),
   })).run();
 
+  const dateOf = new Map(input.services.map((s) => [s.id, s.date]));
   return c.html(previewPage({
     ctx: viewCtx(c), from, to, result, services, token, createdSundays: created,
+    released: (input.released ?? []).map((r) => ({
+      name: r.name, why: r.why, date: dateOf.get(r.serviceId) ?? '',
+      roleName: input.roleNames.get(r.roleId) ?? 'a role',
+    })),
   }));
 });
 
@@ -2041,7 +2049,8 @@ app.post('/app/rota/generate/apply', async (c) => {
   }
   const parsed = JSON.parse(row.payload) as
     | DraftAllocation[]
-    | { allocations: DraftAllocation[]; sundays: SundayPlan[]; provisional: { id: number; date: string }[] };
+    | { allocations: DraftAllocation[]; sundays: SundayPlan[]; provisional: { id: number; date: string }[];
+        released?: number[] };
 
   // A draft parked before provisional Sundays existed is a bare array. Accepting
   // one of those must still work, so the old shape is read rather than rejected.
@@ -2092,6 +2101,18 @@ app.post('/app/rota/generate/apply', async (c) => {
       WHERE generated = 1 AND status = 'draft'
         AND service_id IN (SELECT id FROM services WHERE service_date BETWEEN ?1 AND ?2)`,
   ).bind(row.from_date, row.to_date).run();
+
+  // The bookings the preview said would come off. Re-checked against the person
+  // as they are NOW, so somebody who came back from their break between the
+  // draft and the click is not taken off for a reason that no longer applies.
+  const released = legacy ? [] : (parsed.released ?? []);
+  for (const chunk of chunked(released, 50)) {
+    await c.env.DB.prepare(
+      `DELETE FROM assignments
+        WHERE status = 'confirmed' AND id IN (${chunk.map(() => '?').join(',')})
+          AND person_id IN (SELECT id FROM people WHERE on_break = 1 OR is_guest = 1)`,
+    ).bind(...chunk).run();
+  }
 
   const stmt = c.env.DB.prepare(
     `INSERT OR REPLACE INTO assignments

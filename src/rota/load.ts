@@ -116,8 +116,11 @@ export async function loadGeneratorInput(
       ).bind(historyFrom, fromDate),
 
       db.prepare(
-        `SELECT a.service_id, a.role_id, a.slot, a.person_id
-           FROM assignments a JOIN services s ON s.id = a.service_id
+        `SELECT a.id AS assignment_id, a.service_id, a.role_id, a.slot, a.person_id,
+                a.reason, p.display_name, p.on_break, p.is_guest
+           FROM assignments a
+           JOIN services s ON s.id = a.service_id
+           JOIN people   p ON p.id = a.person_id
           WHERE a.person_id IS NOT NULL AND a.status = 'confirmed'
             AND s.service_date BETWEEN ?1 AND ?2`,
       ).bind(fromDate, toDate),
@@ -131,7 +134,28 @@ export async function loadGeneratorInput(
   const pairRows = rows<any>(4);
   const unavailRows = rows<any>(5);
   const histRows = rows<any>(6);
-  const pinRows = rows<any>(7);
+  // Confirmed bookings are kept exactly as they are — EXCEPT two kinds, which a
+  // new draft takes off and hands back as free places:
+  //
+  //   * anybody now on a break. The church asked for this directly: a draft that
+  //     still shows somebody who has said they are stepping back is wrong, even
+  //     when the booking came from the spreadsheet before the break began.
+  //   * a guest the rota put on — the imported spreadsheet included. The one
+  //     guest booking that stays is one a person made by hand from the service
+  //     page ("Put on by ..."), because that is the only way a guest is meant to
+  //     get on at all, and it was a deliberate act by somebody who knew.
+  //
+  // The preview lists every one of these by name before anything is saved.
+  const allPins = rows<any>(7);
+  const releases = (p: any): 'break' | 'guest' | null =>
+    p.on_break ? 'break'
+      : p.is_guest && !String(p.reason ?? '').startsWith('Put on by ') ? 'guest'
+        : null;
+  const pinRows = allPins.filter((p) => !releases(p));
+  const released = allPins.filter((p) => releases(p)).map((p) => ({
+    assignmentId: p.assignment_id, serviceId: p.service_id, roleId: p.role_id, slot: p.slot,
+    personId: p.person_id, name: p.display_name, why: releases(p)!,
+  }));
 
   // Read outside the batch rather than inside it: it is one tiny row, and
   // adding a ninth statement would renumber every rows<T>(i) index above.
@@ -249,6 +273,7 @@ export async function loadGeneratorInput(
     pinned: pinRows.map((p) => ({
       serviceId: p.service_id, roleId: p.role_id, slot: p.slot, personId: p.person_id,
     })),
+    released,
     runSeed,
   };
 }

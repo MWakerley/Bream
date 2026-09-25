@@ -141,11 +141,10 @@ export function personPage(opts: {
               ? html`<p style="margin-bottom:0">
                   They are still down for
                   <strong>${firm.length}</strong> service${firm.length === 1 ? '' : 's'}
-                  arranged before the break. Going on a break does not cancel something already
-                  agreed, so ${firm.length === 1 ? 'it is' : 'they are'} left exactly as
-                  ${firm.length === 1 ? 'it is' : 'they are'} — open
-                  ${firm.length === 1 ? 'it' : 'each one'} and use <strong>Take off</strong> if
-                  they cannot do it after all:
+                  arranged before the break. The next draft rota that covers
+                  ${firm.length === 1 ? 'it' : 'them'} will take them off and find somebody
+                  else, naming them before anything is saved. To take them off sooner, open
+                  ${firm.length === 1 ? 'it' : 'each one'} and use <strong>Take off</strong>:
                   ${firm.map((u, i) => html`${i ? ', ' : ''}<a
                     href="/app/rota/service/${u.service_id}">${formatDate(u.service_date)} (${u.role_name})</a>`)}.
                 </p>`
