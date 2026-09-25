@@ -263,6 +263,8 @@ export function newEventPage(opts: {
   roomIds?: number[];
   organisers?: { name: string; email: string | null }[];
   notify?: boolean;
+  /** The refusal was a room clash, which an administrator may overrule. */
+  offerOverride?: boolean;
 }) {
   const f = opts.form ?? {};
   return layout(
@@ -275,7 +277,11 @@ export function newEventPage(opts: {
       ...opts.ctx,
     },
     html`
-      ${opts.error ? html`<div class="notice notice-bad" role="alert"><p style="margin:0">${opts.error}</p></div>` : ''}
+      ${opts.error
+        ? html`<div class="notice notice-bad"><p style="margin:0">
+            Not created yet — the reason is by the button at the bottom. Everything you typed is
+            still here.</p></div>`
+        : ''}
       <form method="post" action="/app/events/new" class="card">
         <div class="field">
           <label for="title">What is it called</label>
@@ -340,6 +346,19 @@ export function newEventPage(opts: {
           </label>
         </div>
 
+        ${opts.error
+          ? html`<div class="notice notice-bad" role="alert" style="margin-top:1.25rem">
+              <p style="margin:0"><strong>Not created yet.</strong> ${opts.error}</p>
+              ${opts.offerOverride
+                ? html`<label class="check" style="margin-top:.75rem;background:var(--paper)">
+                    <input type="checkbox" name="allow_clash" value="1">
+                    <span><span class="check-label">Hold the rooms anyway</span>
+                      <span class="check-note">Those bookings go ahead as well. Both will show
+                        on the room diary.</span></span>
+                  </label>`
+                : ''}
+            </div>`
+          : ''}
         <button class="btn-primary" type="submit" style="margin-top:1.25rem">Create the event</button>
       </form>
     `,
@@ -435,9 +454,25 @@ export function eventAdminPage(opts: {
   roomIds: number[];
   organisers: { name: string; email: string | null }[];
   notice?: { tone: 'ok' | 'bad'; text: string };
+  /**
+   * A details save that was refused: what was typed, and why. The form is
+   * drawn from these rather than from the event, so nothing typed is lost, and
+   * the reason sits by the Save button rather than at the top of the page,
+   * where it was being missed.
+   */
+  details?: {
+    values: Record<string, string>;
+    roomIds: number[];
+    error: string;
+    /** The refusal was a room clash, which an administrator may overrule. */
+    offerOverride: boolean;
+  };
 }) {
   const { event: e, fields, bookings, ctx, origin, notice, emailReady, captchaReady,
-          rooms, roomIds, organisers } = opts;
+          rooms, roomIds, organisers, details } = opts;
+  // What the details form shows: what was just typed, if a save was refused.
+  const dv = details?.values;
+  const val = (k: string, saved: string) => (dv ? dv[k] ?? '' : saved);
   const left = placesLeft(e);
   const waiting = bookings.filter((b) => b.status === 'waitlist');
   const cancelled = bookings.filter((b) => b.status === 'cancelled');
@@ -464,7 +499,7 @@ export function eventAdminPage(opts: {
       </div>
 
       <h2 class="section-h2">The details</h2>
-      <div class="card">
+      <div class="card" id="details">
         <p style="margin-top:0;color:var(--ink-2)">
           Everything here can be changed after the event exists. Raising the number who can come
           reopens booking if it had sold out; lowering it below the number already booked is
@@ -474,28 +509,28 @@ export function eventAdminPage(opts: {
         <form method="post" action="/app/events/${e.id}/details">
           <div class="field">
             <label for="d_title">What it is called</label>
-            <input id="d_title" name="title" type="text" value="${e.title}" required>
+            <input id="d_title" name="title" type="text" value="${val('title', e.title)}" required>
           </div>
           <div class="field">
             <label for="d_description">Tell people about it</label>
             <span class="hint">This shows on the booking page.</span>
-            <textarea id="d_description" name="description" rows="4">${e.description ?? ''}</textarea>
+            <textarea id="d_description" name="description" rows="4">${val('description', e.description ?? '')}</textarea>
           </div>
           <div class="grid-fields">
             ${whenFields({
               idPrefix: 'd_',
-              startDate: dateOf(e.starts_at),
-              startTime: timeOf(e.starts_at),
+              startDate: val('on_date', dateOf(e.starts_at)),
+              startTime: val('start_time', timeOf(e.starts_at)),
               // An event from before finish times existed still has no end; its
               // date is offered as the start date so only the time is to fill in.
-              endDate: e.ends_at ? dateOf(e.ends_at) : dateOf(e.starts_at),
-              endTime: e.ends_at ? timeOf(e.ends_at) : '',
+              endDate: val('end_date', e.ends_at ? dateOf(e.ends_at) : dateOf(e.starts_at)),
+              endTime: val('end_time', e.ends_at ? timeOf(e.ends_at) : ''),
               endRequired: false,
               endHint: e.ends_at ? undefined : 'Needed before any rooms can be booked for it.',
             })}
             <div class="field">
               <label for="d_location">Where</label>
-              <input id="d_location" name="location" type="text" value="${e.location ?? ''}">
+              <input id="d_location" name="location" type="text" value="${val('location', e.location ?? '')}">
             </div>
             <div class="field">
               <label for="d_capacity">How many can come</label>
@@ -505,21 +540,36 @@ export function eventAdminPage(opts: {
                   : `${e.booked} of ${e.capacity} taken. Blank means no limit.`}
               </span>
               <input id="d_capacity" name="capacity" type="number" min="1" max="2000"
-                     value="${e.capacity ?? ''}">
+                     value="${val('capacity', e.capacity == null ? '' : String(e.capacity))}">
             </div>
             <div class="field">
               <label for="d_max">Most places in one booking</label>
               <span class="hint">On the booking page. The office can take more by phone.</span>
               <input id="d_max" name="max_per_booking" type="number" min="1" max="50"
-                     value="${e.max_per_booking ?? 10}" required>
+                     value="${val('max_per_booking', String(e.max_per_booking ?? 10))}" required>
             </div>
             <div class="field">
               <label for="d_closes">Bookings close</label>
               <span class="hint">Optional.</span>
-              <input id="d_closes" name="closes" type="date" value="${e.booking_closes_at ?? ''}">
+              <input id="d_closes" name="closes" type="date" value="${val('closes', e.booking_closes_at ?? '')}">
             </div>
           </div>
-          ${roomChecks(rooms, roomIds)}
+          ${roomChecks(rooms, details ? details.roomIds : roomIds)}
+          ${details
+            ? html`<div class="notice notice-bad" role="alert" id="details-error" style="margin-top:1.25rem">
+                <p style="margin:0"><strong>Not saved.</strong> ${details.error}</p>
+                ${details.offerOverride
+                  ? html`<label class="check" style="margin-top:.75rem;background:var(--paper)">
+                      <input type="checkbox" name="allow_clash" value="1">
+                      <span><span class="check-label">Hold the rooms anyway</span>
+                        <span class="check-note">Those bookings go ahead as well — for a weekend
+                          event that includes the Sunday service, say. Both will show on the
+                          room diary.</span></span>
+                    </label>`
+                  : ''}
+              </div>
+              <script>document.getElementById('details-error').scrollIntoView({ block: 'center' });</script>`
+            : ''}
           <p style="margin-bottom:0;margin-top:1.25rem">
             <button class="btn-primary" type="submit">Save these details</button>
           </p>

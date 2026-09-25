@@ -2686,8 +2686,8 @@ app.post('/app/events/new', async (c) => {
   const rooms = await listRooms(c.env.DB);
   const roomIds = readRoomIds(form).filter((id) => rooms.some((r) => r.id === id));
   const notify = !!form.get('notify_organisers');
-  const refuse = (error: string, status: 400 | 409 = 400) => c.html(newEventPage({
-    ctx: viewCtx(c), rooms, error, form: echo, roomIds, notify,
+  const refuse = (error: string, status: 400 | 409 = 400, offerOverride = false) => c.html(newEventPage({
+    ctx: viewCtx(c), rooms, error, form: echo, roomIds, notify, offerOverride,
     organisers: form.getAll('organiser_name').map((n, i) => ({
       name: String(n), email: String(form.getAll('organiser_email')[i] ?? ''),
     })),
@@ -2705,9 +2705,12 @@ app.post('/app/events/new', async (c) => {
   if (!organisers.ok) return refuse(organisers.error);
 
   // Checked before the event is written, so a clash never leaves behind an
-  // event that looks as though it has its rooms when it does not.
-  const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt);
-  if (clashes.length) return refuse(describeClashes(clashes), 409);
+  // event that looks as though it has its rooms when it does not — unless the
+  // person has ticked to hold the rooms anyway, alongside what is there.
+  if (!form.get('allow_clash')) {
+    const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt);
+    if (clashes.length) return refuse(describeClashes(clashes), 409, true);
+  }
 
   const capacity = Number(form.get('capacity'));
   const slug = await makeSlug(c.env.DB, title);
@@ -2734,6 +2737,7 @@ async function eventAdminView(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   id: number,
   notice?: { tone: 'ok' | 'bad'; text: string },
+  details?: { values: Record<string, string>; roomIds: number[]; error: string; offerOverride: boolean },
 ) {
   const [event, fields, bookings, rooms, roomIds, organisers] = await Promise.all([
     getEvent(c.env.DB, id), listFields(c.env.DB, id), listEventBookings(c.env.DB, id),
@@ -2741,7 +2745,7 @@ async function eventAdminView(
   ]);
   if (!event) return c.notFound();
   return c.html(eventAdminPage({
-    event, fields, bookings, rooms, roomIds, organisers,
+    event, fields, bookings, rooms, roomIds, organisers, details,
     ctx: viewCtx(c), origin: new URL(c.req.url).origin, notice,
     emailReady: Boolean(c.env.EMAIL && c.env.ACK_FROM),
     captchaReady: turnstileReady(c.env),
@@ -2771,34 +2775,41 @@ app.post('/app/events/:id/details', async (c) => {
     return v.length ? v : null;
   };
 
+  // A refused save is drawn again from what was typed, with the reason by the
+  // Save button. It used to redraw the saved event with the reason at the top
+  // of the page, so a refusal looked exactly like the save being ignored.
+  const values = Object.fromEntries(
+    ['title', 'description', 'on_date', 'start_time', 'end_date', 'end_time', 'location', 'capacity',
+      'max_per_booking', 'closes'].map((k) => [k, String(form.get(k) ?? '')]));
+  const rooms = await listRooms(c.env.DB);
+  const roomIds = readRoomIds(form).filter((r) => rooms.some((x) => x.id === r));
+  const refuse = (error: string, offerOverride = false) =>
+    eventAdminView(c, id, undefined, { values, roomIds, error, offerOverride });
+
   const title = str('title');
-  if (!title) return eventAdminView(c, id, { tone: 'bad', text: 'Give the event a name.' });
+  if (!title) return refuse('Give the event a name.');
   // The finish is optional here only because events from before it was asked
   // for have none; rooms need one, which is checked below.
   const when = readEventWhen(form, false);
-  if (!when.ok) return eventAdminView(c, id, { tone: 'bad', text: when.error });
+  if (!when.ok) return refuse(when.error);
   const { startsAt, endsAt } = when;
 
   const rawCapacity = String(form.get('capacity') ?? '').trim();
   const capacity = rawCapacity === '' ? null : Number(rawCapacity);
   if (capacity != null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 2000)) {
-    return eventAdminView(c, id, {
-      tone: 'bad', text: 'How many can come has to be a number from 1 to 2000, or blank for no limit.',
-    });
+    return refuse('How many can come has to be a number from 1 to 2000, or blank for no limit.');
   }
 
-  const rooms = await listRooms(c.env.DB);
-  const roomIds = readRoomIds(form).filter((r) => rooms.some((x) => x.id === r));
-  if (roomIds.length && !endsAt) {
-    return eventAdminView(c, id, {
-      tone: 'bad', text: 'Give a finish time, so the rooms can be booked until then.',
-    });
-  }
+  if (roomIds.length && !endsAt) return refuse('Give a finish time, so the rooms can be booked until then.');
   // Checked before anything is saved. Moving the event onto a time when one of
   // its rooms is taken must not leave the event moved and its room behind.
-  if (endsAt) {
+  //
+  // An administrator may hold the rooms anyway: a weekend event in the church
+  // naturally includes the Sunday service, and refusing it helps nobody. The
+  // other bookings stand; both show on the diary.
+  if (endsAt && !form.get('allow_clash')) {
     const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt, id);
-    if (clashes.length) return eventAdminView(c, id, { tone: 'bad', text: describeClashes(clashes) });
+    if (clashes.length) return refuse(describeClashes(clashes), true);
   }
 
   // Lowering the capacity below what is already booked is ALLOWED and nobody is
@@ -2823,13 +2834,19 @@ app.post('/app/events/:id/details', async (c) => {
   });
 
   const over = capacity != null && (booked?.n ?? 0) > capacity;
+  // Say what is now held, so nobody has to open the diary to find out whether
+  // the rooms took.
+  const heldNames = rooms.filter((r) => roomIds.includes(r.id)).map((r) => r.name);
+  const held = heldNames.length && endsAt
+    ? ` ${heldNames.join(' and ')} ${heldNames.length === 1 ? 'is' : 'are'} held ${formatWhen(startsAt, endsAt)}.`
+    : '';
   return eventAdminView(c, id, {
     tone: over ? 'bad' : 'ok',
     text: over
       ? `Saved — but ${booked?.n} places are already booked and you have set the limit to `
         + `${capacity}. Nobody has been thrown off; no further bookings will be taken until `
-        + 'the numbers come back under it.'
-      : 'Saved.',
+        + `the numbers come back under it.${held}`
+      : `Saved.${held}`,
   });
 });
 

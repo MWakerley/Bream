@@ -386,8 +386,8 @@ export function describeClashes(
   const list = clashes
     .map((c) => `${c.room} (${c.title}, ${formatSpan(c.starts_at, c.ends_at)})`)
     .join('; ');
-  return `Not saved — ${clashes.length === 1 ? 'a room is' : 'some rooms are'} already booked then: `
-    + `${list}. Untick ${clashes.length === 1 ? 'it' : 'them'}, change the time, or move the other booking first.`;
+  return `${clashes.length === 1 ? 'A room is' : 'Some rooms are'} already booked then: ${list}. `
+    + `Untick ${clashes.length === 1 ? 'it' : 'them'}, change the time, or tick below to hold the rooms anyway.`;
 }
 
 /**

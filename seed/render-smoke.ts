@@ -401,6 +401,31 @@ await check('a refused new event keeps what was ticked', () => newEventPage({
   organisers: [{ name: 'Jan', email: 'jan@example.org' }, { name: 'Bob', email: '' }],
 }), ['value="2" checked', 'value="Jan"', 'value="jan@example.org"', 'value="Bob"',
      'name="notify_organisers" value="1" checked']);
+// A refused save used to redraw the saved event with the reason at the top of
+// the page, which looked exactly like the save being ignored.
+await check('a refused save keeps what was typed and says why by the button', async () => {
+  const out = String(await eventAdminPage({
+    event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
+    details: {
+      values: { title: 'Renew', on_date: '2026-10-16', start_time: '19:00', end_date: '2026-10-18',
+        end_time: '16:00', location: 'Church', capacity: '100', max_per_booking: '10', closes: '', description: '' },
+      roomIds: [1], error: 'A room is already booked then: Main church (Sunday Service).', offerOverride: true,
+    },
+  }));
+  const errAt = out.indexOf('id="details-error"');
+  const saveAt = out.indexOf('Save these details');
+  return errAt > 0 && errAt < saveAt ? out : 'error is not beside the Save button';
+}, ['value="2026-10-18"', 'value="16:00"', 'name="room_ids" value="1" checked', 'Not saved.',
+    'Main church (Sunday Service)', 'name="allow_clash"', 'Hold the rooms anyway', 'scrollIntoView']);
+await check('a refusal that is not a clash offers no override', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
+  details: { values: { title: 'Renew', on_date: '2026-10-16', start_time: '19:00' }, roomIds: [],
+    error: 'It has to finish after it starts.', offerOverride: false },
+}), ['It has to finish after it starts.'], ['name="allow_clash"']);
+await check('the new-event form offers the override on a clash', () => newEventPage({
+  ctx: CTX, rooms: ROOMS, error: 'A room is already booked then.', offerOverride: true, form: { on_date: '2026-10-16' },
+}), ['name="allow_clash"', 'the reason is by the button']);
+
 await check('the event page shows its rooms and organisers', () => eventAdminPage({
   event: { ...EVENT, ends_at: '2026-10-11T21:00', notify_organisers: 1 }, fields: FIELDS,
   bookings: [], ctx: CTX, origin: 'https://x.test',
