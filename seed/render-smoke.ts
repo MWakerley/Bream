@@ -32,6 +32,7 @@ import { safeguardingPage, safeguardingReportPage } from '../src/views/safeguard
 import { readEventWhen } from '../src/events.js';
 import { fillPlaceholders, DEFAULT_ACK_BODY } from '../src/email.js';
 import { readKeys } from '../src/keyholders.js';
+import { previewPage } from '../src/views/generate.js';
 import { readRequest, officeEmail, receivedEmail, decisionEmail } from '../src/roomRequests.js';
 import { publicRoomRequestPage, requestClosedPage, requestReceivedPage, bookingFormSettingsPage } from '../src/views/roomRequests.js';
 import type { ViewCtx } from '../src/views/layout.js';
@@ -1260,6 +1261,16 @@ await check('and nothing at all on a quiet week', () => homePage({
     decisionEmail(REQ, true, null).subject, decisionEmail(REQ, false, 'Sorry, the hall is being painted.').body,
   ].join(' | '), ['Confirmed: the Church Centre', 'no longer held', 'being painted']);
 }
+
+// ---- a draft rota can be downloaded before it is applied ----------------------
+await check('the draft offers the rota downloads, for this draft only', () => previewPage({
+  ctx: CTX, from: '2026-10-01', to: '2026-12-31', token: 'tok_ABC-123xyz_tok_ABC-123',
+  result: { allocations: [], gaps: [], warnings: [], load: [] },
+  services: [{ id: 1, date: '2026-10-04', time: '10:30', title: 'Worship', rows: [
+    { roleId: 1, roleName: 'Preacher', people: [{ name: 'Steve', reason: 'x', amber: [], pinned: false }], missing: 0, message: null },
+  ] }],
+}), ['/app/rota/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.xlsx',
+     '/app/rota/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.pdf', 'Download for Excel', 'Apply this draft']);
 
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

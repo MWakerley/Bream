@@ -62,6 +62,17 @@ writeFileSync(`${out}/rota.pdf`, pdf);
 ok('the pdf is a pdf', new TextDecoder().decode(pdf.slice(0, 5)) === '%PDF-');
 ok('of a sensible size', pdf.length > 2000 && pdf.length < 500_000);
 
+// A draft is the same grid, marked DRAFT wherever it is read.
+const draftX = rotaXlsx(services, roles, { draft: true });
+writeFileSync(`${out}/rota-draft.xlsx`, draftX);
+const draftText = new TextDecoder().decode(draftX);
+ok('the draft workbook says DRAFT in its title', draftText.includes('DRAFT — Bream Church rota') && draftText.includes('not yet confirmed'));
+ok('and is named as a draft', draftText.includes('name="Draft rota"'));
+ok('with the same columns as the rota', draftText.includes('Service leader') && draftText.includes('Prayer ministry'));
+const draftP = await rotaPdf(services, roles, { draft: true });
+writeFileSync(`${out}/rota-draft.pdf`, draftP);
+ok('the draft pdf is a pdf', new TextDecoder().decode(draftP.slice(0, 5)) === '%PDF-');
+
 const empty = await rotaPdf([], roles);
 ok('an empty range still makes a pdf', new TextDecoder().decode(empty.slice(0, 5)) === '%PDF-');
 

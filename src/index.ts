@@ -28,6 +28,7 @@ import {
   listRoles,
   personForSession,
   type Env,
+  type ServiceDetail,
   type SessionPerson,
 } from './db.js';
 import { homePage } from './views/home.js';
@@ -2075,6 +2076,7 @@ app.post('/app/rota/generate', async (c) => {
         const here = result.allocations.filter((a) => a.serviceId === s.id && a.roleId === r.roleId);
         const gap = result.gaps.find((g) => g.serviceId === s.id && g.roleId === r.roleId);
         return {
+          roleId: r.roleId,
           roleName: input.roleNames.get(r.roleId) ?? 'Role',
           people: here.map((a) => ({
             name: nameOf.get(a.personId) ?? `#${a.personId}`,
@@ -2104,6 +2106,13 @@ app.post('/app/rota/generate', async (c) => {
     // Bookings this draft takes off. Deleted explicitly on apply: a place the
     // generator could not refill has no new row to overwrite the old one.
     released: (input.released ?? []).map((r) => r.assignmentId),
+    // The whole grid as shown — kept and new places together, Sundays not in
+    // the diary yet included — so the draft can be downloaded exactly as it
+    // was previewed, without generating it again.
+    grid: services.map((s) => ({
+      id: s.id, date: s.date, time: s.time, title: s.title,
+      rows: s.rows.map((r) => ({ roleId: r.roleId, names: r.people.map((p) => p.name) })),
+    })),
   })).run();
 
   const dateOf = new Map(input.services.map((s) => [s.id, s.date]));
@@ -2114,6 +2123,72 @@ app.post('/app/rota/generate', async (c) => {
       roleName: input.roleNames.get(r.roleId) ?? 'a role',
     })),
   }));
+});
+
+/**
+ * A parked draft, laid out as the rota download is. Only the person who made
+ * the draft can fetch it, as only they can apply it; once applied (or
+ * replaced) it is gone, and the rota's own download takes over.
+ */
+async function draftForExport(c: Context<{ Bindings: Env; Variables: Vars }>) {
+  const token = c.req.param('token') ?? '';
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
+  const row = await c.env.DB.prepare(
+    'SELECT payload FROM draft_rotas WHERE token = ?1 AND person_id = ?2',
+  ).bind(token, c.get('person').id).first<{ payload: string }>();
+  if (!row) return null;
+  const parsed = JSON.parse(row.payload) as {
+    grid?: { id: number; date: string; time: string; title: string; rows: { roleId?: number; names: string[] }[] }[];
+  };
+  if (!Array.isArray(parsed.grid)) return null;
+
+  // Readings and sermon titles for the services already in the diary; a
+  // Sunday the draft would add has none yet.
+  const ids = parsed.grid.map((s) => s.id).filter((id) => id > 0);
+  const readings = new Map<number, { readings: string | null; sermon_title: string | null }>();
+  if (ids.length) {
+    const { results } = await c.env.DB.prepare(
+      'SELECT id, readings, sermon_title FROM services WHERE id IN (SELECT value FROM json_each(?1))',
+    ).bind(JSON.stringify(ids)).all<{ id: number; readings: string | null; sermon_title: string | null }>();
+    for (const r of results) readings.set(r.id, r);
+  }
+  const roles = await listRoles(c.env.DB);
+  const nameOf = new Map(roles.map((r) => [r.id, r.name]));
+  const details: ServiceDetail[] = parsed.grid.map((s) => ({
+    id: s.id, service_date: s.date, service_time: s.time, title: s.title, location: null, is_communion: 0,
+    readings: readings.get(s.id)?.readings ?? null, sermon_title: readings.get(s.id)?.sermon_title ?? null,
+    notApplicable: [],
+    roles: s.rows.filter((r) => r.roleId != null).map((r) => ({
+      role_id: r.roleId!, role_name: nameOf.get(r.roleId!) ?? 'Role', min_needed: 0, ideal_needed: 0,
+      people: r.names.map((n) => ({
+        assignment_id: 0, person_id: 0, display_name: n, status: 'draft', on_break: 0, is_guest: 0,
+      })),
+    })),
+  }));
+  return { details, roles };
+}
+
+const draftGone = (c: Context<{ Bindings: Env; Variables: Vars }>) =>
+  c.html(generateFormPage({
+    ctx: viewCtx(c),
+    defaultFrom: new Date().toISOString().slice(0, 10),
+    defaultTo: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10),
+    notice: { tone: 'bad', text: 'That draft is no longer available to download — it has been applied or replaced. Generate it again, or download the rota itself.' },
+  }), 404);
+
+app.get('/app/rota/generate/draft/:token/rota.xlsx', async (c) => {
+  const d = await draftForExport(c);
+  if (!d) return draftGone(c);
+  return download(rotaXlsx(d.details, d.roles, { draft: true }),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    `bream-rota-DRAFT-${new Date().toISOString().slice(0, 10)}.xlsx`);
+});
+
+app.get('/app/rota/generate/draft/:token/rota.pdf', async (c) => {
+  const d = await draftForExport(c);
+  if (!d) return draftGone(c);
+  return download(await rotaPdf(d.details, d.roles, { draft: true }), 'application/pdf',
+    `bream-rota-DRAFT-${new Date().toISOString().slice(0, 10)}.pdf`);
 });
 
 app.post('/app/rota/generate/apply', async (c) => {

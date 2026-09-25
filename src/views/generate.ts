@@ -82,7 +82,8 @@ export interface PreviewService {
   title: string;
   /** Not in the diary yet — it appears only if this draft is accepted. */
   isNew?: boolean;
-  rows: { roleName: string; people: { name: string; reason: string; amber: string[]; pinned: boolean }[];
+  rows: { roleId?: number; roleName: string;
+          people: { name: string; reason: string; amber: string[]; pinned: boolean }[];
           missing: number; message: string | null }[];
 }
 
@@ -146,6 +147,14 @@ export function previewPage(opts: {
           <button class="btn-primary" type="submit">Apply this draft</button>
         </form>
         <a class="btn-secondary" href="/app/rota/generate" style="margin-left:.75rem">Start again</a>
+        <!-- The draft as it stands, in the same layout as the rota's own
+             download, so it can be sent round for comments before it is
+             applied. Marked DRAFT throughout so nobody mistakes it. -->
+        <p class="btn-row" style="margin:1rem 0 0">
+          <span style="color:var(--ink-2);align-self:center">This draft, to send round before applying:</span>
+          <a class="btn-quiet" href="/app/rota/generate/draft/${opts.token}/rota.xlsx">Download for Excel</a>
+          <a class="btn-quiet" href="/app/rota/generate/draft/${opts.token}/rota.pdf">Download PDF</a>
+        </p>
         <p style="margin-bottom:0;margin-top:.9rem;color:var(--ink-2);font-size:.9375rem">
           Applying saves the new placements as <em>draft</em>, so they are visibly different
           from the confirmed rota until someone confirms them.

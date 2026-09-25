@@ -46,11 +46,17 @@ const rangeLabel = (services: ServiceDetail[]) => services.length
   ? `${formatDate(services[0]!.service_date)} to ${formatDate(services[services.length - 1]!.service_date)}`
   : 'No services';
 
-export function rotaXlsx(services: ServiceDetail[], roles: RoleRow[]): Uint8Array {
+/** A draft is laid out exactly like the rota, and says DRAFT wherever it is
+ *  looked at, so a printed copy is never mistaken for the confirmed one. */
+export interface RotaExportOptions { draft?: boolean }
+
+export function rotaXlsx(services: ServiceDetail[], roles: RoleRow[], opts: RotaExportOptions = {}): Uint8Array {
   const g = grid(services, roles);
   return buildXlsx([{
-    name: 'Rota',
-    title: `Bream Church rota — ${rangeLabel(services)}`,
+    name: opts.draft ? 'Draft rota' : 'Rota',
+    title: opts.draft
+      ? `DRAFT — Bream Church rota — ${rangeLabel(services)} — not yet confirmed`
+      : `Bream Church rota — ${rangeLabel(services)}`,
     columns: [
       { header: 'Date', width: 16 }, { header: 'Time', width: 7 },
       { header: 'Service', width: 20 }, { header: 'Readings', width: 24 },
@@ -64,7 +70,7 @@ export function rotaXlsx(services: ServiceDetail[], roles: RoleRow[]): Uint8Arra
  *  on A4, so a long list of roles becomes two tables over the same services. */
 const PER_TABLE = 8;
 
-export async function rotaPdf(services: ServiceDetail[], roles: RoleRow[]): Promise<Uint8Array> {
+export async function rotaPdf(services: ServiceDetail[], roles: RoleRow[], opts: RotaExportOptions = {}): Promise<Uint8Array> {
   const g = grid(services, roles);
   const chunks: { id: number; name: string }[][] = [];
   for (let i = 0; i < g.roles.length; i += PER_TABLE) chunks.push(g.roles.slice(i, i + PER_TABLE));
@@ -92,11 +98,12 @@ export async function rotaPdf(services: ServiceDetail[], roles: RoleRow[]): Prom
   });
 
   return buildPdf({
-    title: 'Bream Church rota',
-    subtitle: rangeLabel(services),
+    title: opts.draft ? 'DRAFT — Bream Church rota' : 'Bream Church rota',
+    subtitle: opts.draft ? `${rangeLabel(services)}  ·  a draft, not yet confirmed` : rangeLabel(services),
     landscape: true,
     tables,
-    footnote: 'A dash means the role is not needed at that service; a blank means nobody is '
+    footnote: (opts.draft ? 'THIS IS A DRAFT. Nothing on it is confirmed until the rota is applied. ' : '')
+      + 'A dash means the role is not needed at that service; a blank means nobody is '
       + 'on it yet. If you cannot make a date, say so on the "My dates" page or tell whoever '
       + 'builds the rota as soon as you can.',
   });
