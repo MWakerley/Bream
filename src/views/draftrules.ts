@@ -197,7 +197,7 @@ export function draftRulesPage(opts: {
 
         <div class="btn-row" style="margin-top:1.25rem">
           <button class="btn-primary" type="submit">Save these rules</button>
-          <a class="btn-secondary" href="/app/rota/generate">Generate a draft with them</a>
+          <a class="btn-secondary" href="/app/settings/generate">Generate a draft with them</a>
         </div>
       </form>
     `,

@@ -1998,7 +1998,7 @@ app.post('/app/settings/services/add', async (c) => {
 /** Nothing is written until the admin presses Apply, so the draft is held in a
  *  short-lived row rather than recomputed (which could drift if data changed
  *  between the preview and the press). */
-app.get('/app/rota/generate', (c) => {
+app.get('/app/settings/generate', (c) => {
   const today = new Date().toISOString().slice(0, 10);
   const to = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
   return c.html(generateFormPage({
@@ -2006,7 +2006,7 @@ app.get('/app/rota/generate', (c) => {
   }));
 });
 
-app.post('/app/rota/generate', async (c) => {
+app.post('/app/settings/generate', async (c) => {
   const form = await c.req.formData();
   const from = String(form.get('from') ?? '');
   const to = String(form.get('to') ?? '');
@@ -2176,7 +2176,7 @@ const draftGone = (c: Context<{ Bindings: Env; Variables: Vars }>) =>
     notice: { tone: 'bad', text: 'That draft is no longer available to download — it has been applied or replaced. Generate it again, or download the rota itself.' },
   }), 404);
 
-app.get('/app/rota/generate/draft/:token/rota.xlsx', async (c) => {
+app.get('/app/settings/generate/draft/:token/rota.xlsx', async (c) => {
   const d = await draftForExport(c);
   if (!d) return draftGone(c);
   return download(rotaXlsx(d.details, d.roles, { draft: true }),
@@ -2184,14 +2184,24 @@ app.get('/app/rota/generate/draft/:token/rota.xlsx', async (c) => {
     `bream-rota-DRAFT-${new Date().toISOString().slice(0, 10)}.xlsx`);
 });
 
-app.get('/app/rota/generate/draft/:token/rota.pdf', async (c) => {
+app.get('/app/settings/generate/draft/:token/rota.pdf', async (c) => {
   const d = await draftForExport(c);
   if (!d) return draftGone(c);
   return download(await rotaPdf(d.details, d.roles, { draft: true }), 'application/pdf',
     `bream-rota-DRAFT-${new Date().toISOString().slice(0, 10)}.pdf`);
 });
 
-app.post('/app/rota/generate/apply', async (c) => {
+// Generating moved from Rota to Settings. The old address still works — a
+// bookmark, or a draft page left open in a tab — by sending it on.
+app.all('/app/rota/generate', (c) =>
+  c.redirect('/app/settings/generate', c.req.method === 'GET' ? 301 : 307));
+app.all('/app/rota/generate/*', (c) => {
+  const rest = c.req.path.slice('/app/rota/generate'.length);
+  const q = new URL(c.req.url).search;
+  return c.redirect(`/app/settings/generate${rest}${q}`, c.req.method === 'GET' ? 301 : 307);
+});
+
+app.post('/app/settings/generate/apply', async (c) => {
   const form = await c.req.formData();
   const token = String(form.get('token') ?? '');
   const row = await c.env.DB.prepare(

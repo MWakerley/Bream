@@ -260,7 +260,7 @@ export function rotaDashboard(
         <a class="btn-secondary" href="/app/rota/gaps">Unfilled roles</a>
         <a class="btn-secondary" href="/app/rota/requests">People who cannot make it</a>
         <a class="btn-secondary" href="/app/rota/readings">Readings</a>
-        <a class="btn-secondary" href="/app/rota/generate">Generate a whole draft</a>
+        <a class="btn-secondary" href="/app/settings/generate">Generate a whole draft</a>
       </div>
 
       <div class="btn-row" style="margin:-.75rem 0 1.5rem">

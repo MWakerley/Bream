@@ -53,7 +53,7 @@ const ADMIN_LINKS: { href: string; label: string; note: string }[] = [
   { href: '/app/settings/pairs', label: 'Who works with whom', note: 'People who serve together' },
   { href: '/app/settings/services', label: 'Services', note: 'The Sunday pattern and one-offs' },
   { href: '/app/rota/readings', label: 'Readings', note: 'Readings and sermon titles' },
-  { href: '/app/rota/generate', label: 'Generate a rota', note: 'A first draft, ready to check' },
+  { href: '/app/settings/generate', label: 'Generate a rota', note: 'A first draft, ready to check' },
 ];
 
 export function homePage(opts: {

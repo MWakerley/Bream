@@ -108,6 +108,12 @@ ok('a coordinator cannot change what a preacher may also do',
 ok('an administrator can', mayAccess(ADMIN, '/app/settings/combinations/by-role', 'POST'));
 
 ok('the coordinator can generate', mayAccess(COORD, '/app/rota/generate', 'POST'));
+// Generating moved under Settings; it still needs the right to build the rota
+// on top of Settings, exactly as before.
+ok('generating under Settings still needs the rota right',
+  !mayAccess(new Set(['settings', 'rota']), '/app/settings/generate', 'POST'));
+ok('an administrator can generate from Settings', mayAccess(ADMIN, '/app/settings/generate', 'POST'));
+ok('a volunteer cannot', !mayAccess(VOLUNTEER, '/app/settings/generate/apply', 'POST'));
 ok('the coordinator can edit readings', mayAccess(COORD, '/app/rota/readings', 'POST'));
 ok('the coordinator cannot book a room', !mayAccess(COORD, '/app/rooms/book', 'POST'));
 ok('the coordinator cannot reach settings', !mayAccess(COORD, '/app/settings/profiles', 'GET'));

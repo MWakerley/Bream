@@ -701,10 +701,17 @@ await check('person who has signed in', () => personPage({
 
 // --- the menu -------------------------------------------------------------
 // Generating a rota was reachable only from the foot of the home page. It is
-// one of the two or three things the system is for, so it belongs in the menu.
-await check('the rota menu offers the generator', () => rotaDashboard(
-  [], { ...CTX, path: '/app/rota', areas: ADMIN_AREAS },
-), ['Generate a rota', 'Readings and sermons', 'subnav']);
+// one of the two or three things the system is for, so it belongs in a menu —
+// since September 2026 the Settings one, beside the rules it follows, at the
+// church's request. The Rota menu keeps what volunteers and coordinators use.
+await check('the settings menu offers the generator', () => settingsHomePage(
+  { ...CTX, path: '/app/settings', areas: ADMIN_AREAS },
+), ['href="/app/settings/generate"', 'Generate a rota', 'subnav']);
+await check('and the rota menu no longer does', async () => {
+  const out = String(await rotaDashboard([], { ...CTX, path: '/app/rota', areas: ADMIN_AREAS }));
+  const nav = out.slice(out.indexOf('class="subnav"'), out.indexOf('</nav>', out.indexOf('class="subnav"')));
+  return nav.includes('Generate a rota') ? 'Generate a rota is still in the Rota menu' : out;
+}, ['Readings and sermons', 'subnav']);
 
 await check('a volunteer is not offered the generator', () => rotaDashboard(
   [], { ...CTX, path: '/app/rota', areas: VOLUNTEER_AREAS },
@@ -1269,8 +1276,8 @@ await check('the draft offers the rota downloads, for this draft only', () => pr
   services: [{ id: 1, date: '2026-10-04', time: '10:30', title: 'Worship', rows: [
     { roleId: 1, roleName: 'Preacher', people: [{ name: 'Steve', reason: 'x', amber: [], pinned: false }], missing: 0, message: null },
   ] }],
-}), ['/app/rota/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.xlsx',
-     '/app/rota/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.pdf', 'Download for Excel', 'Apply this draft']);
+}), ['/app/settings/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.xlsx',
+     '/app/settings/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.pdf', 'Download for Excel', 'Apply this draft']);
 
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

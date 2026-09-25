@@ -16,6 +16,7 @@ const SECTIONS: { href: string; label: string; note: string }[] = [
   { href: '/app/settings/safeguarding', label: 'Safeguarding', note: 'Which courses each safeguarding role needs.' },
   { href: '/app/settings/roles', label: 'Roles and numbers', note: 'Each role and how many it needs.' },
   { href: '/app/settings/combinations', label: 'Combination rules', note: 'Which roles one person can do together on the same day.' },
+  { href: '/app/settings/generate', label: 'Generate a rota', note: 'A first draft of the rota, to check, send round and apply.' },
   { href: '/app/settings/draft-rules', label: 'Draft rota rules', note: 'The rules a generated rota follows.' },
   { href: '/app/settings/pairs', label: 'Who works with whom', note: 'People who serve together, or should be kept apart.' },
   { href: '/app/settings/services', label: 'Services', note: 'The Sunday pattern and one-off services.' },

@@ -32,6 +32,9 @@ export const AREA_KEYS: Area[] = AREAS.map((a) => a.key);
 const RULES: { prefix: string; area: Area }[] = ([
   { prefix: '/app/settings', area: 'settings' },
   { prefix: '/app/rota/generate', area: 'rota.manage' },
+  // Generating lives under Settings but still needs the right to build the
+  // rota, as it did before it moved.
+  { prefix: '/app/settings/generate', area: 'rota.manage' },
   { prefix: '/app/rota/readings', area: 'rota.manage' },
   { prefix: '/app/rota/requests', area: 'rota.manage' },
   { prefix: '/app/rota', area: 'rota' },

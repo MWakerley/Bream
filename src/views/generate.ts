@@ -3,7 +3,7 @@ import { layout, chip, type ViewCtx } from './layout.js';
 import { formatDate } from './rota.js';
 import type { GeneratorResult } from '../rota/types.js';
 
-const BACK = { href: '/app/rota', label: 'The rota' };
+const BACK = { href: '/app/settings', label: 'Settings' };
 
 export function generateFormPage(opts: {
   ctx: ViewCtx;
@@ -23,7 +23,7 @@ export function generateFormPage(opts: {
         ? html`<div class="notice notice-${opts.notice.tone}"><p style="margin:0">${opts.notice.text}</p></div>`
         : ''}
 
-      <form method="post" action="/app/rota/generate" class="card">
+      <form method="post" action="/app/settings/generate" class="card">
         <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
           <div class="field" style="margin-bottom:0">
             <label for="from">From</label>
@@ -107,7 +107,7 @@ export function previewPage(opts: {
   const made = opts.createdSundays ?? 0;
 
   return layout(
-    { title: 'Draft rota', back: { href: '/app/rota/generate', label: 'Generate' }, ...opts.ctx },
+    { title: 'Draft rota', back: { href: '/app/settings/generate', label: 'Generate' }, ...opts.ctx },
     html`
       ${made > 0
         ? html`<div class="notice notice-warn" role="status"><p style="margin:0">
@@ -140,20 +140,20 @@ export function previewPage(opts: {
 
       <div class="card" style="border-top:3px solid var(--brass)">
         <p style="margin-top:0"><strong>Nothing has been saved yet.</strong></p>
-        <form method="post" action="/app/rota/generate/apply" class="inline-form">
+        <form method="post" action="/app/settings/generate/apply" class="inline-form">
           <input type="hidden" name="token" value="${opts.token}">
           <input type="hidden" name="from" value="${opts.from}">
           <input type="hidden" name="to" value="${opts.to}">
           <button class="btn-primary" type="submit">Apply this draft</button>
         </form>
-        <a class="btn-secondary" href="/app/rota/generate" style="margin-left:.75rem">Start again</a>
+        <a class="btn-secondary" href="/app/settings/generate" style="margin-left:.75rem">Start again</a>
         <!-- The draft as it stands, in the same layout as the rota's own
              download, so it can be sent round for comments before it is
              applied. Marked DRAFT throughout so nobody mistakes it. -->
         <p class="btn-row" style="margin:1rem 0 0">
           <span style="color:var(--ink-2);align-self:center">This draft, to send round before applying:</span>
-          <a class="btn-quiet" href="/app/rota/generate/draft/${opts.token}/rota.xlsx">Download for Excel</a>
-          <a class="btn-quiet" href="/app/rota/generate/draft/${opts.token}/rota.pdf">Download PDF</a>
+          <a class="btn-quiet" href="/app/settings/generate/draft/${opts.token}/rota.xlsx">Download for Excel</a>
+          <a class="btn-quiet" href="/app/settings/generate/draft/${opts.token}/rota.pdf">Download PDF</a>
         </p>
         <p style="margin-bottom:0;margin-top:.9rem;color:var(--ink-2);font-size:.9375rem">
           Applying saves the new placements as <em>draft</em>, so they are visibly different
