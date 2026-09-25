@@ -70,6 +70,9 @@ import { formatDate } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
 import { rotaXlsx, rotaPdf } from './export/rota.js';
+import { loadGrid as loadSgGrid, saveGrid as saveSgGrid, loadPerson as loadSgPerson,
+         savePerson as saveSgPerson } from './safeguarding.js';
+import { safeguardingPage } from './views/safeguarding.js';
 import { attendeesXlsx, attendeesPdf } from './export/attendees.js';
 import { sundaysBetween, createSundays, provisionalSundays, chunked,
          type SundayPlan } from './services.js';
@@ -413,6 +416,17 @@ app.get('/app/settings', (c) => c.html(settingsHomePage(viewCtx(c))));
 
 app.get('/app/settings/people', async (c) =>
   c.html(peoplePage(await listPeople(c.env.DB), viewCtx(c))));
+
+app.get('/app/settings/safeguarding', async (c) =>
+  c.html(safeguardingPage(await loadSgGrid(c.env.DB), viewCtx(c))));
+
+app.post('/app/settings/safeguarding', async (c) => {
+  const grid = await loadSgGrid(c.env.DB);
+  const n = await saveSgGrid(c.env.DB, grid, await c.req.formData());
+  return c.html(safeguardingPage(await loadSgGrid(c.env.DB), viewCtx(c), {
+    tone: 'ok', text: `Saved. ${n} course${n === 1 ? " is" : "s are"} now required across the roles.`,
+  }));
+});
 
 app.get('/app/settings/keyholders', async (c) => {
   const { results } = await c.env.DB.prepare(
@@ -1025,6 +1039,8 @@ async function personView(
       ).bind(id).all<any>()).results
     : [];
 
+  const [sgGrid, sgPerson] = await Promise.all([loadSgGrid(c.env.DB), loadSgPerson(c.env.DB, id)]);
+
   return c.html(personPage({
     person: {
       ...person,
@@ -1035,6 +1051,7 @@ async function personView(
     },
     roles,
     ctx: viewCtx(c),
+    safeguarding: { grid: sgGrid, person: sgPerson },
     ...extra,
   }));
 }
@@ -1267,6 +1284,8 @@ app.post('/app/settings/people/:id', async (c) => {
       readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`));
   });
   for (let i = 0; i < stmts.length; i += 50) await c.env.DB.batch(stmts.slice(i, i + 50));
+
+  await saveSgPerson(c.env.DB, id, await loadSgGrid(c.env.DB), form);
 
   return c.redirect(`/app/settings/people/${id}?saved=1`, 303);
 });

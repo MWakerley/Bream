@@ -993,3 +993,19 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
 .bookings-h-waiting { border-left-color: var(--warn); }
 .bookings-h-cancelled { border-left-color: var(--rule-strong); color: var(--ink-2); }
 .bookings-count { font-size: .9375rem; font-weight: 600; color: var(--ink-2); }
+
+/* Safeguarding: the role x course grid, and the courses on a person's record. */
+.sg-grid th.sg-course { font-size: .875rem; vertical-align: bottom; min-width: 7rem; }
+.sg-grid td.sg-cell { text-align: center; }
+.sg-grid td.sg-cell input { width: 1.25rem; height: 1.25rem; accent-color: var(--navy); }
+.sg-courses { display: grid; gap: .5rem; }
+.sg-course-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1.25rem;
+  margin: 0; padding: .6rem .8rem; border: 1px solid var(--rule); border-radius: var(--radius);
+}
+.sg-course-row[hidden] { display: none; }
+.sg-course-row legend { float: left; width: 100%; padding: 0; margin-bottom: .2rem; }
+.sg-for { color: var(--ink-2); font-size: .875rem; margin-left: .4rem; }
+.sg-yn { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; cursor: pointer; }
+.sg-yn input { width: 1.1rem; height: 1.1rem; accent-color: var(--navy); }
+.sg-when { color: var(--ink-2); font-size: .875rem; }

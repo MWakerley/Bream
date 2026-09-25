@@ -27,6 +27,7 @@ import { peopleByRolePage } from '../src/views/byrole.js';
 import { combinationsByRolePage } from '../src/views/combinations.js';
 import { draftRulesPage } from '../src/views/draftrules.js';
 import { worshipPage } from '../src/views/worship.js';
+import { safeguardingPage } from '../src/views/safeguarding.js';
 import type { ViewCtx } from '../src/views/layout.js';
 import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
 
@@ -264,6 +265,35 @@ await check('a keyholder is ticked on their record', () => personPage({
   roles, ctx: CTX,
 }), ['name="is_keyholder" value="1" checked', 'icon-key', 'value="Vestry"', 'keyholder register'],
   ['id="keyholder-note" hidden']);
+// ---- safeguarding ----------------------------------------------------------
+const SG_GRID = {
+  roles: [{ id: 1, name: 'PCC member' }, { id: 2, name: 'Churchwarden' }, { id: 4, name: 'Working with children or vulnerable adults' }],
+  courses: [{ id: 1, name: 'Basic Awareness' }, { id: 2, name: 'Foundation' }, { id: 7, name: 'DBS Check' }],
+  requires: new Set(['1:1', '2:1', '2:2', '4:7']),
+};
+await check('the safeguarding grid', () => safeguardingPage(SG_GRID, CTX),
+  ['Safeguarding', 'Churchwarden', 'DBS Check', 'name="req_2_2" value="1"\n                         checked',
+   'name="req_1_7" value="1"\n                         ']);
+await check('a churchwarden is asked about the churchwarden\'s courses', () => personPage({
+  person: {
+    id: 7, display_name: 'Sue', full_name: null, email: null, needs_review: 0, review_note: null,
+    is_active: 1, is_admin: 0, on_break: 0, on_break_since: null, is_guest: 0, settings: new Map(),
+  },
+  roles, ctx: CTX,
+  safeguarding: { grid: SG_GRID, person: { roleIds: [2], courses: new Map([[1, { done: 1, done_at: '2026-09-01 10:00:00' }]]) } },
+}), ['id="safeguarding"', 'name="sg_role_2" value="1" class="sg-role" data-role="2"\n                 checked',
+     'Basic Awareness', 'Foundation', '1 of 2 courses done', 'marked done Tue 1 Sep 2026',
+     'not answered', 'data-roles="4"\n                    hidden'],
+  ['name="sg_role_1" value="1" class="sg-role" data-role="1"\n                 checked']);
+await check('nobody with no safeguarding role is chased for courses', () => personPage({
+  person: {
+    id: 8, display_name: 'Ron', full_name: null, email: null, needs_review: 0, review_note: null,
+    is_active: 1, is_admin: 0, on_break: 0, on_break_since: null, is_guest: 0, settings: new Map(),
+  },
+  roles, ctx: CTX,
+  safeguarding: { grid: SG_GRID, person: { roleIds: [], courses: new Map() } },
+}), ['None of the roles ticked above needs a course'], ['courses done']);
+
 await check('person edit', () => personPage({
   person: {
     id: 7, display_name: 'Andy', full_name: null, email: null,

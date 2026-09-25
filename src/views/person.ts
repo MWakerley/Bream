@@ -3,6 +3,8 @@ import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
 import type { RoleRow } from '../db.js';
 import { formatDate, formatDateTime } from './rota.js';
 import { UNITS, toUnits } from '../frequency.js';
+import { personSafeguardingCard } from './safeguarding.js';
+import type { PersonSafeguarding, SafeguardingGrid } from '../safeguarding.js';
 
 const BACK = { href: '/app/settings/people', label: 'People' };
 
@@ -103,6 +105,8 @@ export function personPage(opts: {
   notice?: { tone: 'ok' | 'bad'; text: string };
   /** Injected so the page renders the same way every time it is tested. */
   today?: Date;
+  /** The Safeguarding box. Absent in tests that predate it. */
+  safeguarding?: { grid: SafeguardingGrid; person: PersonSafeguarding };
 }) {
   const { person: p, roles, ctx } = opts;
   const today = opts.today ?? new Date();
@@ -352,6 +356,8 @@ export function personPage(opts: {
             "Only every three months" is <strong>once every 1 quarter</strong>.
           </p>
         </div>
+
+        ${opts.safeguarding ? personSafeguardingCard(opts.safeguarding.grid, opts.safeguarding.person) : ''}
 
         <div class="btn-row">
           <button class="btn-primary" type="submit">Save this person</button>
