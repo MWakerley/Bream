@@ -57,19 +57,33 @@ export function describeUnder(under: { role: string; filled: number; min: number
   return under.map((u) => `${u.role} ${u.filled} of ${u.min}`).join(', ');
 }
 
+/** A red dot for a critical role that is missing. Paired with words every time,
+ *  so the colour never carries the meaning on its own. */
+const RED_DOT = html`<span class="crit-dot" aria-hidden="true"></span>`;
+
 /**
- * One service as a card.
+ * One service as a card, with the full roster folded away underneath it.
  *
  * Cards rather than table rows because a service is a thing, not a row of
- * figures — and because a whole row washed red reads as an error rather than as
- * "somebody still to find". The state shows in a coloured edge and a chip, so
- * colour is never carrying the meaning on its own.
+ * figures. Four states, worst first:
+ *
+ *   critical — a role the church marked critical to the service is below its
+ *              minimum. A red dot, "Key roles missing", and the card washed red.
+ *   short    — some other role has nobody, or too few. "Short-handed", amber:
+ *              worth sorting, but the service can go ahead.
+ *   ideal    — everything has its minimum, some roles could use more.
+ *   ok       — everyone in place.
  */
-function serviceCard(s: ServiceSummary) {
-  // Red is for a role with nobody on it. A role wanting two and having one is
-  // its own state — worth seeing, and still red, but it is not an unfilled role
-  // and is never counted as one.
-  const state = s.gaps.length ? 'gap' : s.under.length ? 'under' : s.short.length ? 'short' : 'ok';
+function serviceCard(s: ServiceSummary, detail?: ServiceDetail) {
+  const critical = s.critical ?? [];
+  const minorGaps = s.gaps.filter((r) => !critical.includes(r));
+  const minorUnder = s.under.filter((u) => !critical.includes(u.role));
+  const minor = [...minorGaps, ...minorUnder.map((u) => u.role)];
+  const minorText = [
+    minorGaps.length ? `nobody on ${minorGaps.join(', ')}` : '',
+    minorUnder.length ? describeUnder(minorUnder) : '',
+  ].filter(Boolean).join(' · ');
+  const state = critical.length ? 'critical' : minor.length ? 'under' : s.short.length ? 'short' : 'ok';
   const [y, m, d] = s.service_date.split('-').map(Number);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -90,14 +104,13 @@ function serviceCard(s: ServiceSummary) {
         <span class="sr-only">${formatDate(s.service_date)}</span>
         ${s.location ? html`<span class="svc-where">${s.location}</span>` : ''}
         <span class="svc-meta">
-          ${state === 'gap'
-            ? html`${chip('red', `${s.gaps.length} with nobody`)}
-                <span class="svc-detail">Nobody on ${s.gaps.join(', ')}${s.under.length
-                  ? ` · also ${describeUnder(s.under)}`
-                  : ''}</span>`
+          ${state === 'critical'
+            ? html`<span class="chip chip-red chip-critical">${RED_DOT}Key roles missing</span>
+                <span class="svc-detail">Still to book: ${critical.join(', ')}${minor.length
+                  ? ` · also ${minorText}` : ''}</span>`
             : state === 'under'
-              ? html`${chip('red', 'Short-handed')}
-                  <span class="svc-detail">Every role has somebody — ${describeUnder(s.under)}</span>`
+              ? html`${chip('amber', 'Short-handed')}
+                  <span class="svc-detail">${minorText.charAt(0).toUpperCase() + minorText.slice(1)}</span>`
               : state === 'short'
                 ? html`${chip('amber', 'Below ideal')}
                     <span class="svc-detail">Could do with more on ${s.short.join(', ')}</span>`
@@ -107,7 +120,45 @@ function serviceCard(s: ServiceSummary) {
       </span>
       <span class="svc-go" aria-hidden="true">→</span>
     </a>
+    ${detail
+      ? html`<details class="svc-more">
+          <summary>Who is on what</summary>
+          ${roster(detail)}
+        </details>`
+      : ''}
   </li>`;
+}
+
+/**
+ * Every role on a service and who is on it. The same view whether it is the
+ * next service at the top of the page or one opened out further down.
+ */
+function roster(s: ServiceDetail) {
+  return html`
+    ${s.readings || s.sermon_title
+      ? html`<p class="next-up-readings">
+          ${s.sermon_title ? html`<strong>${s.sermon_title}</strong>` : ''}
+          ${s.sermon_title && s.readings ? ' · ' : ''}
+          ${s.readings ?? ''}
+        </p>`
+      : ''}
+    <ul class="next-up-roles">
+      ${s.roles.map((r) => {
+        const below = r.people.length < r.min_needed;
+        const cls = r.is_critical && below ? 'is-critical'
+          : r.people.length === 0 ? 'is-empty' : below ? 'is-under' : '';
+        return html`<li class="${cls}">
+          <span class="nu-role">${cls === 'is-critical' ? RED_DOT : ''}${r.role_name}</span>
+          <span class="nu-who">
+            ${r.people.length
+              ? html`${r.people.map((a) => a.display_name).join(', ')}${below
+                  ? html` <span class="nu-note">${r.people.length} of ${r.min_needed}</span>`
+                  : ''}`
+              : cls === 'is-critical' ? 'nobody yet — critical' : 'nobody yet'}
+          </span>
+        </li>`;
+      })}
+    </ul>`;
 }
 
 /**
@@ -119,11 +170,8 @@ function serviceCard(s: ServiceSummary) {
  * worth seeing.
  */
 function nextServiceCard(next: ServiceDetail) {
-  // Unfilled means nobody. A role wanting two people and having one is counted
-  // separately, because somebody is doing it and saying otherwise sends people
-  // looking for a problem that is not there.
-  const empty = next.roles.filter((r) => r.people.length === 0);
-  const under = next.roles.filter((r) => r.people.length > 0 && r.people.length < r.min_needed);
+  const below = next.roles.filter((r) => r.people.length < r.min_needed);
+  const critical = below.filter((r) => r.is_critical);
   return html`
     <section class="next-up">
       <div class="next-up-head">
@@ -133,36 +181,15 @@ function nextServiceCard(next: ServiceDetail) {
           ${next.location ? html`<p class="next-up-where">${next.location}</p>` : ''}
         </div>
         <div class="next-up-status">
-          ${empty.length
-            ? chip('red', `${empty.length} role${empty.length === 1 ? '' : 's'} with nobody`)
-            : under.length
-              ? chip('red', `Short-handed on ${under.length} role${under.length === 1 ? '' : 's'}`)
+          ${critical.length
+            ? html`<span class="chip chip-red chip-critical">${RED_DOT}Key roles missing</span>`
+            : below.length
+              ? chip('amber', `Short-handed on ${below.length} role${below.length === 1 ? '' : 's'}`)
               : chip('green', 'Everyone is in place')}
         </div>
       </div>
 
-      ${next.readings || next.sermon_title
-        ? html`<p class="next-up-readings">
-            ${next.sermon_title ? html`<strong>${next.sermon_title}</strong>` : ''}
-            ${next.sermon_title && next.readings ? ' · ' : ''}
-            ${next.readings ?? ''}
-          </p>`
-        : ''}
-
-      <ul class="next-up-roles">
-        ${next.roles.map(
-          (r) => html`<li class="${r.people.length === 0 ? 'is-empty' : r.people.length < r.min_needed ? 'is-under' : ''}">
-            <span class="nu-role">${r.role_name}</span>
-            <span class="nu-who">
-              ${r.people.length
-                ? html`${r.people.map((a) => a.display_name).join(', ')}${r.people.length < r.min_needed
-                    ? html` <span class="nu-note">${r.people.length} of ${r.min_needed}</span>`
-                    : ''}`
-                : 'nobody yet'}
-            </span>
-          </li>`,
-        )}
-      </ul>
+      ${roster(next)}
 
       <p class="next-up-more">
         <a class="btn-secondary" href="/app/rota/service/${next.id}">Open this service</a>
@@ -174,7 +201,10 @@ export function rotaDashboard(
   services: ServiceSummary[],
   ctx: ViewCtx,
   next?: ServiceDetail | null,
+  /** Every listed service in full, so each can open out to show its roster. */
+  details?: Map<number, ServiceDetail>,
 ) {
+  const withCritical = services.filter((s) => (s.critical ?? []).length);
   const withGaps = services.filter((s) => s.gaps.length);
   // Short-handed but with nobody actually missing. Kept apart from withGaps so
   // the headline number means one thing only: services needing somebody found.
@@ -196,8 +226,20 @@ export function rotaDashboard(
         <a class="btn-secondary" href="/app/rota/generate">Generate a whole draft</a>
       </div>
 
+      ${withCritical.length
+        ? html`<div class="notice notice-bad" role="alert">
+            <p style="margin:0">
+              <span class="crit-dot" aria-hidden="true"></span>
+              <strong>Key roles are missing.</strong>
+              ${withCritical.length} of the next ${services.length} services
+              ${withCritical.length === 1 ? 'is' : 'are'} missing a role marked critical to the
+              service: ${withCritical.map((s) => `${formatDate(s.service_date)} (${(s.critical ?? []).join(', ')})`).join('; ')}.
+            </p>
+          </div>`
+        : ''}
+
       ${withGaps.length
-        ? html`<div class="notice notice-bad" role="status">
+        ? html`<div class="notice notice-warn" role="status">
             <p style="margin:0">
               <strong>${withGaps.length}</strong> of the next ${services.length} services
               ${withGaps.length === 1 ? 'has a role' : 'have roles'} with nobody at all on it.
@@ -224,7 +266,7 @@ export function rotaDashboard(
             <a href="/app/settings/services#add-one">Add one</a>, or
             <a href="/app/settings/services">set up the Sunday pattern</a>.
           </p></div>`
-        : html`<ul class="svc-list">${services.map(serviceCard)}</ul>`}
+        : html`<ul class="svc-list">${services.map((s) => serviceCard(s, details?.get(s.id)))}</ul>`}
     `,
   );
 }

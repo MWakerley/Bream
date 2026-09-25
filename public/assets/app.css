@@ -942,3 +942,44 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
   .recent-item { flex-wrap: wrap; }
   .recent-go { margin-left: 2rem; }
 }
+
+/* ---- Critical roles, and services that open out ------------------------ */
+/* A role marked critical to the service that is missing: a red dot, always
+   beside words, and a card washed red so it stands out from one that is merely
+   short-handed. Short-handed is amber — worth sorting, not an emergency. */
+.crit-dot {
+  display: inline-block; width: .7em; height: .7em; border-radius: 50%;
+  background: var(--bad); margin-right: .4em; vertical-align: .02em;
+  box-shadow: 0 0 0 3px rgba(163, 42, 28, .18);
+}
+.chip-critical { font-weight: 800; }
+.svc-critical { border-left-color: var(--bad); background: var(--bad-wash); }
+.svc-critical .svc-date { background: #f6d5d0; }
+.svc-critical .svc-dd { color: var(--bad); }
+.svc-critical .svc-detail { color: var(--bad); font-weight: 700; }
+/* Short-handed on minor roles only: amber, where it used to be red. */
+.svc-under { border-left-color: var(--warn); }
+.svc-under .svc-date { background: var(--warn-wash); }
+.svc-under .svc-dd { color: var(--warn); }
+.svc-under .svc-detail { color: var(--warn); font-weight: 600; }
+.next-up-roles li.is-empty { background: var(--warn-wash); }
+.next-up-roles li.is-empty .nu-who { color: var(--warn); }
+.next-up-roles li.is-critical {
+  background: #f6d5d0; border-radius: 4px; box-shadow: inset 4px 0 0 var(--bad);
+}
+.next-up-roles li.is-critical .nu-who,
+.next-up-roles li.is-critical .nu-role { color: var(--bad); font-weight: 700; }
+
+.svc-more {
+  margin: -.35rem 0 0; padding: .1rem 1.1rem .6rem 1.35rem;
+  background: var(--paper); border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: var(--shadow);
+}
+.svc-more > summary {
+  cursor: pointer; font-weight: 700; color: var(--navy); font-size: .9375rem;
+  padding: .55rem 0; list-style: none;
+}
+.svc-more > summary::-webkit-details-marker { display: none; }
+.svc-more > summary::before { content: '▸ '; }
+.svc-more[open] > summary::before { content: '▾ '; }
+.svc-more .next-up-roles { margin-top: .25rem; }

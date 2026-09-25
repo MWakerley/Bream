@@ -218,6 +218,7 @@ export function rolesPage(
               <tr>
                 <th>Role</th><th class="num">Minimum</th><th class="num">Ideal</th>
                 <th>When</th><th>Called this on the spreadsheet</th><th>In use</th>
+                <th>Critical to service</th>
               </tr>
             </thead>
             <tbody>
@@ -250,6 +251,13 @@ export function rolesPage(
                     <label class="check" style="padding:.4rem .6rem">
                       <input type="checkbox" name="active_${r.id}" value="1" ${r.is_active ? 'checked' : ''}
                              aria-label="${r.name} is in use">
+                      <span class="check-label" style="font-size:.9375rem">Yes</span>
+                    </label>
+                  </td>
+                  <td>
+                    <label class="check" style="padding:.4rem .6rem">
+                      <input type="checkbox" name="critical_${r.id}" value="1" ${r.is_critical ? 'checked' : ''}
+                             aria-label="${r.name} is critical to the service">
                       <span class="check-label" style="font-size:.9375rem">Yes</span>
                     </label>
                   </td>

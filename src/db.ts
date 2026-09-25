@@ -67,6 +67,9 @@ export interface RoleRow {
   ideal_needed: number;
   communion_only: number;
   is_active: number;
+  /** The service cannot go ahead without it. Optional so fixtures predating it
+   *  still type-check; absent means not critical. */
+  is_critical?: number;
   /**
    * The hard floor between two turns at this role, for anybody who has not
    * said otherwise. Null means "work it out from the size of the team", which
@@ -436,6 +439,7 @@ const REQUIREMENTS_SQL = `
          r.id                                   AS role_id,
          r.name                                 AS role_name,
          r.sort_order                           AS role_sort,
+         r.is_critical                          AS is_critical,
          COALESCE(o.min_needed,   r.min_needed)   AS min_needed,
          COALESCE(o.ideal_needed, r.ideal_needed) AS ideal_needed,
          COUNT(a.person_id)                     AS filled
@@ -464,6 +468,7 @@ export interface RequirementRow {
   role_id: number;
   role_name: string;
   role_sort: number;
+  is_critical: number;
   min_needed: number;
   ideal_needed: number;
   filled: number;
@@ -491,6 +496,12 @@ export interface ServiceSummary {
   under: { role: string; filled: number; min: number }[];
   /** Roles at or above minimum but below ideal. */
   short: string[];
+  /**
+   * Roles marked critical to the service that are below their minimum —
+   * nobody on them, or not enough. Also listed in gaps or under as usual; this
+   * is the subset that means the service itself is in trouble.
+   */
+  critical: string[];
   filled: number;
   needed: number;
 }
@@ -524,7 +535,7 @@ export async function listUpcomingServices(
         is_communion: row.is_communion,
         readings: row.readings,
         sermon_title: row.sermon_title,
-        gaps: [], under: [], short: [], filled: 0, needed: 0,
+        gaps: [], under: [], short: [], critical: [], filled: 0, needed: 0,
       };
       byService.set(row.service_id, s);
     }
@@ -534,6 +545,7 @@ export async function listUpcomingServices(
     // person; "one of the two we would like" is worth flagging but is not the
     // same problem, and lumping them together made a service with every role
     // covered look the same as one with none.
+    if (row.is_critical && row.filled < row.min_needed) s.critical.push(row.role_name);
     if (row.filled === 0) s.gaps.push(row.role_name);
     else if (row.filled < row.min_needed) {
       s.under.push({ role: row.role_name, filled: row.filled, min: row.min_needed });
@@ -562,6 +574,8 @@ export interface ServiceRoleDetail {
    * and would replace anyway.
    */
   people: ServiceAssignee[];
+  /** The service cannot go ahead without this role. */
+  is_critical?: number;
 }
 
 export interface ServiceAssignee {
@@ -592,63 +606,79 @@ export async function getServiceDetail(
   db: D1Database,
   id: number,
 ): Promise<ServiceDetail | null> {
-  const svc = await db
-    .prepare(
+  return (await getServiceDetails(db, [id]))[0] ?? null;
+}
+
+/**
+ * Several services in full, in four queries however many there are.
+ *
+ * The rota list lets every service open out to show who is on what, which
+ * would otherwise be four queries per service — forty services, a hundred and
+ * sixty round trips, and past what D1 allows one request. Returned in the
+ * order the ids were given.
+ */
+export async function getServiceDetails(
+  db: D1Database,
+  ids: number[],
+): Promise<ServiceDetail[]> {
+  if (!ids.length) return [];
+  const list = JSON.stringify(ids);
+  const IN = '(SELECT value FROM json_each(?1))';
+
+  const [svcs, reqs, people, na] = await db.batch([
+    db.prepare(
       `SELECT s.id, s.service_date, s.service_time, s.title, s.location,
               COALESCE(s.is_communion, st.is_communion, 0) AS is_communion,
               s.readings, s.sermon_title
          FROM services s LEFT JOIN service_types st ON st.id = s.service_type_id
-        WHERE s.id = ?1`,
-    )
-    .bind(id)
-    .first<Omit<ServiceDetail, 'roles' | 'notApplicable'>>();
-  if (!svc) return null;
-
-  const { results } = await db
-    .prepare(
-      `${REQUIREMENTS_SQL} AND s.id = ?1
+        WHERE s.id IN ${IN}`,
+    ).bind(list),
+    db.prepare(
+      `${REQUIREMENTS_SQL} AND s.id IN ${IN}
         GROUP BY s.id, r.id
         ORDER BY r.sort_order`,
-    )
-    .bind(id)
-    .all<RequirementRow>();
-
-  const { results: people } = await db
-    .prepare(
-      `SELECT a.id AS assignment_id, a.role_id, a.status,
+    ).bind(list),
+    db.prepare(
+      `SELECT a.service_id, a.id AS assignment_id, a.role_id, a.status,
               p.id AS person_id, p.display_name, p.on_break, p.is_guest
          FROM assignments a JOIN people p ON p.id = a.person_id
-        WHERE a.service_id = ?1
+        WHERE a.service_id IN ${IN}
         ORDER BY a.role_id, a.slot`,
-    )
-    .bind(id)
-    .all<ServiceAssignee & { role_id: number }>();
-  const byRole = new Map<number, ServiceAssignee[]>();
-  for (const p of people) {
-    const arr = byRole.get(p.role_id) ?? [];
-    arr.push(p);
-    byRole.set(p.role_id, arr);
-  }
-
-  const { results: na } = await db
-    .prepare(
-      `SELECT r.id AS role_id, r.name AS role_name, o.note
+    ).bind(list),
+    db.prepare(
+      `SELECT o.service_id, r.id AS role_id, r.name AS role_name, o.note
          FROM service_role_overrides o JOIN roles r ON r.id = o.role_id
-        WHERE o.service_id = ?1 AND o.applies = 0
+        WHERE o.service_id IN ${IN} AND o.applies = 0
         ORDER BY r.sort_order`,
-    )
-    .bind(id)
-    .all<{ role_id: number; role_name: string; note: string | null }>();
+    ).bind(list),
+  ]);
 
-  return {
-    ...svc,
-    roles: results.map((r) => ({
-      role_id: r.role_id,
-      role_name: r.role_name,
-      min_needed: r.min_needed,
-      ideal_needed: r.ideal_needed,
-      people: byRole.get(r.role_id) ?? [],
-    })),
-    notApplicable: na,
-  };
+  const byKey = new Map<string, ServiceAssignee[]>();
+  for (const p of (people?.results ?? []) as (ServiceAssignee & { role_id: number; service_id: number })[]) {
+    const k = `${p.service_id}:${p.role_id}`;
+    const { service_id: _s, role_id: _r, ...who } = p;
+    byKey.set(k, [...(byKey.get(k) ?? []), who]);
+  }
+  const reqRows = (reqs?.results ?? []) as RequirementRow[];
+  const naRows = (na?.results ?? []) as { service_id: number; role_id: number; role_name: string; note: string | null }[];
+  const found = new Map(
+    ((svcs?.results ?? []) as Omit<ServiceDetail, 'roles' | 'notApplicable'>[]).map((s) => [s.id, s]));
+
+  return ids.flatMap((id) => {
+    const svc = found.get(id);
+    if (!svc) return [];
+    return [{
+      ...svc,
+      roles: reqRows.filter((r) => r.service_id === id).map((r) => ({
+        role_id: r.role_id,
+        role_name: r.role_name,
+        min_needed: r.min_needed,
+        ideal_needed: r.ideal_needed,
+        is_critical: r.is_critical,
+        people: byKey.get(`${id}:${r.role_id}`) ?? [],
+      })),
+      notApplicable: naRows.filter((n) => n.service_id === id)
+        .map(({ role_id, role_name, note }) => ({ role_id, role_name, note })),
+    }];
+  });
 }

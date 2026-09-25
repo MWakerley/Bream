@@ -13,7 +13,7 @@ import {
 import {
   countAdmins,
   countServicesWithGaps,
-  getServiceDetail,
+  getServiceDetail, getServiceDetails,
   listUpcomingServices,
   getRotaRules,
   listCandidatesForRole,
@@ -1306,11 +1306,11 @@ app.post('/app/settings/roles', async (c) => {
     const sheet = String(form.get(`sheet_${r.id}`) ?? '').trim() || null;
     stmts.push(c.env.DB.prepare(
       `UPDATE roles SET name = ?2, min_needed = ?3, ideal_needed = ?4,
-              communion_only = ?5, sheet_heading = ?6, is_active = ?7
+              communion_only = ?5, sheet_heading = ?6, is_active = ?7, is_critical = ?8
         WHERE id = ?1`,
     ).bind(r.id, name, min, ideal,
       String(form.get(`communion_${r.id}`)) === '1' ? 1 : 0,
-      sheet, form.get(`active_${r.id}`) ? 1 : 0));
+      sheet, form.get(`active_${r.id}`) ? 1 : 0, form.get(`critical_${r.id}`) ? 1 : 0));
   }
 
   if (problems.length) {
@@ -1625,9 +1625,12 @@ app.post('/app/settings/pairs/new', async (c) => {
 
 app.get('/app/rota', async (c) => {
   const services = await listUpcomingServices(c.env.DB);
-  // The first one is shown in full at the top, so it needs its people too.
-  const next = services.length ? await getServiceDetail(c.env.DB, services[0]!.id) : null;
-  return c.html(rotaDashboard(services, viewCtx(c), next));
+  // Every service in full: the first is shown open at the top, and each of the
+  // rest can be opened out to the same view. One batch, however many there are.
+  const full = await getServiceDetails(c.env.DB, services.map((s) => s.id));
+  const details = new Map(full.map((d) => [d.id, d]));
+  const next = services.length ? details.get(services[0]!.id) ?? null : null;
+  return c.html(rotaDashboard(services, viewCtx(c), next, details));
 });
 
 app.get('/app/rota/gaps', async (c) =>

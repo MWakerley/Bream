@@ -46,7 +46,7 @@ const roles: RoleRow[] = [
 const service = (over: Partial<ServiceSummary> = {}): ServiceSummary => ({
   id: 1, service_date: '2026-11-15', service_time: '10:30', title: 'Worship',
   location: null, is_communion: 0, readings: 'Gen 1:1-5', sermon_title: null,
-  gaps: [], under: [], short: [], filled: 10, needed: 12, ...over,
+  gaps: [], under: [], short: [], critical: [], filled: 10, needed: 12, ...over,
 });
 
 /** One assignee. seed/ is NOT type-checked (tsconfig includes only src/**), so
@@ -145,6 +145,8 @@ await check('people', () => peoplePage(
      role_names: 'Preacher', role_count: 1 }], CTX),
   ['Matt R', 'Possible duplicate', 'may be Matt W', 'Merge duplicates']);
 await check('roles', () => rolesPage(roles, CTX), ['Prayer ministry', 'Save all roles', 'Add this role']);
+await check('roles can be marked critical', () => rolesPage([{ ...roles[0]!, is_critical: 1 }, roles[1]!], CTX),
+  ['Critical to service', 'name="critical_1" value="1" checked', 'name="critical_2" value="1" ']);
 await check('combinations', () => combinationsPage(roles, [
   { role_a_id: 1, role_b_id: 2, verdict: 'green', reason: 'Observed 8 times' },
   { role_a_id: 2, role_b_id: 3, verdict: 'amber', reason: 'Not ideal' },
@@ -158,14 +160,30 @@ await check('pairs', () => pairsPage(
   ['Sue', 'Sheila', 'Any role', 'Must be together', 'cannot be separated', 'Add a pairing']);
 await check('rota dashboard', () => rotaDashboard(
   [service(), service({ id: 2, gaps: ['Steward'], title: 'Holy Communion' })], CTX, detail),
-  ['Sun 15 Nov 2026', 'Steward', 'with nobody', 'Next service', 'nobody yet',
-   'Add a service', 'svc-gap']);
+  ['Sun 15 Nov 2026', 'Steward', 'Short-handed', 'Nobody on Steward', 'Next service',
+   'nobody yet', 'Add a service', 'svc-under'], ['Key roles missing']);
+
+// A critical role missing is a different order of problem from a minor one.
+const critDetail = { ...detail, id: 2, roles: detail.roles.map((r) =>
+  r.role_id === 2 ? { ...r, is_critical: 1 } : r) };
+await check('a missing critical role is flagged in red', () => rotaDashboard(
+  [service(), service({ id: 2, gaps: ['Service leader', 'Steward'], critical: ['Service leader'] })],
+  CTX, null, new Map([[2, critDetail]])),
+  ['Key roles missing', 'crit-dot', 'svc-critical', 'Still to book: Service leader',
+   'also nobody on Steward', 'is-critical', 'nobody yet — critical']);
+await check('every service can open out to show its roster', () => rotaDashboard(
+  [service({ id: 1 }), service({ id: 2 })], CTX, null,
+  new Map([[1, detail], [2, { ...detail, id: 2 }]])),
+  ['<details class="svc-more">', 'Who is on what', 'Prayer ministry', 'Don, Christine']);
+await check('the next service shows red only for a critical role', () => rotaDashboard(
+  [service()], CTX, critDetail),
+  ['Key roles missing', 'is-critical'], ['Everyone is in place']);
 
 // A role wanting two people and having one is not unfilled. Somebody is doing
 // it, and the whole point of this distinction is that the word never appears.
 await check('one of two is short-handed, not unfilled', () => rotaDashboard(
   [service({ under: [{ role: 'Reader', filled: 1, min: 2 }] })], CTX, null),
-  ['Short-handed', 'Reader 1 of 2', 'Every role has somebody', 'svc-under'],
+  ['Short-handed', 'Reader 1 of 2', 'svc-under'],
   ['unfilled', 'with nobody', 'nobody at all']);
 await check('rota dashboard (empty)', () => rotaDashboard([], CTX, null), ['No upcoming services']);
 await check('gaps', () => gapsPage([service({ gaps: ['Steward', 'Computer'] })], CTX),
