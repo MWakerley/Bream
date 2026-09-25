@@ -1076,3 +1076,7 @@ table.grid.sg-grid thead th.sg-course { text-align: center; font-size: .6875rem;
 .avail-ok { background: var(--ok-wash); color: var(--ok); }
 .avail-bad { background: var(--bad-wash); color: var(--bad); }
 .cal-item:is(span) { cursor: default; }
+
+/* A shareable link with its buttons beside it, wrapping on a phone. */
+.link-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.link-row .btn-secondary { overflow-wrap: anywhere; }

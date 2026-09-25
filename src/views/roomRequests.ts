@@ -406,6 +406,8 @@ export function bookingFormSettingsPage(opts: {
   notice?: { tone: 'ok' | 'bad'; text: string };
 }) {
   const { settings: s, rooms, link, ctx, notice } = opts;
+  const anyRoom = rooms.some((r) => r.public_booking);
+  const open = !!s.is_open && anyRoom;
   return layout(
     {
       title: 'Booking form',
@@ -419,12 +421,30 @@ export function bookingFormSettingsPage(opts: {
       ${notice ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>` : ''}
 
       <div class="card">
-        <h2 style="margin-top:0">The link</h2>
-        ${s.is_open && rooms.some((r) => r.public_booking)
-          ? html`<p>The form is <strong>open</strong>. Share this link — on the website, in an email:</p>
-              <p><a class="btn-secondary" href="${link}">${link}</a></p>`
-          : html`<p style="margin-bottom:0">The form is <strong>closed</strong>${s.is_open ? ' — no rooms are ticked below' : ''},
-              so the link shows a note asking people to contact the office.</p>`}
+        <h2 style="margin-top:0;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center">
+          The booking page
+          ${open ? chip('green', 'Taking requests') : chip('neutral', 'Closed')}
+        </h2>
+        <!-- The link is always shown, open or not, so it can be put on the
+             website or in a newsletter ahead of opening. -->
+        <p>${open
+          ? 'Anyone with this link can ask to book a room — they do not need to sign in. Share it on the website or in an email:'
+          : 'This is the page people will use. Until it is open, anyone following the link is asked to contact the office instead.'}</p>
+        <p class="link-row">
+          <a class="btn-secondary" href="${link}" target="_blank" rel="noopener">${link}</a>
+          <button type="button" class="btn-quiet" data-link="${link}"
+                  onclick="var b = this; if (navigator.clipboard) { navigator.clipboard.writeText(b.dataset.link).then(function () { b.textContent = 'Copied'; }); } else { window.prompt('Copy this link:', b.dataset.link); }">Copy link</button>
+        </p>
+        ${open
+          ? ''
+          : html`<p class="notice notice-warn" style="margin-bottom:0">
+              <strong>Not working yet:</strong>
+              ${!s.is_open && !anyRoom
+                ? 'tick "Take requests online" and at least one room below, then save.'
+                : !s.is_open
+                  ? 'tick "Take requests online" below, then save.'
+                  : 'tick at least one room people may ask for below, then save.'}
+            </p>`}
         ${opts.captchaReady ? '' : html`<p class="notice notice-warn" style="margin-bottom:0">
             There is no "not a robot" check on the form, so anything can submit it. Worth switching
             on before the link goes anywhere public.</p>`}

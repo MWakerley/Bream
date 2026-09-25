@@ -1234,8 +1234,19 @@ await check('and nothing at all on a quiet week', () => homePage({
   await check('the booking form settings', () => bookingFormSettingsPage({
     settings: SETTINGS, rooms: [{ id: 1, name: 'Main church', public_booking: 0 }, { id: 2, name: 'Church Centre', public_booking: 1 }],
     link: 'https://x.test/rooms/book', emailReady: false, captchaReady: true, ctx: CTX,
-  }), ['The form is <strong>open</strong>', 'https://x.test/rooms/book', 'name="public_rooms" value="2" checked',
-       'Take requests online', 'Email sending is not set up yet'], ['name="public_rooms" value="1" checked']);
+  }), ['Taking requests', 'href="https://x.test/rooms/book"', 'Copy link', 'name="public_rooms" value="2" checked',
+       'Take requests online', 'Email sending is not set up yet'], ['name="public_rooms" value="1" checked', 'Not working yet']);
+  // The link is there before the form is open, as on an unpublished event,
+  // with what is still missing spelled out.
+  await check('the link is shown even while the form is closed', () => bookingFormSettingsPage({
+    settings: { ...SETTINGS, is_open: 0 }, rooms: [{ id: 2, name: 'Church Centre', public_booking: 0 }],
+    link: 'https://x.test/rooms/book', emailReady: true, captchaReady: true, ctx: CTX,
+  }), ['Closed', 'href="https://x.test/rooms/book"', 'Copy link', 'Not working yet',
+       'Take requests online&quot; and at least one room below']);
+  await check('open but with no rooms ticked says so', () => bookingFormSettingsPage({
+    settings: SETTINGS, rooms: [{ id: 2, name: 'Church Centre', public_booking: 0 }],
+    link: 'https://x.test/rooms/book', emailReady: true, captchaReady: true, ctx: CTX,
+  }), ['tick at least one room people may ask for'], ['Taking requests']);
 
   const RV = { roomId: 2, onDate: '2026-10-06', fromTime: '10:00', toTime: '11:30', freq: null, untilDate: null,
     name: 'Jane', email: 'jane@example.org', phone: null, organisation: null, purpose: 'Toddler group', people: 12,
