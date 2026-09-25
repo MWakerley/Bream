@@ -226,6 +226,12 @@ export function rotaDashboard(
         <a class="btn-secondary" href="/app/rota/generate">Generate a whole draft</a>
       </div>
 
+      <div class="btn-row" style="margin:-.75rem 0 1.5rem">
+        <span style="color:var(--ink-2);align-self:center">Every future service, to send or print:</span>
+        <a class="btn-quiet" href="/app/rota/export.pdf">Download PDF</a>
+        <a class="btn-quiet" href="/app/rota/export.xlsx">Download for Excel</a>
+      </div>
+
       ${withCritical.length
         ? html`<div class="notice notice-bad" role="alert">
             <p style="margin:0">

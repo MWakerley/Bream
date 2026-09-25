@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Bream Church Rota and Diary Management System",
   "scripts": {
-    "check": "tsc --noEmit && npm run smoke && npm run test:acc && npm run test:gen && npm run test:rec && npm run test:sun && npm run test:ical",
+    "check": "tsc --noEmit && npm run smoke && npm run test:acc && npm run test:gen && npm run test:rec && npm run test:sun && npm run test:ical && npm run test:export",
     "smoke": "esbuild seed/render-smoke.ts --bundle --platform=node --format=esm --outfile=.smoke.mjs --log-level=error && node .smoke.mjs",
     "preview": "node scripts/serve.mjs 8080",
     "cf-typegen": "wrangler types",
@@ -15,10 +15,12 @@
     "test:ical": "node seed/verify-ical-tz.cjs && node seed/verify-ical-recurrence.cjs",
     "test:rec": "esbuild seed/recurrence-test.ts --bundle --platform=node --format=esm --outfile=.rec.mjs --log-level=error && node .rec.mjs",
     "test:sun": "esbuild seed/sundays-test.ts --bundle --platform=node --format=esm --outfile=.sun.mjs --log-level=error && node .sun.mjs",
-    "test:acc": "esbuild seed/access-test.ts --bundle --platform=node --format=esm --outfile=.acc.mjs --log-level=error && node .acc.mjs"
+    "test:acc": "esbuild seed/access-test.ts --bundle --platform=node --format=esm --outfile=.acc.mjs --log-level=error && node .acc.mjs",
+    "test:export": "esbuild seed/export-test.ts --bundle --platform=node --format=esm --outfile=.exp.mjs --log-level=error && node .exp.mjs"
   },
   "dependencies": {
-    "hono": "^4.13.8"
+    "hono": "^4.13.8",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260918.1",

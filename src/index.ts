@@ -69,6 +69,7 @@ import { sendAcknowledgement, notifyOrganisers, DEFAULT_ACK_SUBJECT, DEFAULT_ACK
 import { formatDate } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
+import { rotaXlsx, rotaPdf } from './export/rota.js';
 import { sundaysBetween, createSundays, provisionalSundays, chunked,
          type SundayPlan } from './services.js';
 
@@ -1631,6 +1632,40 @@ app.get('/app/rota', async (c) => {
   const details = new Map(full.map((d) => [d.id, d]));
   const next = services.length ? details.get(services[0]!.id) ?? null : null;
   return c.html(rotaDashboard(services, viewCtx(c), next, details));
+});
+
+/**
+ * Every future service, for sending to the people who are not online. Open to
+ * anybody who can see the rota, since it shows nothing the rota page does not.
+ */
+async function rotaForExport(c: Context<{ Bindings: Env; Variables: Vars }>) {
+  const services = await listUpcomingServices(c.env.DB, undefined, 500);
+  const [details, roles] = await Promise.all([
+    getServiceDetails(c.env.DB, services.map((s) => s.id)), listRoles(c.env.DB),
+  ]);
+  return { details, roles };
+}
+
+const download = (body: Uint8Array, type: string, filename: string) =>
+  new Response(body, {
+    headers: {
+      'content-type': type,
+      'content-disposition': `attachment; filename="${filename}"`,
+      'cache-control': 'private, no-store',
+    },
+  });
+
+app.get('/app/rota/export.xlsx', async (c) => {
+  const { details, roles } = await rotaForExport(c);
+  return download(rotaXlsx(details, roles),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    `bream-rota-${new Date().toISOString().slice(0, 10)}.xlsx`);
+});
+
+app.get('/app/rota/export.pdf', async (c) => {
+  const { details, roles } = await rotaForExport(c);
+  return download(await rotaPdf(details, roles), 'application/pdf',
+    `bream-rota-${new Date().toISOString().slice(0, 10)}.pdf`);
 });
 
 app.get('/app/rota/gaps', async (c) =>
