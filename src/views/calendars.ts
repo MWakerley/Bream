@@ -27,7 +27,7 @@ export function roomsCalendarPage(opts: {
     date: day,
     href: `/app/rooms/${b.id}`,
     lead: timeOnDay(b, day),
-    label: b.title,
+    label: b.is_tentative ? `Tentative: ${b.title}` : b.title,
     // With every room shown at once the colour is the only thing separating
     // them, so it follows the room rather than being decorative.
     tone: roomId ? 'navy' : (['navy', 'gold', 'green', 'red'] as const)[(b.room_id - 1) % 4],

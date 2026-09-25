@@ -26,7 +26,8 @@ export async function listBookings(
   const { results } = await db
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
-              b.contact, b.notes, b.status, b.series_id, b.event_id, p.display_name AS booked_by_name
+              b.contact, b.notes, b.status, b.series_id, b.event_id, b.is_tentative, b.request_id,
+              p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by
@@ -46,7 +47,8 @@ export async function getBooking(db: D1Database, id: number): Promise<BookingRow
   return db
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
-              b.contact, b.notes, b.status, b.series_id, b.event_id, p.display_name AS booked_by_name
+              b.contact, b.notes, b.status, b.series_id, b.event_id, b.is_tentative, b.request_id,
+              p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by
@@ -237,10 +239,17 @@ export async function applySeriesEdit(
     .all<{ day: string }>();
   const protectedDates = [...new Set(keep.map((k) => k.day))];
 
-  // Plan from today, not from the anchor: the past is not being rewritten.
-  const planFrom = anchor > today ? anchor : today;
-  const plan = await planSeries(
-    db, next.roomId, planFrom, next.untilDate, next.freq, next.fromTime, next.toTime, id);
+  // The pattern is worked out from the series' own first date — a Tuesday
+  // group edited on a Friday is still a Tuesday group — and then only the dates
+  // from today on are kept, since the past is not being rewritten. Working it
+  // out from today instead used to move every future date onto today's weekday.
+  const full = await planSeries(
+    db, next.roomId, anchor, next.untilDate, next.freq, next.fromTime, next.toTime, id);
+  const plan = {
+    ...full,
+    dates: full.dates.filter((d) => d >= today),
+    clashes: full.clashes.filter((c) => c.date >= today),
+  };
 
   await db.prepare(
     `UPDATE room_booking_series

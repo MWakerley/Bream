@@ -64,6 +64,7 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
     items: [
       { href: '/app/rooms', label: 'The diary', match: '^/app/rooms$', area: 'rooms' },
       { href: '/app/rooms/calendar', label: 'Calendar', match: '^/app/rooms/calendar', area: 'rooms' },
+      { href: '/app/rooms/booking-form', label: 'Booking form', match: '^/app/rooms/booking-form', area: 'rooms.manage' },
     ],
   },
   {

@@ -4,6 +4,8 @@ import { formatDate, formatSpan, lastDay } from './rota.js';
 import { viewTabs } from './calendar.js';
 import { FREQUENCIES, describeSeries } from '../recurrence.js';
 import type { SeriesRow } from '../rooms.js';
+import { requestsDashboard } from './roomRequests.js';
+import type { RequestRow } from '../roomRequests.js';
 
 export interface RoomRow { id: number; name: string; capacity: number | null; notes: string | null }
 export interface BookingRow {
@@ -20,6 +22,10 @@ export interface BookingRow {
   series_id?: number | null;
   /** Set when the room is held for an event, which then owns its times. */
   event_id?: number | null;
+  /** 1 while a request from the public form is waiting to be decided. */
+  is_tentative?: number;
+  /** The request a booking came from, if any. */
+  request_id?: number | null;
 }
 
 const BACK = { href: '/app', label: 'All areas' };
@@ -79,6 +85,8 @@ export function roomsPage(opts: {
   rooms: RoomRow[];
   bookings: BookingRow[];
   series: SeriesRow[];
+  /** Requests from the public form still waiting to be decided. */
+  requests?: RequestRow[];
   ctx: ViewCtx;
   weekFrom: string;
   notice?: { tone: 'ok' | 'bad'; text: string };
@@ -86,6 +94,7 @@ export function roomsPage(opts: {
   form?: Record<string, string>;
 }) {
   const { rooms, bookings, series, ctx, notice, weekFrom } = opts;
+  const canDecide = !ctx.areas || ctx.areas.has('rooms.manage');
   const f = opts.form ?? {};
   const days = byDay(bookings, weekFrom);
 
@@ -104,6 +113,8 @@ export function roomsPage(opts: {
       ${notice
         ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
         : ''}
+
+      ${requestsDashboard(opts.requests ?? [], canDecide)}
 
       <h2 class="section-h2" id="book">Make a booking</h2>
       <form method="post" action="/app/rooms/book" class="card">
@@ -245,7 +256,8 @@ export function roomsPage(opts: {
                       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
                       .map(
                         (b) => html`<tr>
-                          <td><strong>${b.room_name}</strong></td>
+                          <td><strong>${b.room_name}</strong>
+                            ${b.is_tentative ? html`<div>${chip('amber', 'Tentative')}</div>` : ''}</td>
                           <td class="num">${timeOnDay(b, d)}</td>
                           <td>
                             ${b.title}
@@ -259,7 +271,11 @@ export function roomsPage(opts: {
                             ${b.contact ?? b.booked_by_name ?? '—'}
                           </td>
                           <td>
-                            ${b.event_id
+                            ${b.is_tentative && b.request_id
+                              // A request still being decided: approve or decline it
+                              // above, not by editing or cancelling the hold.
+                              ? html`<a class="linkish" href="#request-${b.request_id}">Waiting — decide above</a>`
+                              : b.event_id
                               // Held for an event: the event owns it. A Cancel
                               // here, under the Sunday of a weekend, would cancel
                               // the Saturday too and quietly take the room off
@@ -305,6 +321,30 @@ export function editBookingPage(opts: {
   notice?: { tone: 'ok' | 'bad'; text: string };
 }) {
   const { booking: b, rooms, ctx, notice } = opts;
+  // A request from the public form still waiting to be decided. It is approved
+  // or declined as a whole on the Rooms page; editing one of its held dates
+  // here would leave the request and the diary disagreeing.
+  if (b.is_tentative && b.request_id) {
+    return layout(
+      { title: 'Waiting to be decided', eyebrow: 'Rooms', heading: b.title,
+        back: { href: '/app/rooms', label: 'Room booking' }, ...ctx },
+      html`
+        ${notice
+          ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
+          : ''}
+        <div class="card">
+          <p style="margin-top:0">
+            <strong>${b.room_name}</strong> is held <strong>tentatively</strong> for a request made
+            online: ${b.title}, ${formatSpan(b.starts_at, b.ends_at)}.
+          </p>
+          <p>It stays held until somebody approves or declines the request.</p>
+          <p style="margin-bottom:0">
+            <a class="btn-primary" href="/app/rooms#request-${b.request_id}">See the request</a>
+          </p>
+        </div>
+      `,
+    );
+  }
   // A room held for an event takes its times from the event. Editing it here
   // would let the two disagree — and this form only knows about one day, so
   // saving a hold over a weekend would quietly shrink it to the Saturday.

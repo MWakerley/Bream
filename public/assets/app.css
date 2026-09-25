@@ -1043,3 +1043,36 @@ table.grid.sg-grid thead th.sg-course { text-align: center; font-size: .6875rem;
 .sg-todo-card { margin: 0; }
 .sg-todo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
 .sg-todo-list li { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+
+/* hidden means hidden, whatever display a class would otherwise give. */
+[hidden] { display: none !important; }
+
+/* Requests to book: the dashboard at the top of the Rooms page. */
+.req-dash { margin-bottom: 1.5rem; }
+.req-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .85rem; }
+.req {
+  display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; justify-content: space-between;
+  background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow);
+  border-left: 5px solid var(--gold-warm); padding: .9rem 1.1rem;
+}
+/* An outside group with no insurance: still decidable, but it has to be seen. */
+.req-flag { border-left-color: var(--bad); }
+.req-main { flex: 1 1 26rem; min-width: 0; }
+.req-main p { margin: 0 0 .3rem; }
+.req-when { font-size: 1.0625rem; }
+.req-pattern { display: block; color: var(--ink-2); font-size: .9375rem; }
+.req-who { color: var(--ink-2); font-size: .9375rem; }
+.req-chips { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; margin-top: .35rem; }
+.req-age { color: var(--ink-2); font-size: .8125rem; }
+.req-notes { margin-top: .5rem !important; padding: .5rem .7rem; background: var(--ground); border-radius: 6px; font-size: .9375rem; }
+.req-actions { display: flex; flex-direction: column; gap: .5rem; align-items: stretch; min-width: 12rem; }
+.req-decline > summary { list-style: none; cursor: pointer; text-align: center; }
+.req-decline > summary::-webkit-details-marker { display: none; }
+.req-decline form { display: grid; gap: .4rem; margin-top: .5rem; }
+.req-decline textarea { width: 100%; }
+
+/* The public form's live check of the chosen time. */
+.avail { margin: .25rem 0 1rem; padding: .55rem .8rem; border-radius: 6px; font-weight: 600; }
+.avail-ok { background: var(--ok-wash); color: var(--ok); }
+.avail-bad { background: var(--bad-wash); color: var(--bad); }
+.cal-item:is(span) { cursor: default; }

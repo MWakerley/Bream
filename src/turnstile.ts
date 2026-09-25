@@ -36,13 +36,16 @@ export async function verifyTurnstile(
   env: { TURNSTILE_SITEKEY?: string; TURNSTILE_SECRET?: string },
   token: string,
   remoteIp?: string | null,
+  /** The words on the button the visitor presses, so "press X again" names
+   *  a button that is actually on their page. */
+  button = 'Book my place',
 ): Promise<TurnstileResult> {
   if (!turnstileReady(env)) return { ok: true, skipped: true };
 
   if (!token) {
     return {
       ok: false,
-      error: 'Please tick the box that says you are not a robot, then press Book my place again.',
+      error: `Please tick the box that says you are not a robot, then press ${button} again.`,
     };
   }
 
@@ -76,7 +79,7 @@ export async function verifyTurnstile(
     ok: false,
     error: stale
       ? 'This page has been open a while, so the "not a robot" check expired. '
-        + 'Everything you typed is still here — tick it again and press Book my place.'
+        + `Everything you typed is still here — tick it again and press ${button}.`
       : 'The "not a robot" check did not pass. Please tick the box and try once more. '
         + 'If it keeps refusing, ring the church office and they will book you in.',
   };

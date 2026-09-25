@@ -65,7 +65,7 @@ import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listE
          getBooking as getEventBooking, saveBooking, type BookingAttempt,
          listOrganisers, readOrganisers, saveOrganisers, eventRoomIds, readRoomIds,
          eventRoomClashes, describeClashes, syncEventRooms, readEventWhen } from './events.js';
-import { sendAcknowledgement, notifyOrganisers, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
+import { sendAcknowledgement, sendEmail, notifyOrganisers, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
 import { formatDate, lastDay } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
@@ -75,6 +75,11 @@ import { loadGrid as loadSgGrid, saveGrid as saveSgGrid, loadPerson as loadSgPer
 import { safeguardingXlsx, safeguardingPdf } from './export/safeguarding.js';
 import { safeguardingPage, safeguardingReportPage } from './views/safeguarding.js';
 import { readKeys } from './keyholders.js';
+import { loadFormSettings, listPublicRooms, busyBetween, readRequest, createRequest, approveRequest,
+         declineRequest, listPendingRequests, receivedEmail, officeEmail, decisionEmail, hashAddress,
+         getRequestByReceipt, type RequestRow } from './roomRequests.js';
+import { publicRoomRequestPage, requestClosedPage, requestReceivedPage,
+         bookingFormSettingsPage } from './views/roomRequests.js';
 import { attendeesXlsx, attendeesPdf } from './export/attendees.js';
 import { sundaysBetween, createSundays, provisionalSundays, chunked,
          type SundayPlan } from './services.js';
@@ -2227,12 +2232,13 @@ async function roomsView(
   const asked = c.req.query('from') ?? '';
   const weekFrom = /^\d{4}-\d{2}-\d{2}$/.test(asked) && !Number.isNaN(Date.parse(asked))
     ? asked : new Date().toISOString().slice(0, 10);
-  const [rooms, bookings, series] = await Promise.all([
+  const [rooms, bookings, series, requests] = await Promise.all([
     listRooms(c.env.DB),
     listBookings(c.env.DB, weekFrom),
     listSeries(c.env.DB),
+    listPendingRequests(c.env.DB),
   ]);
-  return c.html(roomsPage({ rooms, bookings, series, ctx: viewCtx(c), weekFrom, notice, form }));
+  return c.html(roomsPage({ rooms, bookings, series, requests, ctx: viewCtx(c), weekFrom, notice, form }));
 }
 
 app.get('/app/rooms', (c) => {
@@ -2483,6 +2489,117 @@ app.post('/app/rooms/series/:id', async (c) => {
   });
 });
 
+// ---- requests to book, and the public form's settings ---------------------
+//
+// Registered before /app/rooms/:id, which would otherwise take "booking-form"
+// for a booking id.
+
+async function bookingFormView(
+  c: Context<{ Bindings: Env; Variables: Vars }>,
+  notice?: { tone: 'ok' | 'bad'; text: string },
+) {
+  const [settings, { results: rooms }] = await Promise.all([
+    loadFormSettings(c.env.DB),
+    c.env.DB.prepare(
+      'SELECT id, name, public_booking FROM rooms WHERE is_active = 1 ORDER BY sort_order, name',
+    ).all<{ id: number; name: string; public_booking: number }>(),
+  ]);
+  return c.html(bookingFormSettingsPage({
+    settings, rooms, link: `${new URL(c.req.url).origin}/rooms/book`,
+    emailReady: Boolean(c.env.EMAIL && c.env.ACK_FROM), captchaReady: turnstileReady(c.env),
+    ctx: viewCtx(c), notice,
+  }));
+}
+
+app.get('/app/rooms/booking-form', (c) => bookingFormView(c));
+
+app.post('/app/rooms/booking-form', async (c) => {
+  const form = await c.req.formData();
+  const n = (k: string, lo: number, hi: number) => {
+    const raw = String(form.get(k) ?? '').trim();
+    const v = Number(raw);
+    return raw !== '' && Number.isInteger(v) && v >= lo && v <= hi ? v : null;
+  };
+  const minNotice = n('min_days_notice', 0, 60);
+  const maxAhead = n('max_days_ahead', 7, 730);
+  if (minNotice == null || maxAhead == null) {
+    return bookingFormView(c, { tone: 'bad', text: 'Give the least notice as 0 to 60 days and the furthest ahead as 7 to 730 days. Nothing was saved.' });
+  }
+  if (minNotice >= maxAhead) {
+    return bookingFormView(c, { tone: 'bad', text: 'The least notice has to be shorter than how far ahead people can ask, or no date could be chosen. Nothing was saved.' });
+  }
+  const email = String(form.get('notify_email') ?? '').trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return bookingFormView(c, { tone: 'bad', text: `"${email}" does not look like an email address. Nothing was saved.` });
+  }
+  const publicRooms = new Set(form.getAll('public_rooms').map(Number));
+  const { results: rooms } = await c.env.DB.prepare('SELECT id FROM rooms').all<{ id: number }>();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE room_form_settings
+          SET is_open = ?1, intro = ?2, notify_email = ?3, min_days_notice = ?4,
+              max_days_ahead = ?5, allow_repeating = ?6, updated_at = datetime('now')
+        WHERE id = 1`,
+    ).bind(form.get('is_open') ? 1 : 0, String(form.get('intro') ?? '').trim().slice(0, 2000) || null,
+      email || null, minNotice, maxAhead,
+      form.get('allow_repeating') ? 1 : 0),
+    ...rooms.map((r) => c.env.DB.prepare('UPDATE rooms SET public_booking = ?2 WHERE id = ?1')
+      .bind(r.id, publicRooms.has(r.id) ? 1 : 0)),
+  ]);
+  return bookingFormView(c, { tone: 'ok', text: 'Saved.' });
+});
+
+/** Emails the person who asked, once somebody has decided. Never throws. */
+async function tellRequester(c: Context<{ Bindings: Env; Variables: Vars }>, r: RequestRow, approved: boolean, note: string | null) {
+  try {
+    const m = decisionEmail(r, approved, note);
+    const res = await sendEmail(c.env.EMAIL, c.env.ACK_FROM, m.to, m.subject, m.body);
+    if (res.status !== 'sent') console.error('room request decision not emailed', { id: r.id, ...res });
+    return res.status === 'sent';
+  } catch (err) {
+    console.error('room request decision email failed', { id: r.id, err: String(err) });
+    return false;
+  }
+}
+
+app.post('/app/rooms/requests/:id/approve', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+  const anyway = (await c.req.formData()).get('anyway') === '1';
+  const d = await approveRequest(c.env.DB, id, c.get('person').id, anyway);
+  if (!d.ok) {
+    return roomsView(c, {
+      tone: 'bad',
+      text: d.why === 'clashes'
+        ? `Not approved: something else has been booked over ${d.clashes} of its dates since it was asked for. `
+          + 'Look at the diary, then use "Approve anyway" if both should go ahead.'
+        : 'That request has already been decided.',
+    });
+  }
+  const r = d.request;
+  const emailed = await tellRequester(c, r, true, null);
+  return roomsView(c, {
+    tone: 'ok',
+    text: `Approved: ${r.purpose} in the ${r.room_name}. It is now booked on the diary`
+      + (emailed ? ` and ${r.name} has been emailed.` : ` — ${r.name} could not be emailed, so please let them know.`),
+  });
+});
+
+app.post('/app/rooms/requests/:id/decline', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+  const note = String((await c.req.formData()).get('note') ?? '').trim().slice(0, 1000) || null;
+  const d = await declineRequest(c.env.DB, id, c.get('person').id, note);
+  if (!d.ok) return roomsView(c, { tone: 'bad', text: 'That request has already been decided.' });
+  const r = d.request;
+  const emailed = await tellRequester(c, r, false, note);
+  return roomsView(c, {
+    tone: 'ok',
+    text: `Declined, and the time is free again.`
+      + (emailed ? ` ${r.name} has been emailed.` : ` ${r.name} could not be emailed, so please let them know.`),
+  });
+});
+
 app.get('/app/rooms/:id', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return c.notFound();
@@ -2505,6 +2622,12 @@ app.post('/app/rooms/:id', async (c) => {
     return c.html(editBookingPage({
       booking, rooms, ctx: viewCtx(c),
       notice: { tone: 'bad', text: 'Not saved: this room is held for an event. Change it on the event.' },
+    }), 409);
+  }
+  if (booking.is_tentative && booking.request_id) {
+    return c.html(editBookingPage({
+      booking, rooms, ctx: viewCtx(c),
+      notice: { tone: 'bad', text: 'Not saved: this is a request still waiting to be decided. Approve or decline it on the Rooms page.' },
     }), 409);
   }
 
@@ -2535,8 +2658,15 @@ app.post('/app/rooms/:id/cancel', async (c) => {
   if (!Number.isInteger(id)) return c.notFound();
   // A room held for an event is let go by unticking it on the event, so the
   // event and the diary cannot disagree about whether it has the room.
-  const held = await c.env.DB.prepare('SELECT event_id FROM room_bookings WHERE id = ?1')
-    .bind(id).first<{ event_id: number | null }>();
+  const held = await c.env.DB.prepare(
+    'SELECT event_id, is_tentative, request_id FROM room_bookings WHERE id = ?1',
+  ).bind(id).first<{ event_id: number | null; is_tentative: number; request_id: number | null }>();
+  if (held?.is_tentative && held.request_id) {
+    return roomsView(c, {
+      tone: 'bad',
+      text: 'Not cancelled: that is a request still waiting to be decided. Decline it instead, above.',
+    });
+  }
   if (held?.event_id) {
     return roomsView(c, {
       tone: 'bad',
@@ -3495,6 +3625,142 @@ app.post('/app/rota/requests/:id/decline', async (c) => {
 
 /** The poster, served to anyone who can open the booking page. Public on
  *  purpose: the booking page itself is. */
+// ---------------------------------------------------------------------------
+// Asking to book a room — public, no sign-in
+// ---------------------------------------------------------------------------
+//
+// The only public way into the room diary. It sees when rooms are taken and
+// nothing else, and everything it writes is tentative until somebody inside
+// approves it. Closed until opened on Rooms → Booking form.
+
+async function publicRequestContext(db: D1Database) {
+  const [settings, rooms] = await Promise.all([loadFormSettings(db), listPublicRooms(db)]);
+  const open = !!settings.is_open && rooms.length > 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const plus = (n: number) => new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  return { settings, rooms, open, today, earliest: plus(settings.min_days_notice), latest: plus(settings.max_days_ahead) };
+}
+
+async function publicRequestView(
+  c: Context<{ Bindings: Env; Variables: Vars }>,
+  ctx: Awaited<ReturnType<typeof publicRequestContext>>,
+  opts: { roomId?: number; month?: string; values?: Record<string, string>; error?: string; status?: 200 | 400 | 409 },
+) {
+  const roomId = ctx.rooms.some((r) => r.id === opts.roomId) ? opts.roomId! : ctx.rooms[0]!.id;
+  // A real month, kept between this month and the last one that can be asked
+  // for: the page is not a way to read the church's past diary, and a month
+  // of 13 used to reach new Date(NaN) and fail the page.
+  const asked = opts.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(opts.month) ? opts.month : thisMonth();
+  const month = asked < thisMonth() ? thisMonth() : asked > ctx.latest.slice(0, 7) ? ctx.latest.slice(0, 7) : asked;
+  // The grid shows whole weeks, so reach a week either side of the month.
+  const from = new Date(Date.parse(`${month}-01T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+  const to = new Date(Date.parse(`${month}-01T00:00:00Z`) + 45 * 86_400_000).toISOString().slice(0, 10);
+  const busy = await busyBetween(c.env.DB, roomId, `${from}T00:00`, `${to}T00:00`);
+  const res = c.html(publicRoomRequestPage({
+    settings: ctx.settings, rooms: ctx.rooms, roomId, month, busy, values: opts.values, error: opts.error,
+    turnstileSitekey: c.env.TURNSTILE_SITEKEY, earliest: ctx.earliest, latest: ctx.latest,
+  }), opts.status ?? 200);
+  return res;
+}
+
+app.get('/rooms/book', async (c) => {
+  const ctx = await publicRequestContext(c.env.DB);
+  if (!ctx.open) return c.html(requestClosedPage());
+  const roomId = Number(c.req.query('room'));
+  const on = c.req.query('on') ?? '';
+  const values: Record<string, string> = {};
+  if (/^\d{4}-\d{2}-\d{2}$/.test(on)) values.on_date = on;
+  if (Number.isInteger(roomId)) values.room_id = String(roomId);
+  return publicRequestView(c, ctx, { roomId, month: c.req.query('month'), values });
+});
+
+/**
+ * What is taken in one room on one day, for the form's live check.
+ *
+ * Times only, clipped to the day asked about, and no titles — the same as the
+ * calendar above it. Refuses rooms that are not open to the public, so it
+ * cannot be used to read the rest of the diary.
+ */
+app.get('/rooms/book/busy', async (c) => {
+  const ctx = await publicRequestContext(c.env.DB);
+  const roomId = Number(c.req.query('room'));
+  const date = c.req.query('date') ?? '';
+  // Only dates that could be asked for: this is not a way to read the past.
+  if (!ctx.open || !ctx.rooms.some((r) => r.id === roomId) || !/^\d{4}-\d{2}-\d{2}$/.test(date)
+      || Number.isNaN(Date.parse(date)) || date < ctx.today || date > ctx.latest) {
+    return c.json({ busy: [] }, 404);
+  }
+  const next = new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const rows = await busyBetween(c.env.DB, roomId, `${date}T00:00`, `${next}T00:00`);
+  c.header('cache-control', 'no-store');
+  return c.json({
+    busy: rows.map((b) => ({
+      from: b.starts_at.slice(0, 10) < date ? '00:00' : b.starts_at.slice(11, 16),
+      to: b.ends_at.slice(0, 10) > date ? '24:00' : b.ends_at.slice(11, 16),
+      held: !!b.tentative,
+    })),
+  });
+});
+
+app.post('/rooms/book', async (c) => {
+  const ctx = await publicRequestContext(c.env.DB);
+  if (!ctx.open) return c.html(requestClosedPage(), 403);
+  const form = await c.req.formData();
+  const values: Record<string, string> = {};
+  for (const [k, v] of form.entries()) if (typeof v === 'string' && k !== 'cf-turnstile-response') values[k] = v;
+  const roomId = Number(values.room_id);
+  const again = (error: string, status: 400 | 409 = 400) =>
+    publicRequestView(c, ctx, { roomId, month: (values.on_date ?? '').slice(0, 7) || undefined, values, error, status });
+
+  // Before anything else, so a bot never reaches the clash check or the insert.
+  const human = await verifyTurnstile(c.env, String(form.get('cf-turnstile-response') ?? ''),
+    c.req.header('CF-Connecting-IP'), 'Request to book');
+  if (!human.ok) return again(human.error);
+
+  const parsed = readRequest(form, ctx.settings, ctx.rooms, ctx.today);
+  if (!parsed.ok) return again(parsed.error);
+  const made = await createRequest(c.env.DB, parsed.value, await hashAddress(c.req.header('CF-Connecting-IP')));
+  if (!made.ok) return again(made.error, 409);
+
+  const room = ctx.rooms.find((r) => r.id === parsed.value.roomId)!;
+  // The request is made and held. Emails are sent after and never undo it.
+  try {
+    const mine = receivedEmail(parsed.value, room.name, made.held, made.clashDates);
+    const sentToThem = await sendEmail(c.env.EMAIL, c.env.ACK_FROM, mine.to, mine.subject, mine.body);
+    if (sentToThem.status !== 'sent') console.error('room request acknowledgement not sent', { id: made.requestId, ...sentToThem });
+    if (ctx.settings.notify_email) {
+      const office = officeEmail(parsed.value, room.name, made.held,
+        `${new URL(c.req.url).origin}/app/rooms#request-${made.requestId}`, ctx.settings.notify_email);
+      const sentToOffice = await sendEmail(c.env.EMAIL, c.env.ACK_FROM, office.to, office.subject, office.body);
+      if (sentToOffice.status !== 'sent') console.error('room request office email not sent', { id: made.requestId, ...sentToOffice });
+    }
+  } catch (err) {
+    console.error('room request emails failed', { id: made.requestId, err: String(err) });
+  }
+
+  // Post, then redirect, then get: refreshing the thank-you page shows it
+  // again rather than sending the request a second time (which would then be
+  // refused as clashing with its own hold).
+  return c.redirect(`/rooms/book/received/${made.receipt}`, 303);
+});
+
+/** "We have your request", reached by the unguessable receipt it was given. */
+app.get('/rooms/book/received/:receipt', async (c) => {
+  const receipt = c.req.param('receipt');
+  if (!/^[0-9a-f]{32}$/.test(receipt)) return c.notFound();
+  const r = await getRequestByReceipt(c.env.DB, receipt);
+  if (!r) return c.notFound();
+  const { results } = await c.env.DB.prepare(
+    `SELECT substr(starts_at, 1, 10) AS d FROM room_bookings
+      WHERE request_id = ?1 AND status = 'booked' ORDER BY starts_at`,
+  ).bind(r.id).all<{ d: string }>();
+  return c.html(requestReceivedPage({
+    roomName: r.room_name, purpose: r.purpose, held: results.map((x) => x.d),
+    clashDates: r.clash_dates ? JSON.parse(r.clash_dates) : [], status: r.status,
+    fromTime: r.starts_at.slice(11, 16), toTime: r.ends_at.slice(11, 16), email: r.email,
+  }));
+});
+
 app.get('/events/:slug/poster', async (c) => {
   const event = await getEventBySlug(c.env.DB, c.req.param('slug'));
   if (!event?.poster_key) return c.notFound();

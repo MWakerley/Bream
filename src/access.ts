@@ -37,6 +37,8 @@ const RULES: { prefix: string; area: Area }[] = ([
   { prefix: '/app/rota', area: 'rota' },
   { prefix: '/app/rooms/series', area: 'rooms.manage' },
   { prefix: '/app/rooms/book', area: 'rooms.manage' },
+  { prefix: '/app/rooms/booking-form', area: 'rooms.manage' },
+  { prefix: '/app/rooms/requests', area: 'rooms.manage' },
   { prefix: '/app/rooms', area: 'rooms' },
   { prefix: '/app/events/new', area: 'events.manage' },
   { prefix: '/app/events', area: 'events' },

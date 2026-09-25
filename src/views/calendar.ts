@@ -15,6 +15,7 @@ import { html } from 'hono/html';
 export interface CalendarEntry {
   /** 'YYYY-MM-DD' */
   date: string;
+  /** Empty for an entry that is only shown, not opened. */
   href: string;
   /** Shown first, in bold — usually a time. */
   lead?: string;
@@ -78,7 +79,13 @@ export function monthCalendar(opts: {
    * from the October grid and getting a September booking is the kind of thing
    * nobody notices until the room is double-booked.
    */
-  addDay?: { href: string; label: string };
+  addDay?: {
+    href: string;
+    label: string;
+    /** Only days from here to here get a "+", as 'YYYY-MM-DD'. Optional. */
+    from?: string;
+    until?: string;
+  };
 }) {
   const { month, entries, baseHref } = opts;
   const extra = opts.extraQuery ? `&${opts.extraQuery}` : '';
@@ -117,6 +124,8 @@ export function monthCalendar(opts: {
                                 role="cell">
                 <span class="cal-n">${Number(d.date.slice(8, 10))}</span>
                 ${opts.addDay && d.inMonth
+                    && (!opts.addDay.from || d.date >= opts.addDay.from)
+                    && (!opts.addDay.until || d.date <= opts.addDay.until)
                   ? html`<a class="cal-add" href="${opts.addDay.href}${opts.addDay.href.includes('?') ? '&' : '?'}on=${d.date}"
                              title="${opts.addDay.label} on ${d.date}">
                       <span aria-hidden="true">+</span>
@@ -124,10 +133,17 @@ export function monthCalendar(opts: {
                     </a>`
                   : ''}
                 ${list.map(
-                  (e) => html`<a class="cal-item cal-${e.tone ?? 'navy'}" href="${e.href}"
+                  // No href, no link: the public booking page shows when a room
+                  // is taken, and must not point anybody at the booking itself.
+                  (e) => e.href
+                    ? html`<a class="cal-item cal-${e.tone ?? 'navy'}" href="${e.href}"
                                  title="${e.title ?? `${e.lead ?? ''} ${e.label}`}">
-                    ${e.lead ? html`<strong>${e.lead}</strong> ` : ''}${e.label}
-                  </a>`,
+                        ${e.lead ? html`<strong>${e.lead}</strong> ` : ''}${e.label}
+                      </a>`
+                    : html`<span class="cal-item cal-${e.tone ?? 'navy'}"
+                                 title="${e.title ?? `${e.lead ?? ''} ${e.label}`}">
+                        ${e.lead ? html`<strong>${e.lead}</strong> ` : ''}${e.label}
+                      </span>`,
                 )}
               </div>`;
             })}

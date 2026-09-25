@@ -32,6 +32,8 @@ import { safeguardingPage, safeguardingReportPage } from '../src/views/safeguard
 import { readEventWhen } from '../src/events.js';
 import { fillPlaceholders, DEFAULT_ACK_BODY } from '../src/email.js';
 import { readKeys } from '../src/keyholders.js';
+import { readRequest, officeEmail, receivedEmail, decisionEmail } from '../src/roomRequests.js';
+import { publicRoomRequestPage, requestClosedPage, requestReceivedPage, bookingFormSettingsPage } from '../src/views/roomRequests.js';
 import type { ViewCtx } from '../src/views/layout.js';
 import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
 
@@ -1138,6 +1140,114 @@ await check('and nothing at all on a quiet week', () => homePage({
     ['Courses each role needs', 'href="/app/settings/safeguarding/report"']);
   await check('a report with nobody in it says how to start', () => safeguardingReportPage(SG_GRID, [], CTX),
     ['Nobody has a safeguarding role yet']);
+}
+
+// ---- asking to book a room, from outside ------------------------------------
+{
+  const SETTINGS = { is_open: 1, intro: 'Ask us for a room.', notify_email: null, min_days_notice: 2,
+    max_days_ahead: 180, allow_repeating: 1 };
+  const PUBLIC = [{ id: 2, name: 'Church Centre', capacity: 60, notes: 'The downstairs hall.' }];
+  const form = (o: Record<string, string>) => { const d = new FormData(); for (const [k, v] of Object.entries(o)) d.set(k, v); return d; };
+  const ok = { room_id: '2', on_date: '2026-10-10', from_time: '10:00', to_time: '11:30', name: 'Jane',
+    email: 'jane@example.org', purpose: 'Toddler group', people: '12', is_member: '0', has_insurance: '1' };
+  const read = (o: Record<string, string>, s = SETTINGS) => JSON.stringify(readRequest(form(o), s, PUBLIC, '2026-10-01'));
+  await check('a good request is read', () => read(ok), ['"ok":true', '"isMember":false', '"hasInsurance":true']);
+  await check('a member is not asked about insurance', () =>
+    read({ ...ok, is_member: '1', has_insurance: '' }), ['"ok":true', '"hasInsurance":null']);
+  await check('a non-member must say about insurance', () =>
+    read({ ...ok, has_insurance: '' }), ['public liability insurance']);
+  await check('a room not open to the public is refused', () => read({ ...ok, room_id: '1' }), ['Choose one of the rooms']);
+  await check('too little notice is refused', () => read({ ...ok, on_date: '2026-10-02' }), ['at least 2 days ahead']);
+  await check('too far ahead is refused', () => read({ ...ok, on_date: '2027-06-01' }), ['up to 180 days ahead']);
+  await check('an email is required, to reply to', () => read({ ...ok, email: 'nope' }), ['how we will reply']);
+  await check('a repeating request needs an end', () => read({ ...ok, repeat: 'weekly', until: '' }), ['should end']);
+  await check('and cannot be asked for when switched off', () =>
+    read({ ...ok, repeat: 'weekly', until: '2026-12-01' }, { ...SETTINGS, allow_repeating: 0 }), ['ring the church office']);
+  await check('a repeating request is read', () => read({ ...ok, repeat: 'fortnightly', until: '2026-12-01' }),
+    ['"freq":"fortnightly"', '"untilDate":"2026-12-01"']);
+  await check('impossible times are refused', () => read({ ...ok, from_time: '00:00', to_time: '99:99' }), ['Give a start and a finish time']);
+  await check('impossible dates are refused', () => read({ ...ok, on_date: '2026-02-31' }), ['Choose the date']);
+  await check('a booking longer than twelve hours is for the office', () =>
+    read({ ...ok, from_time: '07:00', to_time: '22:00' }), ['up to 12 hours']);
+  await check('a line break in a name becomes a space', () =>
+    read({ ...ok, name: 'Jane\nBcc: x@y.z' }), ['"name":"Jane Bcc: x@y.z"']);
+
+  const BUSY = [
+    { starts_at: '2026-10-06T09:00', ends_at: '2026-10-06T14:30', tentative: 0 },
+    { starts_at: '2026-10-08T19:00', ends_at: '2026-10-08T21:00', tentative: 1 },
+  ];
+  await check('the public page shows when, never what or who', () => publicRoomRequestPage({
+    settings: SETTINGS, rooms: PUBLIC, roomId: 2, month: '2026-10', busy: BUSY,
+    earliest: '2026-10-03', latest: '2027-03-30',
+  }), ['Book a room', 'Ask us for a room.', 'Booked', 'Held', 'Request to book', 'name="is_member"',
+       'name="has_insurance"', 'Does it repeat?', '/rooms/book/busy', 'min="2026-10-03"', 'max="2027-03-30"'],
+    ['Lunch Club', 'href="/app', 'Sign out']);
+  await check('the public calendar links nowhere into the system', async () => {
+    const out = String(await publicRoomRequestPage({ settings: SETTINGS, rooms: PUBLIC, roomId: 2, month: '2026-10',
+      busy: BUSY, earliest: '2026-10-03', latest: '2027-03-30' }));
+    return /<a class="cal-item/.test(out) ? 'a busy entry is a link' : out;
+  }, ['<span class="cal-item']);
+  await check('the form closed says so', () => requestClosedPage(), ['not taking room requests online']);
+  await check('coming back to an approved request says it is confirmed', () => requestReceivedPage({
+    roomName: 'Church Centre', purpose: 'Toddler group', held: [], clashDates: [], fromTime: '10:00', toTime: '11:30',
+    email: 'jane@example.org', status: 'approved',
+  }), ['is <strong>confirmed</strong>'], ['not confirmed yet']);
+  await check('the "+" only appears on days that can be asked for', async () => {
+    const out = String(await publicRoomRequestPage({ settings: SETTINGS, rooms: PUBLIC, roomId: 2, month: '2026-10',
+      busy: [], earliest: '2026-10-10', latest: '2026-10-20' }));
+    const plus = (out.match(/class="cal-add"/g) ?? []).length;
+    return plus === 11 ? out : `${plus} days offered, not 11`;
+  }, ['action="/rooms/book#ask"']);
+  await check('a received request is not called confirmed', () => requestReceivedPage({
+    roomName: 'Church Centre', purpose: 'Toddler group', held: ['2026-10-06', '2026-10-20'],
+    clashDates: ['2026-10-13'], fromTime: '10:00', toTime: '11:30', email: 'jane@example.org',
+  }), ['This is not confirmed yet', 'Tue 6 Oct 2026, Tue 20 Oct 2026', 'Dates we could not hold', 'Tue 13 Oct 2026']);
+
+  const REQ = { id: 7, room_id: 2, room_name: 'Church Centre', room_capacity: 10, name: 'Jane', email: 'jane@example.org',
+    phone: null, organisation: 'Bream Tots', purpose: 'Toddler group', people: 12, is_member: 0, has_insurance: 0,
+    notes: 'Kitchen please', starts_at: '2026-10-06T10:00', ends_at: '2026-10-06T11:30', freq: 'weekly' as const,
+    until_date: '2026-12-01', clash_dates: '["2026-10-13"]', status: 'pending' as const, created_at: '2026-09-25 10:00:00', held: 8,
+    receipt: 'a'.repeat(32), last_held: '2026-11-24', clashes_now: 0 };
+  await check('the dashboard shows what is needed to decide', () => roomsPage({
+    rooms: ROOMS, bookings: [], series: [], requests: [REQ], ctx: { ...CTX, areas: ADMIN_AREAS }, weekFrom: '2026-10-01',
+  }), ['Requests to book', '1 waiting', 'Toddler group', 'Bream Tots', '12 people', 'Not a member', 'No insurance',
+       'Over capacity (10)', '1 date already taken', 'Every week until Tue 24 Nov 2026 — 8 dates held', 'Kitchen please',
+       '/app/rooms/requests/7/approve', '/app/rooms/requests/7/decline', 'req-flag'],
+    ['Approve anyway', 'Now clashes']);
+  await check('a request something has been booked over says so, and approving it says "anyway"', () => roomsPage({
+    rooms: ROOMS, bookings: [], series: [], requests: [{ ...REQ, clashes_now: 2 }], ctx: { ...CTX, areas: ADMIN_AREAS }, weekFrom: '2026-10-01',
+  }), ['Now clashes with 2 bookings', 'name="anyway" value="1"', 'Approve anyway']);
+  await check('somebody who cannot decide is only told they are waiting', () => roomsPage({
+    rooms: ROOMS, bookings: [], series: [], requests: [REQ], ctx: { ...CTX, areas: VOLUNTEER_AREAS }, weekFrom: '2026-10-01',
+  }), ['waiting for somebody who manages rooms'], ['/approve', 'jane@example.org']);
+  await check('no requests, no box', () => roomsPage({
+    rooms: ROOMS, bookings: [], series: [], requests: [], ctx: CTX, weekFrom: '2026-10-01',
+  }), ['Make a booking'], ['Requests to book']);
+
+  const HOLD = { ...BOOKING, id: 88, title: 'Toddler group (Bream Tots)', is_tentative: 1, request_id: 7,
+    starts_at: '2026-11-20T10:00', ends_at: '2026-11-20T11:30' };
+  await check('a tentative hold is marked on the diary and decided above', () => roomsPage({
+    rooms: ROOMS, bookings: [HOLD], series: [], ctx: CTX, weekFrom: '2026-11-18',
+  }), ['Tentative', 'href="#request-7"'], ['/app/rooms/88/cancel']);
+  await check('a tentative hold cannot be edited as a booking', () => editBookingPage({ booking: HOLD, rooms: ROOMS, ctx: CTX }),
+    ['held <strong>tentatively</strong>', '/app/rooms#request-7'], ['name="to_time"']);
+  await check('the booking form settings', () => bookingFormSettingsPage({
+    settings: SETTINGS, rooms: [{ id: 1, name: 'Main church', public_booking: 0 }, { id: 2, name: 'Church Centre', public_booking: 1 }],
+    link: 'https://x.test/rooms/book', emailReady: false, captchaReady: true, ctx: CTX,
+  }), ['The form is <strong>open</strong>', 'https://x.test/rooms/book', 'name="public_rooms" value="2" checked',
+       'Take requests online', 'Email sending is not set up yet'], ['name="public_rooms" value="1" checked']);
+
+  const RV = { roomId: 2, onDate: '2026-10-06', fromTime: '10:00', toTime: '11:30', freq: null, untilDate: null,
+    name: 'Jane', email: 'jane@example.org', phone: null, organisation: null, purpose: 'Toddler group', people: 12,
+    isMember: false, hasInsurance: false, notes: null };
+  await check('the office is told plainly about missing insurance', () =>
+    JSON.stringify(officeEmail(RV, 'Church Centre', ['2026-10-06'], 'https://x.test/app/rooms#request-7', 'office@example.org')),
+    ['Public liability insurance: NO', 'Tue 6 Oct 2026, 10:00–11:30', 'office@example.org']);
+  await check('the person asking is told it is not confirmed', () =>
+    JSON.stringify(receivedEmail(RV, 'Church Centre', ['2026-10-06'], [])), ['This is not confirmed yet', 'jane@example.org']);
+  await check('an approval says confirmed; a decline says the time is let go', () => [
+    decisionEmail(REQ, true, null).subject, decisionEmail(REQ, false, 'Sorry, the hall is being painted.').body,
+  ].join(' | '), ['Confirmed: the Church Centre', 'no longer held', 'being painted']);
 }
 
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);

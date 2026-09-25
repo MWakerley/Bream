@@ -143,6 +143,33 @@ export async function recentActivity(
     }
   }
 
+  // 3b. Somebody outside asking for a room. Exactly the kind of thing this panel
+  // is for: nothing happens until somebody here decides, and the time is held
+  // on the diary while they wait.
+  if (areas.has('rooms') && areas.has('rooms.manage')) {
+    const { results } = await db
+      .prepare(
+        `SELECT q.id, q.created_at, q.name, q.purpose, q.starts_at, q.freq, r.name AS room_name
+           FROM room_requests q JOIN rooms r ON r.id = q.room_id
+          WHERE q.status = 'pending'
+          ORDER BY q.created_at DESC
+          LIMIT 5`,
+      )
+      .all<any>();
+    for (const r of results) {
+      items.push({
+        when: r.created_at,
+        icon: '🔑',
+        tone: 'warn',
+        who: r.name,
+        what: `asked to book the ${r.room_name} for ${r.purpose}, ${formatDate(r.starts_at.slice(0, 10))}`
+          + (r.freq ? ' (repeating)' : '') + ' — waiting for a decision',
+        href: `/app/rooms#request-${r.id}`,
+        area: 'rooms.manage',
+      });
+    }
+  }
+
   // 4. People stepping back. A break nobody has ended is worth noticing.
   if (areas.has('rota')) {
     const { results } = await db
