@@ -298,12 +298,27 @@ await check('events list', () => eventsListPage({ events: [EVENT], ctx: CTX }),
   ['Harvest Supper', 'Taking bookings', 'Add an event', '12']);
 await check('events list (empty)', () => eventsListPage({ events: [], ctx: CTX }),
   ['No events yet']);
-await check('new event', () => newEventPage({ ctx: CTX }), ['Create the event', 'How many can come']);
+const EV_EXTRA = { rooms: ROOMS, roomIds: [] as number[], organisers: [] };
+await check('new event', () => newEventPage({ ctx: CTX, rooms: ROOMS }),
+  ['Create the event', 'How many can come', 'name="end_time"', 'Book rooms for it',
+   'Church Centre', 'name="room_ids"', 'name="organiser_name"', 'Add another organiser',
+   'Email the organisers each time somebody books']);
+await check('a refused new event keeps what was ticked', () => newEventPage({
+  ctx: CTX, rooms: ROOMS, roomIds: [2], notify: true,
+  organisers: [{ name: 'Jan', email: 'jan@example.org' }, { name: 'Bob', email: '' }],
+}), ['value="2" checked', 'value="Jan"', 'value="jan@example.org"', 'value="Bob"',
+     'name="notify_organisers" value="1" checked']);
+await check('the event page shows its rooms and organisers', () => eventAdminPage({
+  event: { ...EVENT, ends_at: '2026-10-10T21:00', notify_organisers: 1 }, fields: FIELDS,
+  bookings: [], ctx: CTX, origin: 'https://x.test',
+  rooms: ROOMS, roomIds: [1], organisers: [{ name: 'Jan', email: 'jan@example.org' }],
+}), ['value="21:00"', 'value="1" checked', 'Organisers', 'value="Jan"', 'Save organisers'],
+  ['value="2" checked']);
 await check('event admin', () => eventAdminPage({
   event: EVENT, fields: FIELDS,
   bookings: [{ id: 1, name: 'Sue', email: null, phone: null, party_size: 2,
     status: 'booked', created_at: '2026-09-18T10:00', answers: { '5': 'Beef' } }],
-  ctx: CTX, origin: 'https://breamchurch.stack66.com',
+  ctx: CTX, origin: 'https://breamchurch.stack66.com', ...EV_EXTRA,
 }), ['Harvest Supper', '48', '12', 'Main course', 'Any allergies?', 'Add this question',
      'https://breamchurch.stack66.com/events/harvest-supper']);
 await check('public booking', () => publicBookingPage({ event: EVENT, fields: FIELDS }),
@@ -321,7 +336,7 @@ await check('the public page never gives the count away', () => publicBookingPag
 }), ['Still spaces left'], ['12 places', '48 of', 'of 60', '60 places', 'places left.']);
 
 await check('but the event page still shows them', () => eventAdminPage({
-  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test',
+  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
 }), ['48', '60', 'places left', 'How many can come', 'name="capacity"',
      'Save these details']);
 
@@ -448,7 +463,7 @@ await check('a cancelled booking says so', () => bookingEditPage({
 }), ['This booking is cancelled', 'does not count towards the numbers']);
 
 await check('the event page lists cancelled bookings too', () => eventAdminPage({
-  event: EVENT, fields: FIELDS, ctx: CTX, origin: 'https://breamchurch.stack66.com',
+  event: EVENT, fields: FIELDS, ctx: CTX, origin: 'https://breamchurch.stack66.com', ...EV_EXTRA,
   bookings: [
     { id: 1, name: 'Sue Baker', email: 'sue@example.org', phone: null, party_size: 3,
       status: 'booked', created_at: '2026-09-10 11:00:00', answers: { '5': 'Beef' } },
@@ -556,12 +571,12 @@ await check('and not when it is not', () => publicBookingPage({
 }), ['Book my place'], ['cf-turnstile', 'challenges.cloudflare.com']);
 
 await check('the event page says whether the CAPTCHA is on', () => eventAdminPage({
-  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test',
+  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
   captchaReady: true,
 }), ['not a robot']);
 
 await check('and warns when it is off', () => eventAdminPage({
-  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test',
+  event: EVENT, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
   captchaReady: false,
 }), ['There is no', 'anything — can submit the form']);
 

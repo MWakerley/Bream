@@ -61,8 +61,10 @@ import { thisMonth } from './views/calendar.js';
 import { verifyTurnstile, turnstileReady } from './turnstile.js';
 import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listEventBookings,
          makeSlug, fieldKey, readBookingForm, hasRoom,
-         getBooking as getEventBooking, saveBooking } from './events.js';
-import { sendAcknowledgement, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
+         getBooking as getEventBooking, saveBooking, type BookingAttempt,
+         listOrganisers, readOrganisers, saveOrganisers, eventRoomIds, readRoomIds,
+         eventRoomClashes, describeClashes, syncEventRooms } from './events.js';
+import { sendAcknowledgement, notifyOrganisers, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
 import { formatDate } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
@@ -2510,35 +2512,64 @@ app.post('/app/settings/rooms/new', async (c) => {
 app.get('/app/events', async (c) =>
   c.html(eventsListPage({ events: await listEvents(c.env.DB), ctx: viewCtx(c) })));
 
-app.get('/app/events/new', (c) => c.html(newEventPage({ ctx: viewCtx(c) })));
+app.get('/app/events/new', async (c) =>
+  c.html(newEventPage({ ctx: viewCtx(c), rooms: await listRooms(c.env.DB) })));
 
 app.post('/app/events/new', async (c) => {
   const form = await c.req.formData();
   const s = (k: string) => String(form.get(k) ?? '').trim();
   const echo = Object.fromEntries(
-    ['title', 'description', 'on_date', 'start_time', 'location', 'capacity', 'closes']
+    ['title', 'description', 'on_date', 'start_time', 'end_time', 'location', 'capacity', 'closes']
       .map((k) => [k, s(k)]));
+  const rooms = await listRooms(c.env.DB);
+  const roomIds = readRoomIds(form).filter((id) => rooms.some((r) => r.id === id));
+  const notify = !!form.get('notify_organisers');
+  const refuse = (error: string, status: 400 | 409 = 400) => c.html(newEventPage({
+    ctx: viewCtx(c), rooms, error, form: echo, roomIds, notify,
+    organisers: form.getAll('organiser_name').map((n, i) => ({
+      name: String(n), email: String(form.getAll('organiser_email')[i] ?? ''),
+    })),
+  }), status);
 
   const title = s('title');
   const onDate = s('on_date');
   const startTime = s('start_time');
-  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(onDate) || !/^\d{2}:\d{2}$/.test(startTime)) {
-    return c.html(newEventPage({
-      ctx: viewCtx(c), error: 'A name, a date and a start time are all needed.', form: echo,
-    }), 400);
+  const endTime = s('end_time');
+  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(onDate) || !/^\d{2}:\d{2}$/.test(startTime)
+      || !/^\d{2}:\d{2}$/.test(endTime)) {
+    return refuse('A name, a date, a start time and a finish time are all needed.');
   }
+  if (endTime <= startTime) return refuse('It has to finish after it starts.');
+
+  const organisers = readOrganisers(form, notify);
+  if (!organisers.ok) return refuse(organisers.error);
+
+  const startsAt = `${onDate}T${startTime}`;
+  const endsAt = `${onDate}T${endTime}`;
+  // Checked before the event is written, so a clash never leaves behind an
+  // event that looks as though it has its rooms when it does not.
+  const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt);
+  if (clashes.length) return refuse(describeClashes(clashes), 409);
+
   const capacity = Number(form.get('capacity'));
   const slug = await makeSlug(c.env.DB, title);
 
   const res = await c.env.DB.prepare(
-    `INSERT INTO events (slug, title, description, starts_at, location, capacity,
-                          booking_closes_at, ask_email, ask_phone)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-  ).bind(slug, title, s('description') || null, `${onDate}T${startTime}`,
+    `INSERT INTO events (slug, title, description, starts_at, ends_at, location, capacity,
+                          booking_closes_at, ask_email, ask_phone, notify_organisers)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+  ).bind(slug, title, s('description') || null, startsAt, endsAt,
     s('location') || null, Number.isInteger(capacity) && capacity > 0 ? capacity : null,
-    s('closes') || null, form.get('ask_email') ? 1 : 0, form.get('ask_phone') ? 1 : 0).run();
+    s('closes') || null, form.get('ask_email') ? 1 : 0, form.get('ask_phone') ? 1 : 0,
+    notify ? 1 : 0).run();
+  const eventId = Number(res.meta.last_row_id);
 
-  return c.redirect(`/app/events/${res.meta.last_row_id}`, 303);
+  await saveOrganisers(c.env.DB, eventId, organisers.value);
+  await syncEventRooms(c.env.DB, {
+    eventId, roomIds, title, startsAt, endsAt, bookedBy: c.get('person').id,
+  });
+
+  return c.redirect(`/app/events/${eventId}`, 303);
 });
 
 async function eventAdminView(
@@ -2546,12 +2577,14 @@ async function eventAdminView(
   id: number,
   notice?: { tone: 'ok' | 'bad'; text: string },
 ) {
-  const [event, fields, bookings] = await Promise.all([
+  const [event, fields, bookings, rooms, roomIds, organisers] = await Promise.all([
     getEvent(c.env.DB, id), listFields(c.env.DB, id), listEventBookings(c.env.DB, id),
+    listRooms(c.env.DB), eventRoomIds(c.env.DB, id), listOrganisers(c.env.DB, id),
   ]);
   if (!event) return c.notFound();
   return c.html(eventAdminPage({
-    event, fields, bookings, ctx: viewCtx(c), origin: new URL(c.req.url).origin, notice,
+    event, fields, bookings, rooms, roomIds, organisers,
+    ctx: viewCtx(c), origin: new URL(c.req.url).origin, notice,
     emailReady: Boolean(c.env.EMAIL && c.env.ACK_FROM),
     captchaReady: turnstileReady(c.env),
   }));
@@ -2597,6 +2630,27 @@ app.post('/app/events/:id/details', async (c) => {
     });
   }
 
+  const endTime = str('end_time');
+  if (endTime && endTime <= startTime) {
+    return eventAdminView(c, id, { tone: 'bad', text: 'It has to finish after it starts.' });
+  }
+  const rooms = await listRooms(c.env.DB);
+  const roomIds = readRoomIds(form).filter((r) => rooms.some((x) => x.id === r));
+  if (roomIds.length && !endTime) {
+    return eventAdminView(c, id, {
+      tone: 'bad', text: 'Give a finish time, so the rooms can be booked until then.',
+    });
+  }
+  const startsAt = `${onDate}T${startTime}`;
+  const endsAt = endTime ? `${onDate}T${endTime}` : null;
+
+  // Checked before anything is saved. Moving the event onto a time when one of
+  // its rooms is taken must not leave the event moved and its room behind.
+  if (endsAt) {
+    const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt, id);
+    if (clashes.length) return eventAdminView(c, id, { tone: 'bad', text: describeClashes(clashes) });
+  }
+
   // Lowering the capacity below what is already booked is ALLOWED and nobody is
   // thrown off — the bookings were made in good faith. It simply means no more
   // are taken until the numbers come back under it, and the page says so rather
@@ -2609,10 +2663,14 @@ app.post('/app/events/:id/details', async (c) => {
   await c.env.DB.prepare(
     `UPDATE events
         SET title = ?2, description = ?3, starts_at = ?4, location = ?5,
-            capacity = ?6, booking_closes_at = ?7
+            capacity = ?6, booking_closes_at = ?7, ends_at = ?8
       WHERE id = ?1`,
-  ).bind(id, title, str('description'), `${onDate}T${startTime}`, str('location'),
-    capacity, str('closes')).run();
+  ).bind(id, title, str('description'), startsAt, str('location'),
+    capacity, str('closes'), endsAt).run();
+
+  await syncEventRooms(c.env.DB, {
+    eventId: id, roomIds, title, startsAt, endsAt: endsAt ?? startsAt, bookedBy: c.get('person').id,
+  });
 
   const over = capacity != null && (booked?.n ?? 0) > capacity;
   return eventAdminView(c, id, {
@@ -2636,6 +2694,74 @@ app.post('/app/events/:id/publish', async (c) => {
     text: publish ? 'Published. The booking link now works.' : 'Bookings closed.',
   });
 });
+
+app.post('/app/events/:id/organisers', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+  const form = await c.req.formData();
+  const notify = !!form.get('notify_organisers');
+  const organisers = readOrganisers(form, notify);
+  if (!organisers.ok) return eventAdminView(c, id, { tone: 'bad', text: organisers.error });
+
+  await saveOrganisers(c.env.DB, id, organisers.value);
+  await c.env.DB.prepare('UPDATE events SET notify_organisers = ?2 WHERE id = ?1')
+    .bind(id, notify ? 1 : 0).run();
+
+  const ready = Boolean(c.env.EMAIL && c.env.ACK_FROM);
+  return eventAdminView(c, id, {
+    tone: notify && !ready ? 'bad' : 'ok',
+    text: notify
+      ? (ready
+        ? 'Saved. The organisers will be emailed each time somebody books.'
+        : 'Saved, but nothing will actually be sent yet: email sending is not set up on this '
+          + 'Cloudflare account.')
+      : 'Saved.',
+  });
+});
+
+/**
+ * Tells the organisers about a new booking, if the event asks for that.
+ *
+ * Only ever called after the booking is committed, and never throws: a mail
+ * failure is logged and the person booking still sees their booking confirmed.
+ */
+async function tellOrganisers(
+  c: Context<{ Bindings: Env; Variables: Vars }>,
+  eventId: number,
+  booking: BookingAttempt,
+  byOffice: boolean,
+) {
+  try {
+    const event = await getEvent(c.env.DB, eventId);
+    if (!event?.notify_organisers) return;
+    const [organisers, fields] = await Promise.all([
+      listOrganisers(c.env.DB, eventId), listFields(c.env.DB, eventId),
+    ]);
+    const sent = await notifyOrganisers(c.env.EMAIL, c.env.ACK_FROM, organisers, {
+      eventTitle: event.title,
+      eventDate: formatDate(event.starts_at.slice(0, 10)),
+      eventTime: event.starts_at.slice(11, 16),
+      name: booking.name,
+      email: booking.email,
+      phone: booking.phone,
+      partySize: booking.partySize,
+      answers: booking.answers.map((a) => ({
+        label: fields.find((f) => f.id === a.fieldId)?.label ?? 'Answer', value: a.value,
+      })),
+      booked: event.booked,
+      capacity: event.capacity,
+      adminUrl: `${new URL(c.req.url).origin}/app/events/${eventId}`,
+      byOffice,
+    });
+    for (const s of sent) {
+      if (s.result.status !== 'sent') {
+        console.error('organiser not emailed', { eventId, to: s.to, ...s.result });
+      }
+    }
+  } catch (err) {
+    console.error('organiser notice failed', { eventId, err: String(err) });
+  }
+}
 
 
 /** What an event poster may be. Anything else is refused rather than stored and
@@ -2832,6 +2958,8 @@ app.post('/app/events/:id/bookings/new', async (c) => {
   await saveBooking(c.env.DB, {
     eventId, booking: parsed.value, status: status as 'booked' | 'cancelled' | 'waitlist',
   });
+  // A waiting-list or cancelled entry is not somebody coming, so it is not news.
+  if (status === 'booked') await tellOrganisers(c, eventId, parsed.value, true);
   return eventAdminView(c, eventId, {
     tone: 'ok',
     text: `${parsed.value.name} added — ${parsed.value.partySize} ${parsed.value.partySize === 1 ? 'place' : 'places'}.`,
@@ -3276,6 +3404,8 @@ app.post('/events/:slug', async (c) => {
       'UPDATE event_bookings SET ack_status = ?2, ack_error = ?3 WHERE id = ?1',
     ).bind(bookingId, result.status, result.error ?? null).run();
   }
+
+  await tellOrganisers(c, event.id, parsed.value, false);
 
   return c.html(bookingDonePage(event, parsed.value.partySize));
 });

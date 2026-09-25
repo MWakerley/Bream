@@ -3,6 +3,7 @@ import { layout, chip, type ViewCtx } from './layout.js';
 import { formatDate } from './rota.js';
 import { PLACEHOLDERS, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from '../email.js';
 import { searchBox } from './search.js';
+import type { RoomRow } from './rooms.js';
 
 export interface EventRow {
   id: number;
@@ -21,6 +22,7 @@ export interface EventRow {
   send_ack: number;
   ack_subject: string | null;
   ack_body: string | null;
+  notify_organisers: number;
   booked: number; // sum of party_size
   bookings: number; // number of bookings
 }
@@ -109,7 +111,77 @@ export function eventsListPage(opts: {
   );
 }
 
-export function newEventPage(opts: { ctx: ViewCtx; error?: string; form?: Record<string, string> }) {
+/** The rooms, each one a tick. Ticked rooms are held for the event's times. */
+function roomChecks(rooms: RoomRow[], ticked: number[]) {
+  if (!rooms.length) return '';
+  return html`
+    <h3 style="margin-bottom:.5rem">Book rooms for it</h3>
+    <p class="hint" style="margin-top:0">
+      Tick any rooms this event needs. They are booked on the room diary from when it starts
+      until when it finishes, and move with it if the time changes.
+    </p>
+    <div class="checks">
+      ${rooms.map((r) => html`<label class="check">
+        <input type="checkbox" name="room_ids" value="${r.id}" ${ticked.includes(r.id) ? 'checked' : ''}>
+        <span><span class="check-label">${r.name}</span>
+          ${r.notes ? html`<span class="check-note">${r.notes}</span>` : ''}</span>
+      </label>`)}
+    </div>`;
+}
+
+/**
+ * Organiser rows, with a button to add another. There is always at least one
+ * row to type into; a row left blank is ignored when saved.
+ */
+function organiserFields(organisers: { name: string; email: string | null }[], notify: boolean) {
+  const rows = organisers.length ? organisers : [{ name: '', email: '' }];
+  const row = (o: { name: string; email: string | null }) => html`<div class="grid-fields organiser-row">
+      <div class="field">
+        <label>Organiser's name</label>
+        <input name="organiser_name" type="text" aria-label="Organiser's name" value="${o.name}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Their email</label>
+        <input name="organiser_email" type="email" aria-label="Organiser's email" value="${o.email ?? ''}" autocomplete="off">
+      </div>
+    </div>`;
+  return html`
+    <h3 style="margin-bottom:.5rem">Who is organising it</h3>
+    <p class="hint" style="margin-top:0">The person running it, not necessarily whoever typed it in.</p>
+    <div class="organisers">${rows.map(row)}</div>
+    <p style="margin-top:0">
+      <button type="button" class="btn-quiet add-organiser">Add another organiser</button>
+    </p>
+    <label class="check" style="max-width:32rem">
+      <input type="checkbox" name="notify_organisers" value="1" ${notify ? 'checked' : ''}>
+      <span><span class="check-label">Email the organisers each time somebody books</span>
+        <span class="check-note">Sent to every organiser with an email address.</span></span>
+    </label>
+    <script>
+      (function () {
+        var btn = document.currentScript.parentNode.querySelector('.add-organiser');
+        btn.addEventListener('click', function () {
+          var list = btn.closest('form').querySelector('.organisers');
+          var last = list.lastElementChild;
+          var copy = last.cloneNode(true);
+          copy.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+          list.appendChild(copy);
+          copy.querySelector('input').focus();
+        });
+      }());
+    </script>`;
+}
+
+
+export function newEventPage(opts: {
+  ctx: ViewCtx;
+  rooms: RoomRow[];
+  error?: string;
+  form?: Record<string, string>;
+  roomIds?: number[];
+  organisers?: { name: string; email: string | null }[];
+  notify?: boolean;
+}) {
   const f = opts.form ?? {};
   return layout(
     {
@@ -143,6 +215,10 @@ export function newEventPage(opts: { ctx: ViewCtx; error?: string; form?: Record
             <input id="start_time" name="start_time" type="time" value="${f.start_time ?? '19:00'}" required>
           </div>
           <div class="field">
+            <label for="end_time">Finishes</label>
+            <input id="end_time" name="end_time" type="time" value="${f.end_time ?? '21:00'}" required>
+          </div>
+          <div class="field">
             <label for="location">Where</label>
             <input id="location" name="location" type="text" value="${f.location ?? ''}" placeholder="Church Centre">
           </div>
@@ -157,6 +233,10 @@ export function newEventPage(opts: { ctx: ViewCtx; error?: string; form?: Record
             <input id="closes" name="closes" type="date" value="${f.closes ?? ''}">
           </div>
         </div>
+
+        ${roomChecks(opts.rooms, opts.roomIds ?? [])}
+
+        ${organiserFields(opts.organisers ?? [], opts.notify ?? false)}
 
         <h3 style="margin-bottom:.5rem">What to ask people booking</h3>
         <p class="hint" style="margin-top:0">
@@ -201,9 +281,14 @@ export function eventAdminPage(opts: {
   emailReady?: boolean;
   /** Whether the public form is showing a 'not a robot' check. */
   captchaReady?: boolean;
+  rooms: RoomRow[];
+  /** Rooms the event holds now. */
+  roomIds: number[];
+  organisers: { name: string; email: string | null }[];
   notice?: { tone: 'ok' | 'bad'; text: string };
 }) {
-  const { event: e, fields, bookings, ctx, origin, notice, emailReady, captchaReady } = opts;
+  const { event: e, fields, bookings, ctx, origin, notice, emailReady, captchaReady,
+          rooms, roomIds, organisers } = opts;
   const left = placesLeft(e);
   const bookingUrl = `${origin}/events/${e.slug}`;
 
@@ -255,6 +340,11 @@ export function eventAdminPage(opts: {
               <input id="d_time" name="start_time" type="time" value="${timeOf(e.starts_at)}" required>
             </div>
             <div class="field">
+              <label for="d_end">Finishes</label>
+              ${e.ends_at ? '' : html`<span class="hint">Needed before any rooms can be booked for it.</span>`}
+              <input id="d_end" name="end_time" type="time" value="${e.ends_at ? timeOf(e.ends_at) : ''}">
+            </div>
+            <div class="field">
               <label for="d_location">Where</label>
               <input id="d_location" name="location" type="text" value="${e.location ?? ''}">
             </div>
@@ -274,7 +364,26 @@ export function eventAdminPage(opts: {
               <input id="d_closes" name="closes" type="date" value="${e.booking_closes_at ?? ''}">
             </div>
           </div>
-          <button class="btn-primary" type="submit">Save these details</button>
+          ${roomChecks(rooms, roomIds)}
+          <p style="margin-bottom:0;margin-top:1.25rem">
+            <button class="btn-primary" type="submit">Save these details</button>
+          </p>
+        </form>
+      </div>
+
+      <h2 class="section-h2">Organisers</h2>
+      <div class="card">
+        ${emailReady === false && e.notify_organisers
+          ? html`<div class="notice notice-warn"><p style="margin:0">
+              <strong>Organisers are not being emailed yet.</strong> Email sending has not been
+              set up on this Cloudflare account, so bookings are recorded but nobody is told.
+            </p></div>`
+          : ''}
+        <form method="post" action="/app/events/${e.id}/organisers">
+          ${organiserFields(organisers, !!e.notify_organisers)}
+          <p style="margin-bottom:0;margin-top:1rem">
+            <button class="btn-primary" type="submit">Save organisers</button>
+          </p>
         </form>
       </div>
 

@@ -258,3 +258,160 @@ export async function hasRoom(
   const left = row.capacity - row.booked;
   return partySize <= left ? { ok: true } : { ok: false, left: Math.max(0, left) };
 }
+
+// ---------------------------------------------------------------------------
+// Organisers
+// ---------------------------------------------------------------------------
+
+export interface OrganiserRow { id: number; name: string; email: string | null }
+
+export async function listOrganisers(db: D1Database, eventId: number): Promise<OrganiserRow[]> {
+  const { results } = await db
+    .prepare('SELECT id, name, email FROM event_organisers WHERE event_id = ?1 ORDER BY sort_order, id')
+    .bind(eventId)
+    .all<OrganiserRow>();
+  return results;
+}
+
+/**
+ * The organisers from a submitted form: rows of organiser_name / organiser_email
+ * in the order they were shown. A row left completely blank is ignored — the
+ * form always shows one empty row to type into — but an email with no name is
+ * refused, because "who is this?" is the first thing anybody reading it asks.
+ */
+export function readOrganisers(
+  form: FormData,
+  notify: boolean,
+): { ok: true; value: { name: string; email: string | null }[] } | { ok: false; error: string } {
+  const names = form.getAll('organiser_name').map((v) => String(v).trim());
+  const emails = form.getAll('organiser_email').map((v) => String(v).trim());
+  const out: { name: string; email: string | null }[] = [];
+  for (let i = 0; i < Math.max(names.length, emails.length); i++) {
+    const name = names[i] ?? '';
+    const email = emails[i] ?? '';
+    if (!name && !email) continue;
+    if (!name) return { ok: false, error: `Give a name for the organiser with the email ${email}.` };
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { ok: false, error: `"${email}" does not look like an email address.` };
+    }
+    out.push({ name, email: email || null });
+  }
+  if (out.length > 10) return { ok: false, error: 'Ten organisers is the most one event can have.' };
+  if (notify && !out.some((o) => o.email)) {
+    return {
+      ok: false,
+      error: 'To email the organisers when somebody books, at least one of them needs an email address.',
+    };
+  }
+  return { ok: true, value: out };
+}
+
+export async function saveOrganisers(
+  db: D1Database,
+  eventId: number,
+  organisers: { name: string; email: string | null }[],
+): Promise<void> {
+  const stmt = db.prepare(
+    'INSERT INTO event_organisers (event_id, name, email, sort_order) VALUES (?1, ?2, ?3, ?4)',
+  );
+  await db.batch([
+    db.prepare('DELETE FROM event_organisers WHERE event_id = ?1').bind(eventId),
+    ...organisers.map((o, i) => stmt.bind(eventId, o.name, o.email, i)),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Rooms held for an event
+// ---------------------------------------------------------------------------
+
+/** The rooms this event currently holds. */
+export async function eventRoomIds(db: D1Database, eventId: number): Promise<number[]> {
+  const { results } = await db
+    .prepare(`SELECT DISTINCT room_id FROM room_bookings WHERE event_id = ?1 AND status = 'booked'`)
+    .bind(eventId)
+    .all<{ room_id: number }>();
+  return results.map((r) => r.room_id);
+}
+
+export function readRoomIds(form: FormData): number[] {
+  return [...new Set(form.getAll('room_ids').map(Number).filter(Number.isInteger))];
+}
+
+/**
+ * Which of these rooms are already taken by something else in this window.
+ *
+ * The event's own holds are left out, so moving an event by half an hour is
+ * not refused for clashing with itself. Touching at the boundary is not a
+ * clash, the same rule as every other room booking.
+ */
+export async function eventRoomClashes(
+  db: D1Database,
+  roomIds: number[],
+  startsAt: string,
+  endsAt: string,
+  eventId?: number,
+): Promise<{ room: string; title: string; starts_at: string; ends_at: string }[]> {
+  if (!roomIds.length) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT r.name AS room, b.title, b.starts_at, b.ends_at
+         FROM room_bookings b JOIN rooms r ON r.id = b.room_id
+        WHERE b.room_id IN (SELECT value FROM json_each(?1))
+          AND b.status = 'booked'
+          AND b.starts_at < ?3 AND b.ends_at > ?2
+          AND (?4 IS NULL OR b.event_id IS NULL OR b.event_id <> ?4)
+        ORDER BY r.sort_order, b.starts_at`,
+    )
+    .bind(JSON.stringify(roomIds), startsAt, endsAt, eventId ?? null)
+    .all<{ room: string; title: string; starts_at: string; ends_at: string }>();
+  return results;
+}
+
+export function describeClashes(
+  clashes: { room: string; title: string; starts_at: string; ends_at: string }[],
+): string {
+  const list = clashes
+    .map((c) => `${c.room} (${c.title}, ${c.starts_at.slice(11, 16)}–${c.ends_at.slice(11, 16)})`)
+    .join('; ');
+  return `Not saved — ${clashes.length === 1 ? 'a room is' : 'some rooms are'} already booked then: `
+    + `${list}. Untick ${clashes.length === 1 ? 'it' : 'them'}, change the time, or move the other booking first.`;
+}
+
+/**
+ * Makes the event's room holds match what was ticked, for the event's times.
+ *
+ * Holds for rooms still wanted are MOVED rather than replaced, so a note
+ * somebody added to one on the room diary survives the event changing time.
+ * Rooms no longer wanted are cancelled, not deleted, like every other room
+ * booking. Call eventRoomClashes first: this writes without checking.
+ */
+export async function syncEventRooms(
+  db: D1Database,
+  opts: {
+    eventId: number; roomIds: number[]; title: string;
+    startsAt: string; endsAt: string; bookedBy: number;
+  },
+): Promise<void> {
+  const { eventId, roomIds, title, startsAt, endsAt, bookedBy } = opts;
+  const { results: held } = await db
+    .prepare(`SELECT id, room_id FROM room_bookings WHERE event_id = ?1 AND status = 'booked'`)
+    .bind(eventId)
+    .all<{ id: number; room_id: number }>();
+
+  const stmts: D1PreparedStatement[] = [];
+  for (const h of held) {
+    stmts.push(roomIds.includes(h.room_id)
+      ? db.prepare('UPDATE room_bookings SET title = ?2, starts_at = ?3, ends_at = ?4 WHERE id = ?1')
+        .bind(h.id, title, startsAt, endsAt)
+      : db.prepare(`UPDATE room_bookings SET status = 'cancelled' WHERE id = ?1`).bind(h.id));
+  }
+  const heldRooms = new Set(held.map((h) => h.room_id));
+  const insert = db.prepare(
+    `INSERT INTO room_bookings (room_id, title, starts_at, ends_at, booked_by, notes, event_id)
+     VALUES (?1, ?2, ?3, ?4, ?5, 'Held for an event', ?6)`,
+  );
+  for (const r of roomIds) {
+    if (!heldRooms.has(r)) stmts.push(insert.bind(r, title, startsAt, endsAt, bookedBy, eventId));
+  }
+  if (stmts.length) await db.batch(stmts);
+}

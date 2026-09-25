@@ -78,21 +78,41 @@ export async function sendAcknowledgement(
   }
   if (!to) return { status: 'skipped', error: 'No email address was given.' };
 
-  const filledSubject = fillPlaceholders(subject, ctx).slice(0, 200);
-  const filledBody = fillPlaceholders(body, ctx);
+  return sendEmail(binding, from, to, fillPlaceholders(subject, ctx), fillPlaceholders(body, ctx));
+}
+
+/**
+ * Sends one message exactly as written — no placeholders filled. For text the
+ * system composes itself, where a booker who typed "{name}" into an allergies
+ * box must have "{name}" come through, not somebody's name.
+ */
+export async function sendEmail(
+  binding: { send: (m: unknown) => Promise<unknown> } | undefined,
+  from: string | undefined,
+  to: string,
+  subject: string,
+  body: string,
+): Promise<SendResult> {
+  if (!binding || !from) {
+    return {
+      status: 'skipped',
+      error: 'Email sending is not set up on this account yet.',
+    };
+  }
+  if (!to) return { status: 'skipped', error: 'No email address was given.' };
 
   // Both parts, always. Some clients show only the plain text, and having only
   // HTML also counts against a message with spam filters.
-  const text = filledBody;
+  const text = body;
   const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.5;color:#242a34">
-${escapeHtml(filledBody).split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`).join('\n')}
+${escapeHtml(body).split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`).join('\n')}
 </div>`;
 
   try {
     await binding.send({
       to,
       from: { email: from, name: 'Bream Church' },
-      subject: filledSubject,
+      subject: subject.slice(0, 200),
       text,
       html,
     });
@@ -100,6 +120,66 @@ ${escapeHtml(filledBody).split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`)
   } catch (err) {
     return { status: 'failed', error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+export interface OrganiserNotice {
+  eventTitle: string;
+  eventDate: string;
+  eventTime: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  partySize: number;
+  /** Question and answer, in the order the form asks them. */
+  answers: { label: string; value: string }[];
+  /** People now coming, this booking included. */
+  booked: number;
+  capacity: number | null;
+  /** Where the organiser can see the whole list. */
+  adminUrl: string;
+  /** Taken by the office rather than booked online. */
+  byOffice: boolean;
+}
+
+/**
+ * Tells each organiser that somebody has booked.
+ *
+ * Same rule as the acknowledgement: the booking is committed before this is
+ * called, and nothing here can undo it. Every organiser is tried even if an
+ * earlier one fails — one bad address must not stop the others hearing.
+ */
+export async function notifyOrganisers(
+  binding: { send: (m: unknown) => Promise<unknown> } | undefined,
+  from: string | undefined,
+  organisers: { name: string; email: string | null }[],
+  n: OrganiserNotice,
+): Promise<{ to: string; result: SendResult }[]> {
+  const places = `${n.partySize} ${n.partySize === 1 ? 'place' : 'places'}`;
+  const subject = `New booking for ${n.eventTitle}: ${n.name} (${places})`;
+  const body = [
+    `${n.name} has booked ${places} at ${n.eventTitle}${n.byOffice ? ' (taken by the office)' : ''}.`,
+    '',
+    ...(n.email ? [`Email: ${n.email}`] : []),
+    ...(n.phone ? [`Phone: ${n.phone}`] : []),
+    ...n.answers.map((a) => `${a.label}: ${a.value}`),
+    '',
+    `That makes ${n.booked} coming${n.capacity != null ? ` out of ${n.capacity}` : ''}.`,
+    `It is on ${n.eventDate} at ${n.eventTime}.`,
+    '',
+    `The full list: ${n.adminUrl}`,
+    '',
+    'Bream Church',
+  ].join('\n');
+
+  const sent: { to: string; result: SendResult }[] = [];
+  for (const o of organisers) {
+    if (!o.email) continue;
+    sent.push({
+      to: o.email,
+      result: await sendEmail(binding, from, o.email, subject, `Dear ${o.name},\n\n${body}`),
+    });
+  }
+  return sent;
 }
 
 export const DEFAULT_ACK_SUBJECT = 'Your booking for {event}';
