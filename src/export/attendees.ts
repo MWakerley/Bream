@@ -1,5 +1,4 @@
-import type { BookingRow, EventRow, FieldRow } from '../views/events.js';
-import { formatDate } from '../views/rota.js';
+import { formatWhen, type BookingRow, type EventRow, type FieldRow } from '../views/events.js';
 import { buildXlsx, type Sheet } from './xlsx.js';
 import { buildPdf, type PdfTable } from './pdf.js';
 
@@ -20,8 +19,7 @@ const LISTS = [
 
 function headline(e: EventRow): string {
   return [
-    `${formatDate(e.starts_at.slice(0, 10))} at ${e.starts_at.slice(11, 16)}`
-      + (e.ends_at ? `–${e.ends_at.slice(11, 16)}` : ''),
+    formatWhen(e.starts_at, e.ends_at),
     e.location,
     `${e.booked} coming${e.capacity != null ? ` of ${e.capacity}` : ''}`,
   ].filter(Boolean).join('  ·  ');

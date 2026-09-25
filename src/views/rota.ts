@@ -17,6 +17,43 @@ export function formatDate(iso: string): string {
 }
 
 /**
+ * A span of time, in words — an event, or a room held for one.
+ *
+ *   Sat 10 Oct 2026 at 19:00                        no finish recorded
+ *   Sat 10 Oct 2026, 19:00–21:00                    one day
+ *   Sat 10 Oct 2026 19:00 to Sun 11 Oct 2026 16:00  runs over
+ *
+ * Takes 'YYYY-MM-DDTHH:MM' strings, as they are stored.
+ */
+export function formatSpan(startsAt: string, endsAt: string | null): string {
+  const start = formatDate(startsAt.slice(0, 10));
+  if (!endsAt) return `${start} at ${startsAt.slice(11, 16)}`;
+  if (lastDay(startsAt, endsAt) === startsAt.slice(0, 10)) {
+    const until = endsAt.slice(11, 16) === '00:00' ? 'midnight' : endsAt.slice(11, 16);
+    return `${start}, ${startsAt.slice(11, 16)}–${until}`;
+  }
+  return `${start} ${startsAt.slice(11, 16)} to ${formatDate(endsAt.slice(0, 10))} ${endsAt.slice(11, 16)}`;
+}
+
+/**
+ * The last day something actually takes place on.
+ *
+ * Its finish date — except that finishing at exactly midnight means finishing
+ * at the end of the day before. An evening from 19:00 to midnight is stored as
+ * ending at 00:00 the next day, and it is still one evening: the diary must
+ * not show the room taken on the Sunday, and the booking page must not call it
+ * a two-day event. Every "which days" question goes through here so the
+ * answers cannot drift apart.
+ */
+export function lastDay(startsAt: string, endsAt: string): string {
+  const end = endsAt.slice(0, 10);
+  if (endsAt.slice(11, 16) === '00:00' && end > startsAt.slice(0, 10)) {
+    return new Date(Date.parse(`${end}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  }
+  return end;
+}
+
+/**
  * '2026-09-18 14:07:33' -> 'Thu 18 Sep 2026 at 14:07'.
  *
  * SQLite's datetime('now') is UTC with a space in the middle. Britain is an hour
@@ -434,7 +471,8 @@ export function servicePage(
                             ? html`<form method="post"
                                 action="/app/rota/service/${s.id}/assignment/${a.assignment_id}/remove"
                                 class="inline-form"
-                                onsubmit="return confirm('Take ${a.display_name} off ${r.role_name} for this service?')">
+                                data-confirm="Take ${a.display_name} off ${r.role_name} for this service?"
+                                onsubmit="return confirm(this.dataset.confirm)">
                             <button class="linkish" type="submit" style="color:var(--bad)"
                                     title="Take ${a.display_name} off ${r.role_name}">Take off</button>
                           </form>`

@@ -103,3 +103,81 @@ export async function savePerson(
   }
   await db.batch(stmts);
 }
+
+// ---------------------------------------------------------------------------
+// The report: who has done what
+// ---------------------------------------------------------------------------
+
+export type CourseState = 'done' | 'not_yet' | 'unanswered';
+
+export interface ReportRow {
+  personId: number;
+  name: string;
+  roles: string[];
+  /** Only the courses this person's roles need, in the grid's order. */
+  courses: { courseId: number; name: string; state: CourseState; doneAt: string | null }[];
+}
+
+/**
+ * Everybody currently serving who holds a safeguarding role, with each course
+ * their roles need and where it stands.
+ *
+ * "Not yet" and "not answered" are kept apart on purpose: one is a known gap,
+ * the other is a question nobody has asked them. Both are still to do, but
+ * they are chased differently.
+ */
+export async function loadReport(db: D1Database, grid: SafeguardingGrid): Promise<ReportRow[]> {
+  const [holders, done] = await db.batch([
+    db.prepare(
+      `SELECT p.id, p.display_name, psr.role_id
+         FROM person_safeguarding_roles psr JOIN people p ON p.id = psr.person_id
+        WHERE p.is_active = 1
+        ORDER BY p.display_name`,
+    ),
+    db.prepare(
+      `SELECT pc.person_id, pc.course_id, pc.done, pc.done_at
+         FROM person_courses pc JOIN people p ON p.id = pc.person_id
+        WHERE p.is_active = 1`,
+    ),
+  ]);
+
+  const people = new Map<number, { name: string; roleIds: number[] }>();
+  for (const h of (holders?.results ?? []) as { id: number; display_name: string; role_id: number }[]) {
+    const p = people.get(h.id) ?? { name: h.display_name, roleIds: [] };
+    p.roleIds.push(h.role_id);
+    people.set(h.id, p);
+  }
+  const answers = new Map<string, { done: number; done_at: string | null }>();
+  for (const d of (done?.results ?? []) as { person_id: number; course_id: number; done: number; done_at: string | null }[]) {
+    answers.set(`${d.person_id}:${d.course_id}`, { done: d.done, done_at: d.done_at });
+  }
+
+  return [...people.entries()].map(([personId, p]) => ({
+    personId,
+    name: p.name,
+    roles: grid.roles.filter((r) => p.roleIds.includes(r.id)).map((r) => r.name),
+    courses: coursesFor(grid, p.roleIds).map((c) => {
+      const a = answers.get(`${personId}:${c.id}`);
+      return {
+        courseId: c.id,
+        name: c.name,
+        state: !a ? 'unanswered' as const : a.done ? 'done' as const : 'not_yet' as const,
+        doneAt: a?.done ? a.done_at : null,
+      };
+    }),
+  }));
+}
+
+/** The courses anybody in the report needs, in the grid's order — the report's
+ *  columns. A course no role needs is left off rather than shown as a column
+ *  of dashes. */
+export function reportCourses(grid: SafeguardingGrid, rows: ReportRow[]) {
+  const used = new Set(rows.flatMap((r) => r.courses.map((c) => c.courseId)));
+  return grid.courses.filter((c) => used.has(c.id));
+}
+
+export const STATE_LABEL: Record<CourseState, string> = {
+  done: 'Done',
+  not_yet: 'Not yet',
+  unanswered: 'Not answered',
+};

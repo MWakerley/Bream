@@ -1,4 +1,5 @@
 import type { BookingRow, EventRow, FieldRow } from './views/events.js';
+import { formatSpan, lastDay } from './views/rota.js';
 
 /** Events, their custom booking forms, and the bookings people make. */
 
@@ -383,7 +384,7 @@ export function describeClashes(
   clashes: { room: string; title: string; starts_at: string; ends_at: string }[],
 ): string {
   const list = clashes
-    .map((c) => `${c.room} (${c.title}, ${c.starts_at.slice(11, 16)}–${c.ends_at.slice(11, 16)})`)
+    .map((c) => `${c.room} (${c.title}, ${formatSpan(c.starts_at, c.ends_at)})`)
     .join('; ');
   return `Not saved — ${clashes.length === 1 ? 'a room is' : 'some rooms are'} already booked then: `
     + `${list}. Untick ${clashes.length === 1 ? 'it' : 'them'}, change the time, or move the other booking first.`;
@@ -426,4 +427,78 @@ export async function syncEventRooms(
     if (!heldRooms.has(r)) stmts.push(insert.bind(r, title, startsAt, endsAt, bookedBy, eventId));
   }
   if (stmts.length) await db.batch(stmts);
+}
+
+// ---------------------------------------------------------------------------
+// When an event runs
+// ---------------------------------------------------------------------------
+
+/** The longest an event may run. A weekend away is three days; a fortnight
+ *  allows a holiday club. Much past that is almost always a mistyped year, and
+ *  it would hold every ticked room for the whole of it. */
+export const MAX_EVENT_DAYS = 14;
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME = /^\d{2}:\d{2}$/;
+
+/**
+ * The start and finish of an event, from its form.
+ *
+ * The finish date defaults to the start date, so a form that only sends a
+ * finish time — or an older page still open in somebody's browser — means
+ * "the same day", which is what it always meant.
+ */
+export function readEventWhen(
+  form: FormData,
+  endRequired: boolean,
+): { ok: true; startsAt: string; endsAt: string | null } | { ok: false; error: string } {
+  const s = (k: string) => String(form.get(k) ?? '').trim();
+  const onDate = s('on_date');
+  const startTime = s('start_time');
+  const endTime = s('end_time');
+  const endDate = s('end_date') || onDate;
+
+  if (!DATE.test(onDate) || !TIME.test(startTime)) {
+    return { ok: false, error: 'Give the date and time it starts.' };
+  }
+  if (!endTime) {
+    if (endRequired) return { ok: false, error: 'Give the time it finishes.' };
+    // A finish date moved to a later day but no time given is somebody part
+    // way through saying it runs over — dropping the date silently would lose
+    // exactly the thing they meant to change.
+    if (s('end_date') && s('end_date') !== onDate) {
+      return { ok: false, error: 'Give the time it finishes on that day.' };
+    }
+    return { ok: true, startsAt: `${onDate}T${startTime}`, endsAt: null };
+  }
+  if (!DATE.test(endDate) || !TIME.test(endTime)) {
+    return { ok: false, error: 'Give the date and time it finishes.' };
+  }
+
+  const startsAt = `${onDate}T${startTime}`;
+  const endsAt = `${endDate}T${endTime}`;
+  if (endDate < onDate) {
+    return { ok: false, error: 'The finish date is before the start date.' };
+  }
+  if (endsAt <= startsAt) {
+    return {
+      ok: false,
+      error: endDate === onDate
+        ? 'It has to finish after it starts. If it runs past midnight, set the finish date to the next day.'
+        : 'It has to finish after it starts.',
+    };
+  }
+  // Counted in calendar days, Saturday to Sunday being two — the same way the
+  // message counts them — up to the last REAL day, so a midnight finish is not
+  // an extra day here when it is not one anywhere else.
+  const last = lastDay(startsAt, endsAt);
+  const days = (Date.parse(`${last}T00:00:00Z`) - Date.parse(`${onDate}T00:00:00Z`)) / 86_400_000 + 1;
+  if (days > MAX_EVENT_DAYS) {
+    return {
+      ok: false,
+      error: `That would run for ${days} days. An event can run for up to ${MAX_EVENT_DAYS} — `
+        + 'check the year on the finish date.',
+    };
+  }
+  return { ok: true, startsAt, endsAt };
 }

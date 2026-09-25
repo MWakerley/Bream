@@ -1,11 +1,10 @@
 import { html } from 'hono/html';
 import { layout, type ViewCtx } from './layout.js';
 import { monthCalendar, monthLabel, viewTabs, type CalendarEntry } from './calendar.js';
-import { describeUnder } from './rota.js';
+import { describeUnder, formatSpan } from './rota.js';
 import type { ServiceSummary } from '../db.js';
-import type { BookingRow, RoomRow } from './rooms.js';
+import { daysCovered, timeOnDay, type BookingRow, type RoomRow } from './rooms.js';
 
-const time = (iso: string) => iso.slice(11, 16);
 
 /** Room diary, one room at a time, as a month grid. */
 export function roomsCalendarPage(opts: {
@@ -22,16 +21,18 @@ export function roomsCalendarPage(opts: {
   // No + button for somebody who could only be refused by it.
   const canBook = ctx.areas?.has('rooms.manage') ?? false;
 
-  const entries: CalendarEntry[] = bookings.map((b) => ({
-    date: b.starts_at.slice(0, 10),
+  // One entry per day a booking covers, so a room held for a weekend shows as
+  // taken on each of its days rather than only the first.
+  const entries: CalendarEntry[] = bookings.flatMap((b) => daysCovered(b).map((day) => ({
+    date: day,
     href: `/app/rooms/${b.id}`,
-    lead: time(b.starts_at),
+    lead: timeOnDay(b, day),
     label: b.title,
     // With every room shown at once the colour is the only thing separating
     // them, so it follows the room rather than being decorative.
     tone: roomId ? 'navy' : (['navy', 'gold', 'green', 'red'] as const)[(b.room_id - 1) % 4],
-    title: `${b.room_name}: ${b.title}, ${time(b.starts_at)}–${time(b.ends_at)}`,
-  }));
+    title: `${b.room_name}: ${b.title}, ${formatSpan(b.starts_at, b.ends_at)}`,
+  })));
 
   const q = (id: number | null) => (id ? `room=${id}` : '');
 

@@ -172,7 +172,7 @@ ${chrome
       ${items.map((i) => {
         const active = i.match ? new RegExp(i.match).test(path) : false;
         return html`<a href="${i.href}" class="${active ? 'is-active' : ''}"
-                       ${active ? 'aria-current="page"' : ''}>${i.label}</a>`;
+                       ${active ? html`aria-current="page"` : ''}>${i.label}</a>`;
       })}
     </nav>
     <div class="topbar-end">
@@ -190,7 +190,7 @@ ${chrome
       ${subItems.map((i) => {
         const active = i.match ? new RegExp(i.match).test(path) : false;
         return html`<a href="${i.href}" class="${active ? 'is-active' : ''}"
-                       ${active ? 'aria-current="page"' : ''}>${i.label}</a>`;
+                       ${active ? html`aria-current="page"` : ''}>${i.label}</a>`;
       })}
     </nav>
   </div>`

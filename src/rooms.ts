@@ -26,12 +26,15 @@ export async function listBookings(
   const { results } = await db
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
-              b.contact, b.notes, b.status, b.series_id, p.display_name AS booked_by_name
+              b.contact, b.notes, b.status, b.series_id, b.event_id, p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by
         WHERE b.status = 'booked'
-          AND b.starts_at >= ?1 AND b.starts_at < ?2
+          -- Anything that OVERLAPS the window, not only what starts in it: an
+          -- event held over a weekend started on the Saturday, and must still
+          -- be there when somebody looks at the Sunday.
+          AND b.starts_at < ?2 AND b.ends_at > ?1
         ORDER BY b.starts_at, r.sort_order`,
     )
     .bind(`${fromDate}T00:00`, `${to}T00:00`)
@@ -43,7 +46,7 @@ export async function getBooking(db: D1Database, id: number): Promise<BookingRow
   return db
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
-              b.contact, b.notes, b.status, b.series_id, p.display_name AS booked_by_name
+              b.contact, b.notes, b.status, b.series_id, b.event_id, p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by

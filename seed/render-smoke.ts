@@ -13,12 +13,13 @@ import { homePage } from '../src/views/home.js';
 import { signInPage, setupPage } from '../src/views/signin.js';
 import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage,
          keyholdersPage } from '../src/views/settings.js';
-import { gapsPage, readingsPage, rotaDashboard, servicePage, formatDate } from '../src/views/rota.js';
+import { gapsPage, readingsPage, rotaDashboard, servicePage, formatDate, formatSpan } from '../src/views/rota.js';
 import { servicesPage } from '../src/views/services.js';
 import { personPage, mergePage } from '../src/views/person.js';
-import { roomsPage, editBookingPage, editSeriesPage } from '../src/views/rooms.js';
+import { roomsPage, editBookingPage, editSeriesPage, daysCovered, timeOnDay } from '../src/views/rooms.js';
 import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
-         bookingEditPage } from '../src/views/events.js';
+         bookingEditPage, runsOver } from '../src/views/events.js';
+import { roomsCalendarPage } from '../src/views/calendars.js';
 import { myRotaPage, requestsPage } from '../src/views/me.js';
 import { roomSettingsPage } from '../src/views/roomsettings.js';
 import { profilesPage, addPersonPage, changePasswordPage } from '../src/views/profiles.js';
@@ -27,7 +28,10 @@ import { peopleByRolePage } from '../src/views/byrole.js';
 import { combinationsByRolePage } from '../src/views/combinations.js';
 import { draftRulesPage } from '../src/views/draftrules.js';
 import { worshipPage } from '../src/views/worship.js';
-import { safeguardingPage } from '../src/views/safeguarding.js';
+import { safeguardingPage, safeguardingReportPage } from '../src/views/safeguarding.js';
+import { readEventWhen } from '../src/events.js';
+import { fillPlaceholders, DEFAULT_ACK_BODY } from '../src/email.js';
+import { readKeys } from '../src/keyholders.js';
 import type { ViewCtx } from '../src/views/layout.js';
 import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
 
@@ -115,8 +119,10 @@ async function check(
     } else if (present.length) {
       console.log(`  FAIL ${name} — should not be there: ${present.join(' | ')}`);
       failures++;
-    } else if (/undefined|\[object Object\]|NaN/.test(out)) {
-      const m = out.match(/.{0,60}(undefined|\[object Object\]|NaN).{0,60}/);
+    } else if (/undefined|\[object Object\]|NaN|=&quot;/.test(out)) {
+      // =&quot; is an attribute written as a plain string inside html``, which
+      // escapes it — aria-current="page" arriving as aria-current=&quot;page&quot;.
+      const m = out.match(/.{0,60}(undefined|\[object Object\]|NaN|=&quot;).{0,60}/);
       console.log(`  FAIL ${name} — leaked placeholder: ...${m?.[0]}...`);
       failures++;
     } else {
@@ -248,22 +254,34 @@ await check('the people page is just people', () => peoplePage(
   ['Find a person', 'Sue', 'icon-key', 'keyholder'], ['Combination rules</a>']);
 await check('the keyholder register', () => keyholdersPage([
   { id: 1, display_name: 'Sue', full_name: 'Sue Baker', email: 'sue@example.org', phone: null,
-    is_active: 1, keyholder_since: '2026-09-25 10:00:00', keyholder_note: 'Church Centre front door' },
+    is_active: 1, keyholder_since: '2026-09-25 10:00:00', keyholder_note: null,
+    keyholder_keys: '["church","office"]' },
   { id: 2, display_name: 'Ron', full_name: null, email: null, phone: '01594 000000',
-    is_active: 0, keyholder_since: null, keyholder_note: null },
-], CTX), ['Keyholder register', '2 people hold a key', 'Sue Baker', 'Church Centre front door',
+    is_active: 0, keyholder_since: null, keyholder_note: null, keyholder_keys: '["unknown"]' },
+], CTX), ['Keyholder register', '2 people hold a key', 'Sue Baker', 'Church, Church Office', 'Not known',
   'Fri 25 Sep 2026', 'No longer serving', '1 keyholder has stopped serving']);
+await check('"Not known" never sits beside a real key', () => {
+  const f = (vals: string[]) => { const d = new FormData(); vals.forEach((v) => d.append('keyholder_keys', v)); return d; };
+  return [
+    readKeys(f(['unknown', 'church'])).join(','),
+    readKeys(f([])).join(','),
+    readKeys(f(['office', 'centre'])).join(','),
+    readKeys(f(['bogus'])).join(','),
+  ].join(' | ');
+}, ['church | unknown | centre,office | unknown']);
 await check('an empty register says so', () => keyholdersPage([], CTX),
   ['Nobody is marked as a keyholder yet']);
 await check('a keyholder is ticked on their record', () => personPage({
   person: {
     id: 7, display_name: 'Sue', full_name: null, email: null, needs_review: 0, review_note: null,
     is_active: 1, is_admin: 0, on_break: 0, on_break_since: null, is_guest: 0,
-    is_keyholder: 1, keyholder_since: '2026-09-01 09:00:00', keyholder_note: 'Vestry',
+    is_keyholder: 1, keyholder_since: '2026-09-01 09:00:00', keyholder_note: null,
+    keyholder_keys: '["centre"]',
     settings: new Map(),
   },
   roles, ctx: CTX,
-}), ['name="is_keyholder" value="1" checked', 'icon-key', 'value="Vestry"', 'keyholder register'],
+}), ['name="is_keyholder" value="1" checked', 'icon-key', 'keyholder register', 'Which keys',
+     'value="centre" checked', 'Church Office', 'Not known'],
   ['id="keyholder-note" hidden']);
 // ---- safeguarding ----------------------------------------------------------
 const SG_GRID = {
@@ -384,10 +402,10 @@ await check('a refused new event keeps what was ticked', () => newEventPage({
 }), ['value="2" checked', 'value="Jan"', 'value="jan@example.org"', 'value="Bob"',
      'name="notify_organisers" value="1" checked']);
 await check('the event page shows its rooms and organisers', () => eventAdminPage({
-  event: { ...EVENT, ends_at: '2026-10-10T21:00', notify_organisers: 1 }, fields: FIELDS,
+  event: { ...EVENT, ends_at: '2026-10-11T21:00', notify_organisers: 1 }, fields: FIELDS,
   bookings: [], ctx: CTX, origin: 'https://x.test',
   rooms: ROOMS, roomIds: [1], organisers: [{ name: 'Jan', email: 'jan@example.org' }],
-}), ['value="21:00"', 'value="1" checked', 'Organisers', 'value="Jan"', 'Save organisers'],
+}), ['value="21:00"', 'name="end_date" type="date" value="2026-10-11"', 'value="1" checked', 'Organisers', 'value="Jan"', 'Save organisers'],
   ['value="2" checked']);
 await check('event admin', () => eventAdminPage({
   event: EVENT, fields: FIELDS,
@@ -580,6 +598,15 @@ await check('booked, waiting and cancelled are three separate lists', async () =
     && at('bookings-h-cancelled') < at('John Hale');
   return inOrder ? out : 'OUT OF ORDER';
 }, ['Give them a place', '3 people', 'Waiting list']);
+
+// A booker chooses their own name on the public form. It must never become
+// part of the JavaScript an administrator's browser runs.
+await check('a booker\'s name cannot break out into script', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
+  bookings: [{ id: 9, name: "O'Brien');alert(1);//", email: null, phone: null, party_size: 1,
+    status: 'booked', created_at: '2026-09-10 11:00:00', answers: {} }],
+}), ['onsubmit="return confirm(this.dataset.confirm)"', 'data-confirm="Cancel O&#39;Brien&#39;);alert(1);//’s booking?'],
+  ["confirm('Cancel", "alert(1);//')"]);
 
 await check('a viewer is not offered the attendee download', () => eventAdminPage({
   event: EVENT, fields: FIELDS, ctx: { ...CTX, areas: VOLUNTEER_AREAS }, origin: 'https://x.test', ...EV_EXTRA,
@@ -967,5 +994,126 @@ await check('and nothing at all on a quiet week', () => homePage({
   await check('an unknown kind falls back to a text box, not a tick',
     render('something-new'), ['type="text"'], ['type="checkbox"']);
 }
+// ---- events that run over a day -------------------------------------------
+{
+  const form = (o: Record<string, string>) => {
+    const d = new FormData(); for (const [k, v] of Object.entries(o)) d.set(k, v); return d;
+  };
+  const when = (o: Record<string, string>, req = true) => JSON.stringify(readEventWhen(form(o), req));
+  await check('a finish with no date is the same day', () =>
+    when({ on_date: '2026-10-10', start_time: '19:00', end_time: '21:00' }),
+    ['"endsAt":"2026-10-10T21:00"']);
+  await check('an event can run into the next day', () =>
+    when({ on_date: '2026-10-10', start_time: '19:00', end_date: '2026-10-11', end_time: '16:00' }),
+    ['"startsAt":"2026-10-10T19:00"', '"endsAt":"2026-10-11T16:00"']);
+  await check('an evening past midnight is told to move the finish date', () =>
+    when({ on_date: '2026-10-10', start_time: '22:00', end_date: '2026-10-10', end_time: '01:00' }),
+    ['set the finish date to the next day']);
+  await check('a finish date before the start is refused', () =>
+    when({ on_date: '2026-10-10', start_time: '19:00', end_date: '2026-10-09', end_time: '21:00' }),
+    ['before the start date']);
+  await check('a mistyped year is caught', () =>
+    when({ on_date: '2026-10-10', start_time: '19:00', end_date: '2027-10-10', end_time: '21:00' }),
+    ['check the year']);
+  await check('an older event may still have no finish', () =>
+    when({ on_date: '2026-10-10', start_time: '19:00', end_date: '2026-10-10', end_time: '' }, false),
+    ['"endsAt":null']);
+  await check('a finish date moved without a time is not silently dropped', () =>
+    when({ on_date: '2026-10-10', start_time: '19:00', end_date: '2026-10-11', end_time: '' }, false),
+    ['Give the time it finishes on that day']);
+  await check('fourteen days is the most, counted Saturday-to-Sunday as two', () => [
+    JSON.parse(when({ on_date: '2026-10-10', start_time: '09:00', end_date: '2026-10-23', end_time: '17:00' })).ok,
+    JSON.parse(when({ on_date: '2026-10-10', start_time: '09:00', end_date: '2026-10-24', end_time: '17:00' })).ok,
+  ].join(','), ['true,false']);
+  await check('fourteen days ending at midnight is still fourteen days', () =>
+    String(JSON.parse(when({ on_date: '2026-10-01', start_time: '09:00', end_date: '2026-10-15', end_time: '00:00' })).ok),
+    ['true']);
+  await check('an evening that ends at midnight is still one evening', () => [
+    formatSpan('2026-10-10T19:00', '2026-10-11T00:00'),
+    String(runsOver({ starts_at: '2026-10-10T19:00', ends_at: '2026-10-11T00:00' })),
+    String(runsOver({ starts_at: '2026-10-10T19:00', ends_at: '2026-10-11T16:00' })),
+  ].join(' | '), ['Sat 10 Oct 2026, 19:00–midnight | false | true']);
+  await check('but a new one must', () =>
+    when({ on_date: '2026-10-10', start_time: '19:00' }), ['Give the time it finishes']);
+
+  await check('the span reads naturally', () => [
+    formatSpan('2026-10-10T19:00', '2026-10-10T21:00'),
+    formatSpan('2026-10-10T19:00', '2026-10-11T16:00'),
+    formatSpan('2026-10-10T19:00', null),
+  ].join(' | '), ['Sat 10 Oct 2026, 19:00–21:00 | Sat 10 Oct 2026 19:00 to Sun 11 Oct 2026 16:00 | Sat 10 Oct 2026 at 19:00']);
+
+  const hold = { starts_at: '2026-10-10T19:00', ends_at: '2026-10-12T16:00' };
+  await check('a three-day hold covers three days', () => [
+    daysCovered(hold).join(','),
+    timeOnDay(hold, '2026-10-10'), timeOnDay(hold, '2026-10-11'), timeOnDay(hold, '2026-10-12'),
+    daysCovered({ starts_at: '2026-10-10T19:00', ends_at: '2026-10-11T00:00' }).join(','),
+  ].join(' | '), ['2026-10-10,2026-10-11,2026-10-12 | from 19:00 | all day | until 16:00 | 2026-10-10']);
+
+  const WEEKEND = { ...BOOKING, id: 77, title: 'Weekend away', starts_at: '2026-11-20T19:00',
+    ends_at: '2026-11-22T16:00', event_id: 5 };
+  await check('the diary shows a held room on every day it covers', async () => {
+    const out = String(await roomsPage({ rooms: ROOMS, bookings: [WEEKEND], series: [], ctx: CTX, weekFrom: '2026-11-18' }));
+    const days = ['Fri 20 Nov 2026', 'Sat 21 Nov 2026', 'Sun 22 Nov 2026'].filter((d) => out.includes(d)).length;
+    return days === 3 ? out : `only ${days} days`;
+  }, ['from 19:00', 'all day', 'until 16:00', 'Fri 20 Nov 2026 19:00 to Sun 22 Nov 2026 16:00']);
+  await check('a hold that began before the window still shows on the days inside it', () =>
+    roomsPage({ rooms: ROOMS, bookings: [WEEKEND], series: [], ctx: CTX, weekFrom: '2026-11-21' }),
+    ['Sat 21 Nov 2026', 'Sun 22 Nov 2026', 'until 16:00'], ['Fri 20 Nov 2026</h3>']);
+  await check('a held room is never cancelled from the diary', () =>
+    roomsPage({ rooms: ROOMS, bookings: [WEEKEND], series: [], ctx: CTX, weekFrom: '2026-11-18' }),
+    ['Held for an event', 'href="/app/events/5"'], ['/app/rooms/77/cancel']);
+  await check('the room calendar puts a held room on each of its days', async () => {
+    const out = String(await roomsCalendarPage({ rooms: ROOMS, roomId: null, bookings: [WEEKEND],
+      counts: new Map(), month: '2026-11', ctx: CTX }));
+    return (out.match(/Weekend away/g) ?? []).length >= 3 ? out : 'fewer than three days';
+  }, ['from 19:00', 'all day', 'until 16:00']);
+  await check('a room the event has let go says so, and offers no form', () =>
+    editBookingPage({ booking: { ...WEEKEND, status: 'cancelled' }, rooms: ROOMS, ctx: CTX }),
+    ['has since been let go', 'href="/app/events/5"'], ['name="to_time"', 'is held for the event']);
+  await check('a room held for an event is changed on the event', () =>
+    editBookingPage({ booking: WEEKEND, rooms: ROOMS, ctx: CTX }),
+    ['held for the event', 'href="/app/events/5"', 'Fri 20 Nov 2026 19:00 to Sun 22 Nov 2026 16:00'],
+    ['name="to_time"']);
+  await check('the event form asks for a finish date, defaulting to the start', () => newEventPage({
+    ctx: CTX, rooms: [], form: { on_date: '2026-10-10' },
+  }), ['name="end_date"', 'id="n_end_date" name="end_date" type="date" value="2026-10-10"', 'Finishes on']);
+  await check('an event running over says so on its booking page', () => publicBookingPage({
+    event: { ...EVENT, starts_at: '2026-10-10T19:00', ends_at: '2026-10-11T16:00' }, fields: [],
+  }), ['Sat 10 Oct 2026 19:00 to Sun 11 Oct 2026 16:00']);
+
+  const ctxFor = { name: 'Sue', eventTitle: 'Weekend away', eventDate: 'Sat 10 Oct 2026 to Sun 11 Oct 2026',
+    eventTime: '19:00', eventWhen: 'Sat 10 Oct 2026 19:00 to Sun 11 Oct 2026 16:00', location: 'Church Centre', partySize: 2 };
+  await check('the old stock email wording gives the whole span', () =>
+    fillPlaceholders('It is on {date} at {time}, at {where}.', ctxFor),
+    ['It is on Sat 10 Oct 2026 19:00 to Sun 11 Oct 2026 16:00, at Church Centre.']);
+  await check('and the new default uses it too', () => fillPlaceholders(DEFAULT_ACK_BODY, ctxFor),
+    ['It is on Sat 10 Oct 2026 19:00 to Sun 11 Oct 2026 16:00, at Church Centre.']);
+}
+
+// ---- the safeguarding report ----------------------------------------------
+{
+  const REPORT = [
+    { personId: 1, name: 'Sue Baker', roles: ['Churchwarden'], courses: [
+      { courseId: 1, name: 'Basic Awareness', state: 'done' as const, doneAt: '2026-09-01 10:00:00' },
+      { courseId: 2, name: 'Foundation', state: 'not_yet' as const, doneAt: null }] },
+    { personId: 2, name: 'Ron Hale', roles: ['PCC member'], courses: [
+      { courseId: 1, name: 'Basic Awareness', state: 'unanswered' as const, doneAt: null }] },
+    { personId: 3, name: 'Ann Lee', roles: ['PCC member'], courses: [
+      { courseId: 1, name: 'Basic Awareness', state: 'done' as const, doneAt: '2026-08-01 10:00:00' }] },
+  ];
+  await check('the safeguarding report', () => safeguardingReportPage(SG_GRID, REPORT, CTX),
+    ['Who has done what', 'aria-current="page"', 'Sue Baker', 'Tue 1 Sep 2026', 'Not yet', 'Not answered',
+     'Still to do', '1 to do', 'Download PDF', 'report.xlsx', 'their roles do not need that course'],
+    ['DBS Check']);
+  await check('the report tab, not the menu, is the one marked current', async () => {
+    const out = String(await safeguardingReportPage(SG_GRID, REPORT, { ...CTX, path: '/app/settings/safeguarding/report' }));
+    return /href="\/app\/settings\/safeguarding\/report"\s+aria-current="page"/.test(out) ? out : 'report tab not marked';
+  }, ['Who has done what']);
+  await check('the grid has the report tab too', () => safeguardingPage(SG_GRID, CTX),
+    ['Courses each role needs', 'href="/app/settings/safeguarding/report"']);
+  await check('a report with nobody in it says how to start', () => safeguardingReportPage(SG_GRID, [], CTX),
+    ['Nobody has a safeguarding role yet']);
+}
+
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

@@ -82,7 +82,8 @@ export function myRotaPage(opts: {
                     <td class="num">${m.duties}</td>
                     <td>
                       <form method="post" action="/app/me/link" class="inline-form"
-                            onsubmit="return confirm('Join ${m.display_name} to your account? This cannot be undone.')">
+                            data-confirm="Join ${m.display_name} to your account? This cannot be undone."
+                            onsubmit="return confirm(this.dataset.confirm)">
                         <input type="hidden" name="person_id" value="${m.id}">
                         <button class="btn-quiet" type="submit">This is me</button>
                       </form>

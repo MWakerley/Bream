@@ -1,6 +1,6 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
-import { formatDate } from './rota.js';
+import { formatDate, formatSpan, lastDay } from './rota.js';
 import { viewTabs } from './calendar.js';
 import { FREQUENCIES, describeSeries } from '../recurrence.js';
 import type { SeriesRow } from '../rooms.js';
@@ -18,6 +18,8 @@ export interface BookingRow {
   status: string;
   booked_by_name: string | null;
   series_id?: number | null;
+  /** Set when the room is held for an event, which then owns its times. */
+  event_id?: number | null;
 }
 
 const BACK = { href: '/app', label: 'All areas' };
@@ -25,12 +27,50 @@ const BACK = { href: '/app', label: 'All areas' };
 const time = (iso: string) => iso.slice(11, 16);
 const date = (iso: string) => iso.slice(0, 10);
 
-/** Bookings grouped by day, which is how anyone actually reads a room diary. */
-function byDay(bookings: BookingRow[]) {
+const nextDay = (d: string) =>
+  new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * Every day a booking touches. One day for an ordinary booking; each day in
+ * turn for a room held over an event that runs from Saturday to Sunday. A
+ * booking that ends at exactly midnight does not touch the next day.
+ */
+export function daysCovered(b: { starts_at: string; ends_at: string }): string[] {
+  const last = lastDay(b.starts_at, b.ends_at);
+  const out: string[] = [];
+  // Capped, so a mistyped year can never make a page build thousands of rows.
+  for (let d = date(b.starts_at); d <= last && out.length < 62; d = nextDay(d)) out.push(d);
+  return out;
+}
+
+/** How a booking reads on one of its days: 19:00–21:00 on a single day, and
+ *  "from 19:00", "all day", "until 16:00" across the days of a longer one. */
+export function timeOnDay(b: { starts_at: string; ends_at: string }, day: string): string {
+  const first = day === date(b.starts_at);
+  const last = daysCovered(b).at(-1) === day;
+  if (first && last) return `${time(b.starts_at)}–${time(b.ends_at) === '00:00' ? 'midnight' : time(b.ends_at)}`;
+  if (first) return `from ${time(b.starts_at)}`;
+  if (last) return time(b.ends_at) === '00:00' ? 'all day' : `until ${time(b.ends_at)}`;
+  return 'all day';
+}
+
+/**
+ * Bookings grouped by day, which is how anyone actually reads a room diary.
+ *
+ * A booking appears on every day it covers, so the hall held for a weekend
+ * away is shown as taken on the Sunday too — not only on the Saturday it
+ * started. Days are kept to the window that was fetched: a day outside it
+ * would look emptier than it is, because its other bookings were never asked
+ * for.
+ */
+function byDay(bookings: BookingRow[], from: string, windowDays = 28) {
+  const until = new Date(Date.parse(`${from}T00:00:00Z`) + windowDays * 86_400_000).toISOString().slice(0, 10);
   const m = new Map<string, BookingRow[]>();
   for (const b of bookings) {
-    const d = date(b.starts_at);
-    m.set(d, [...(m.get(d) ?? []), b]);
+    for (const d of daysCovered(b)) {
+      if (d < from || d >= until) continue;
+      m.set(d, [...(m.get(d) ?? []), b]);
+    }
   }
   return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
@@ -47,7 +87,7 @@ export function roomsPage(opts: {
 }) {
   const { rooms, bookings, series, ctx, notice, weekFrom } = opts;
   const f = opts.form ?? {};
-  const days = byDay(bookings);
+  const days = byDay(bookings, weekFrom);
 
   return layout(
     {
@@ -206,24 +246,33 @@ export function roomsPage(opts: {
                       .map(
                         (b) => html`<tr>
                           <td><strong>${b.room_name}</strong></td>
-                          <td class="num">${time(b.starts_at)}–${time(b.ends_at)}</td>
+                          <td class="num">${timeOnDay(b, d)}</td>
                           <td>
                             ${b.title}
                             ${b.series_id ? html`<div style="font-size:.8125rem;color:var(--ink-2)">part of a repeating booking</div>` : ''}
+                            ${daysCovered(b).length > 1
+                              ? html`<div style="font-size:.8125rem;color:var(--ink-2)">${formatSpan(b.starts_at, b.ends_at)}</div>`
+                              : ''}
                             ${b.notes ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${b.notes}</div>` : ''}
                           </td>
                           <td style="color:var(--ink-2)">
                             ${b.contact ?? b.booked_by_name ?? '—'}
                           </td>
                           <td>
-                            <div class="btn-row" style="gap:.4rem">
-                              <a class="linkish" href="/app/rooms/${b.id}">Change</a>
-                              <form method="post" action="/app/rooms/${b.id}/cancel" class="inline-form"
-                                    onsubmit="return confirm('Cancel this booking?')">
-                                <button class="linkish" type="submit"
-                                        style="color:var(--bad)">Cancel</button>
-                              </form>
-                            </div>
+                            ${b.event_id
+                              // Held for an event: the event owns it. A Cancel
+                              // here, under the Sunday of a weekend, would cancel
+                              // the Saturday too and quietly take the room off
+                              // the event.
+                              ? html`<a class="linkish" href="/app/events/${b.event_id}">Held for an event</a>`
+                              : html`<div class="btn-row" style="gap:.4rem">
+                                  <a class="linkish" href="/app/rooms/${b.id}">Change</a>
+                                  <form method="post" action="/app/rooms/${b.id}/cancel" class="inline-form"
+                                        onsubmit="return confirm('Cancel this booking?')">
+                                    <button class="linkish" type="submit"
+                                            style="color:var(--bad)">Cancel</button>
+                                  </form>
+                                </div>`}
                           </td>
                         </tr>`,
                       )}
@@ -256,6 +305,46 @@ export function editBookingPage(opts: {
   notice?: { tone: 'ok' | 'bad'; text: string };
 }) {
   const { booking: b, rooms, ctx, notice } = opts;
+  // A room held for an event takes its times from the event. Editing it here
+  // would let the two disagree — and this form only knows about one day, so
+  // saving a hold over a weekend would quietly shrink it to the Saturday.
+  if (b.event_id) {
+    return layout(
+      {
+        title: 'Held for an event',
+        eyebrow: 'Rooms',
+        heading: b.title,
+        back: { href: '/app/rooms', label: 'Room booking' },
+        ...ctx,
+      },
+      html`
+        ${notice
+          ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
+          : ''}
+        <div class="card">
+          ${b.status === 'booked'
+            ? html`<p style="margin-top:0">
+                <strong>${b.room_name}</strong> is held for the event <strong>${b.title}</strong>,
+                ${formatSpan(b.starts_at, b.ends_at)}.
+              </p>
+              <p>
+                Its times come from the event, so they are changed there: move the event and its
+                rooms move with it; untick this room on the event to let it go.
+              </p>`
+            // Unticked on the event since. Still no one-day form here: saving it
+            // would revive a hold the event has let go, possibly cut to one day.
+            : html`<p style="margin-top:0">
+                <strong>${b.room_name}</strong> was held for the event <strong>${b.title}</strong>
+                and has since been let go, so it is free again. To hold it once more, tick it on
+                the event.
+              </p>`}
+          <p style="margin-bottom:0">
+            <a class="btn-primary" href="/app/events/${b.event_id}">Open the event</a>
+          </p>
+        </div>
+      `,
+    );
+  }
   return layout(
     {
       title: 'Change a booking',
@@ -417,7 +506,8 @@ export function editSeriesPage(opts: {
       </form>
 
       <form method="post" action="/app/rooms/series/${s.id}/cancel" class="card"
-            onsubmit="return confirm('Cancel the ${s.upcoming} bookings still to come? Past ones are kept.')">
+            data-confirm="Cancel the ${s.upcoming} bookings still to come? Past ones are kept."
+            onsubmit="return confirm(this.dataset.confirm)">
         <h2 style="margin-top:0">Stop it altogether</h2>
         <p style="color:var(--ink-2)">
           Cancels the ${s.upcoming} booking${s.upcoming === 1 ? '' : 's'} still to come and
@@ -432,6 +522,6 @@ export function editSeriesPage(opts: {
 /** Shown when a booking would land on top of another one. */
 export function clashNotice(clashes: BookingRow[]) {
   return `That room is already booked: ${clashes
-    .map((c) => `${c.title}, ${formatDate(date(c.starts_at))} ${time(c.starts_at)}–${time(c.ends_at)}`)
+    .map((c) => `${c.title}, ${formatSpan(c.starts_at, c.ends_at)}`)
     .join('; ')}.`;
 }

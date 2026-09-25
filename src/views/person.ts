@@ -4,6 +4,7 @@ import type { RoleRow } from '../db.js';
 import { formatDate, formatDateTime } from './rota.js';
 import { UNITS, toUnits } from '../frequency.js';
 import { personSafeguardingCard } from './safeguarding.js';
+import { KEYS, parseKeys } from '../keyholders.js';
 import type { PersonSafeguarding, SafeguardingGrid } from '../safeguarding.js';
 
 const BACK = { href: '/app/settings/people', label: 'People' };
@@ -37,8 +38,10 @@ export interface PersonEditData {
   /** Holds a key to the buildings. On the keyholder register when ticked. */
   is_keyholder?: number;
   keyholder_since?: string | null;
-  /** Which keys, in the church's own words. Optional. */
+  /** Which keys, in the church's own words. No longer asked; kept for old rows. */
   keyholder_note?: string | null;
+  /** Which keys, as the stored JSON list — see src/keyholders.ts. */
+  keyholder_keys?: string | null;
   /** Services they are still down for. Only loaded when it matters — that is,
    *  when they are on a break and somebody should see what was already agreed. */
   upcoming?: {
@@ -110,6 +113,7 @@ export function personPage(opts: {
 }) {
   const { person: p, roles, ctx } = opts;
   const today = opts.today ?? new Date();
+  const held = parseKeys(p.keyholder_keys);
   // A confirmed place is a promise somebody made and needs a person to unmake.
   // A draft one the generator will drop by itself, and asking a churchwarden to
   // action it would be wasting their Saturday.
@@ -238,17 +242,40 @@ export function personPage(opts: {
                   ? ` — since ${formatDate(p.keyholder_since.slice(0, 10))}` : ''}. Listed on the
                   <a href="/app/settings/keyholders">keyholder register</a>.</span></span>
             </label>
-            <div class="field" id="keyholder-note" ${p.is_keyholder ? '' : 'hidden'}>
-              <label for="keyholder_note_in">Which keys</label>
-              <span class="hint">Optional — e.g. "Church Centre front door".</span>
-              <input id="keyholder_note_in" name="keyholder_note" type="text"
-                     value="${p.keyholder_note ?? ''}">
-            </div>
+            <fieldset class="field key-choice" id="keyholder-note" ${p.is_keyholder ? '' : 'hidden'}>
+              <legend>Which keys</legend>
+              <span class="hint">Tick every one they hold.</span>
+              <div class="key-options">
+                ${KEYS.map((k) => html`<label class="key-option">
+                  <input type="checkbox" name="keyholder_keys" value="${k.key}" ${held.includes(k.key) ? 'checked' : ''}>
+                  ${k.label}
+                </label>`)}
+              </div>
+            </fieldset>
             <script>
               (function () {
                 var box = document.getElementById('is_keyholder');
                 var note = document.getElementById('keyholder-note');
-                box.addEventListener('change', function () { note.hidden = !box.checked; });
+                var keys = note.querySelectorAll('input[name=keyholder_keys]');
+                function showKeys() {
+                  note.hidden = !box.checked;
+                  // Ticking somebody as a keyholder starts at "Not known",
+                  // which is the truth until somebody says which.
+                  var any = false;
+                  for (var i = 0; i < keys.length; i++) if (keys[i].checked) any = true;
+                  if (box.checked && !any) note.querySelector('input[value=unknown]').checked = true;
+                }
+                box.addEventListener('change', showKeys);
+                // "Not known" and a real key cannot both be true.
+                for (var i = 0; i < keys.length; i++) {
+                  keys[i].addEventListener('change', function (e) {
+                    if (!e.target.checked) return;
+                    for (var j = 0; j < keys.length; j++) {
+                      var unknown = keys[j].value === 'unknown';
+                      if (e.target.value === 'unknown' ? !unknown : unknown) keys[j].checked = false;
+                    }
+                  });
+                }
               }());
             </script>
             ${p.needs_review
@@ -468,7 +495,8 @@ export function personPage(opts: {
 
               <form method="post" action="/app/settings/people/${p.id}/reset-password"
                     style="margin-top:1.25rem"
-                    onsubmit="return confirm('Give ${p.display_name} a new temporary password? Their current one stops working straight away.')">
+                    data-confirm="Give ${p.display_name} a new temporary password? Their current one stops working straight away."
+                    onsubmit="return confirm(this.dataset.confirm)">
                 <h3 style="margin-bottom:.35rem">They have forgotten their password</h3>
                 <p class="hint" style="margin-top:0">
                   There is no "forgot my password" link — nothing is emailed unless you ask for

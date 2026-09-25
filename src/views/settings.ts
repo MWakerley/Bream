@@ -2,6 +2,7 @@ import { html, raw } from 'hono/html';
 import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
 import { searchBox } from './search.js';
 import { formatDate } from './rota.js';
+import { parseKeys, keyLabels } from '../keyholders.js';
 import type { CombinationRow, PairingRow, PersonWithRoles, RoleRow } from '../db.js';
 
 const BACK = { href: '/app', label: 'All areas' };
@@ -46,6 +47,18 @@ export interface KeyholderRow {
   is_active: number;
   keyholder_since: string | null;
   keyholder_note: string | null;
+  keyholder_keys: string | null;
+}
+
+/** The keys column: the ticked keys, "Not known" in amber so it stands out as
+ *  something to find out, and an old free-text note if a row still has one. */
+function keysCell(r: KeyholderRow) {
+  const keys = parseKeys(r.keyholder_keys);
+  const real = keys.filter((k) => k !== 'unknown');
+  return html`${real.length
+      ? keyLabels(real).join(', ')
+      : chip('amber', 'Not known')}${r.keyholder_note
+      ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${r.keyholder_note}</div>` : ''}`;
 }
 
 /**
@@ -80,7 +93,7 @@ export function keyholdersPage(rows: KeyholderRow[], ctx: ViewCtx) {
                   <td>${raw(KEY_ICON)} <a href="/app/settings/people/${r.id}"><strong>${r.display_name}</strong></a>
                     ${r.full_name && r.full_name !== r.display_name
                       ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${r.full_name}</div>` : ''}</td>
-                  <td>${r.keyholder_note ?? html`<span style="color:var(--ink-2)">—</span>`}</td>
+                  <td>${keysCell(r)}</td>
                   <td style="color:var(--ink-2)">${r.email ?? r.phone ?? '—'}
                     ${r.email && r.phone ? html`<div>${r.phone}</div>` : ''}</td>
                   <td>${r.keyholder_since ? formatDate(r.keyholder_since.slice(0, 10)) : '—'}</td>

@@ -82,7 +82,8 @@ export function profilesPage(opts: {
             ${p.people === 0 && !p.is_admin
               ? html`<button class="btn-danger" type="submit"
                         formaction="/app/settings/profiles/${p.id}/delete" formnovalidate
-                        onclick="return confirm('Delete the ${p.name} profile?')">Delete</button>`
+                        data-confirm="Delete the ${p.name} profile?"
+                        onclick="return confirm(this.dataset.confirm)">Delete</button>`
               : html`<span style="color:var(--ink-2);font-size:.9375rem">
                   ${p.is_admin ? 'The full-access profile cannot be deleted.' : `Used by ${p.people}, so it cannot be deleted.`}
                 </span>`}

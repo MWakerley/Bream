@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
-import { formatDate } from './rota.js';
+import { formatDate, formatSpan, lastDay } from './rota.js';
 import { PLACEHOLDERS, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from '../email.js';
 import { searchBox } from './search.js';
 import type { RoomRow } from './rooms.js';
@@ -56,6 +56,13 @@ const BACK = { href: '/app', label: 'All areas' };
 const dateOf = (iso: string) => iso.slice(0, 10);
 const timeOf = (iso: string) => iso.slice(11, 16);
 
+/** When an event runs, in words — see formatSpan. */
+export const formatWhen = formatSpan;
+
+/** True when an event finishes on a later day than it starts. */
+export const runsOver = (e: { starts_at: string; ends_at: string | null }) =>
+  !!e.ends_at && lastDay(e.starts_at, e.ends_at) !== e.starts_at.slice(0, 10);
+
 function placesLeft(e: EventRow) {
   return e.capacity == null ? null : Math.max(0, e.capacity - e.booked);
 }
@@ -97,7 +104,8 @@ export function eventsListPage(opts: {
                       ${e.location ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${e.location}</div>` : ''}
                     </td>
                     <td>${formatDate(dateOf(e.starts_at))}
-                      <div class="num" style="font-size:.9375rem;color:var(--ink-2)">${timeOf(e.starts_at)}</div></td>
+                      <div class="num" style="font-size:.9375rem;color:var(--ink-2)">${timeOf(e.starts_at)}${runsOver(e)
+                        ? ` · until ${formatDate(lastDay(e.starts_at, e.ends_at!))}` : ''}</div></td>
                     <td class="num">${e.booked}${e.capacity ? ` / ${e.capacity}` : ''}
                       <div style="font-size:.9375rem;color:var(--ink-2)">${e.bookings} booking${e.bookings === 1 ? '' : 's'}</div></td>
                     <td>${left == null
@@ -113,6 +121,77 @@ export function eventsListPage(opts: {
   );
 }
 
+/**
+ * When an event starts and finishes.
+ *
+ * The finish has its own date because some events run over a day or two — a
+ * weekend away, a two-day holiday club. It starts as the same day as the start
+ * and moves with the start date, keeping the event's length, so the ordinary
+ * one-evening event is still just a date and two times; only somebody who
+ * means "Sunday" has to change it.
+ */
+function whenFields(o: {
+  idPrefix: string;
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+  /** Required on a new event. An older event may still have no finish at all. */
+  endRequired: boolean;
+  endHint?: string;
+}) {
+  const id = (k: string) => `${o.idPrefix}${k}`;
+  return html`
+    <div class="field">
+      <label for="${id('date')}">Starts on</label>
+      <input id="${id('date')}" name="on_date" type="date" value="${o.startDate}" required>
+    </div>
+    <div class="field">
+      <label for="${id('time')}">at</label>
+      <input id="${id('time')}" name="start_time" type="time" value="${o.startTime}" required
+             aria-label="Start time">
+    </div>
+    <div class="field">
+      <label for="${id('end_date')}">Finishes on</label>
+      <span class="hint">${o.endHint ?? 'The same day, unless it runs over.'}</span>
+      <input id="${id('end_date')}" name="end_date" type="date" value="${o.endDate}"
+             ${o.endRequired ? 'required' : ''}>
+    </div>
+    <div class="field">
+      <label for="${id('end')}">at</label>
+      <input id="${id('end')}" name="end_time" type="time" value="${o.endTime}"
+             ${o.endRequired ? 'required' : ''} aria-label="Finish time">
+    </div>
+    <script>
+      (function () {
+        var start = document.getElementById('${id('date')}');
+        var end = document.getElementById('${id('end_date')}');
+        var was = start.value;
+        end.min = start.value;
+        function addDays(d, n) {
+          return new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+        }
+        start.addEventListener('change', function () {
+          // Half-typed or cleared: wait for a whole date, or the finish would
+          // snap to the start and the event's extra days would be lost.
+          if (!start.value) return;
+          // Moving the start moves the finish with it, by the same number of
+          // days, so a weekend moved a week later is still a weekend — not
+          // cut to one day, and not stretched to eight. A finish that was blank
+          // (or somehow before the start) simply takes the start date.
+          if (was && end.value && end.value >= was && start.value) {
+            var shift = Math.round((Date.parse(start.value) - Date.parse(was)) / 864e5);
+            end.value = addDays(end.value, shift);
+          } else {
+            end.value = start.value;
+          }
+          end.min = start.value;
+          was = start.value;
+        });
+      }());
+    </script>`;
+}
+
 /** The rooms, each one a tick. Ticked rooms are held for the event's times. */
 function roomChecks(rooms: RoomRow[], ticked: number[]) {
   if (!rooms.length) return '';
@@ -120,7 +199,8 @@ function roomChecks(rooms: RoomRow[], ticked: number[]) {
     <h3 style="margin-bottom:.5rem">Book rooms for it</h3>
     <p class="hint" style="margin-top:0">
       Tick any rooms this event needs. They are booked on the room diary from when it starts
-      until when it finishes, and move with it if the time changes.
+      until when it finishes — overnight too, if it runs over more than one day — and move
+      with it if the time changes.
     </p>
     <div class="checks">
       ${rooms.map((r) => html`<label class="check">
@@ -208,18 +288,14 @@ export function newEventPage(opts: {
           <textarea id="description" name="description" rows="4">${f.description ?? ''}</textarea>
         </div>
         <div class="grid-fields">
-          <div class="field">
-            <label for="on_date">Date</label>
-            <input id="on_date" name="on_date" type="date" value="${f.on_date ?? ''}" required>
-          </div>
-          <div class="field">
-            <label for="start_time">Starts</label>
-            <input id="start_time" name="start_time" type="time" value="${f.start_time ?? '19:00'}" required>
-          </div>
-          <div class="field">
-            <label for="end_time">Finishes</label>
-            <input id="end_time" name="end_time" type="time" value="${f.end_time ?? '21:00'}" required>
-          </div>
+          ${whenFields({
+            idPrefix: 'n_',
+            startDate: f.on_date ?? '',
+            startTime: f.start_time ?? '19:00',
+            endDate: f.end_date || f.on_date || '',
+            endTime: f.end_time ?? '21:00',
+            endRequired: true,
+          })}
           <div class="field">
             <label for="location">Where</label>
             <input id="location" name="location" type="text" value="${f.location ?? ''}" placeholder="Church Centre">
@@ -314,7 +390,8 @@ function bookingTable(opts: {
                     ${b.status === 'booked'
                       ? html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/cancel"
                                 class="inline-form"
-                                onsubmit="return confirm('Cancel ${b.name}\\'s booking? It moves to the cancelled list.')">
+                                data-confirm="Cancel ${b.name}’s booking? It moves to the cancelled list."
+                                onsubmit="return confirm(this.dataset.confirm)">
                           <button class="linkish" type="submit" style="color:var(--bad)">Cancel</button>
                         </form>`
                       : html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/restore"
@@ -405,19 +482,17 @@ export function eventAdminPage(opts: {
             <textarea id="d_description" name="description" rows="4">${e.description ?? ''}</textarea>
           </div>
           <div class="grid-fields">
-            <div class="field">
-              <label for="d_date">Date</label>
-              <input id="d_date" name="on_date" type="date" value="${dateOf(e.starts_at)}" required>
-            </div>
-            <div class="field">
-              <label for="d_time">Starts</label>
-              <input id="d_time" name="start_time" type="time" value="${timeOf(e.starts_at)}" required>
-            </div>
-            <div class="field">
-              <label for="d_end">Finishes</label>
-              ${e.ends_at ? '' : html`<span class="hint">Needed before any rooms can be booked for it.</span>`}
-              <input id="d_end" name="end_time" type="time" value="${e.ends_at ? timeOf(e.ends_at) : ''}">
-            </div>
+            ${whenFields({
+              idPrefix: 'd_',
+              startDate: dateOf(e.starts_at),
+              startTime: timeOf(e.starts_at),
+              // An event from before finish times existed still has no end; its
+              // date is offered as the start date so only the time is to fill in.
+              endDate: e.ends_at ? dateOf(e.ends_at) : dateOf(e.starts_at),
+              endTime: e.ends_at ? timeOf(e.ends_at) : '',
+              endRequired: false,
+              endHint: e.ends_at ? undefined : 'Needed before any rooms can be booked for it.',
+            })}
             <div class="field">
               <label for="d_location">Where</label>
               <input id="d_location" name="location" type="text" value="${e.location ?? ''}">
@@ -843,7 +918,8 @@ export function bookingEditPage(opts: {
                 for a test booking or one entered by mistake.
               </p>
               <form method="post" action="/app/events/${e.id}/bookings/${b.id}/delete"
-                    onsubmit="return confirm('Delete ${b.name}\\'s booking for good? This cannot be undone.')">
+                    data-confirm="Delete ${b.name}’s booking for good? This cannot be undone."
+                    onsubmit="return confirm(this.dataset.confirm)">
                 <button class="btn-danger" type="submit">Delete this booking for good</button>
               </form>
             </div>`
@@ -966,8 +1042,8 @@ export function publicBookingPage(opts: {
                       style="width:100%;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:1.25rem">`
           : ''}
         <div class="card">
-          <p style="margin-top:0"><strong>${formatDate(dateOf(e.starts_at))}</strong> at
-            ${timeOf(e.starts_at)}${e.location ? `, ${e.location}` : ''}</p>
+          <p style="margin-top:0"><strong>${formatWhen(e.starts_at, e.ends_at)}</strong>${e.location
+            ? `, ${e.location}` : ''}</p>
           ${e.description ? html`<p>${raw(e.description.replace(/\n/g, '<br>'))}</p>` : ''}
           <!-- Whether there is room, never how much of it. "3 places left"
                makes people hesitate over whether to take two, and it tells
@@ -1085,7 +1161,7 @@ export function bookingDonePage(e: EventRow, partySize: number, waitlist = false
           <p style="margin:0">
             Thank you. We have you down for
             <strong>${partySize}</strong> ${partySize === 1 ? 'place' : 'places'} at
-            <strong>${e.title}</strong>, ${formatDate(dateOf(e.starts_at))} at ${timeOf(e.starts_at)}.
+            <strong>${e.title}</strong>, ${formatWhen(e.starts_at, e.ends_at)}.
           </p>
         </div>
         <div class="card">

@@ -1,7 +1,8 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import { formatDate } from './rota.js';
-import { coursesFor, type PersonSafeguarding, type SafeguardingGrid } from '../safeguarding.js';
+import { coursesFor, reportCourses, type CourseState, type PersonSafeguarding, type ReportRow,
+         type SafeguardingGrid } from '../safeguarding.js';
 
 /**
  * Settings → Safeguarding: which courses each role needs.
@@ -26,10 +27,17 @@ export function safeguardingPage(
       ...ctx,
     },
     html`
+      ${sgTabs('grid')}
       ${notice ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>` : ''}
       <form method="post" action="/app/settings/safeguarding">
         <div class="table-scroll">
           <table class="grid sg-grid">
+            <!-- A fixed layout, so the columns share the page width instead of
+                 each long course name pushing the table off the right-hand side. -->
+            <colgroup>
+              <col class="sg-col-role">
+              ${grid.courses.map(() => html`<col>`)}
+            </colgroup>
             <thead>
               <tr>
                 <th>Role</th>
@@ -144,4 +152,124 @@ export function personSafeguardingCard(grid: SafeguardingGrid, sg: PersonSafegua
             }());
           </script>`}
     </div>`;
+}
+
+/** The two Safeguarding tabs: which courses each role needs, and the report. */
+function sgTabs(on: 'grid' | 'report') {
+  return html`<nav class="pills" aria-label="Safeguarding">
+    <a class="pill ${on === 'grid' ? 'is-on' : ''}" href="/app/settings/safeguarding"
+       ${on === 'grid' ? html`aria-current="page"` : ''}>Courses each role needs</a>
+    <a class="pill ${on === 'report' ? 'is-on' : ''}" href="/app/settings/safeguarding/report"
+       ${on === 'report' ? html`aria-current="page"` : ''}>Who has done what</a>
+  </nav>`;
+}
+
+const STATE_CHIP: Record<CourseState, () => ReturnType<typeof chip>> = {
+  done: () => chip('green', 'Done'),
+  not_yet: () => chip('red', 'Not yet'),
+  unanswered: () => chip('amber', 'Not answered'),
+};
+
+/**
+ * Settings → Safeguarding → Who has done what.
+ *
+ * One row per person holding a safeguarding role, one column per course
+ * anybody needs. A dash is a course their roles do not need — never confused
+ * with "not done". Below it, the same facts turned round: for each course, who
+ * still has it to do, which is the list somebody actually works through.
+ */
+export function safeguardingReportPage(grid: SafeguardingGrid, rows: ReportRow[], ctx: ViewCtx) {
+  const courses = reportCourses(grid, rows);
+  const outstanding = (r: ReportRow) => r.courses.filter((c) => c.state !== 'done');
+  const allDone = rows.filter((r) => r.courses.length && !outstanding(r).length).length;
+  const behind = rows.filter((r) => outstanding(r).length).length;
+
+  return layout(
+    {
+      title: 'Safeguarding report',
+      heading: 'Safeguarding',
+      intro: 'Who has done the courses their roles need, and who still has some to do.',
+      back: { href: '/app/settings', label: 'Settings' },
+      ...ctx,
+    },
+    html`
+      ${sgTabs('report')}
+
+      ${rows.length === 0
+        ? html`<div class="card"><p style="margin:0">
+            Nobody has a safeguarding role yet. Tick them on each person's record under
+            <a href="/app/settings/people">People</a>.</p></div>`
+        : courses.length === 0
+          ? html`<div class="card"><p style="margin:0">
+              ${rows.length} ${rows.length === 1 ? 'person holds' : 'people hold'} a safeguarding role, but
+              ${grid.requires.size === 0
+                ? 'no courses have been set against any role yet.'
+                : 'none of the roles they hold needs a course yet.'}
+              <a href="/app/settings/safeguarding">Set them on the first tab</a>.</p></div>`
+          : html`
+            <div class="stat-row">
+              <div class="stat"><span class="stat-n">${rows.length}</span><span class="stat-l">people with a role</span></div>
+              <div class="stat"><span class="stat-n">${allDone}</span><span class="stat-l">all courses done</span></div>
+              <div class="stat ${behind ? 'stat-full' : ''}"><span class="stat-n">${behind}</span><span class="stat-l">with courses to do</span></div>
+            </div>
+
+            <div class="btn-row" style="margin-bottom:1rem">
+              <a class="btn-quiet" href="/app/settings/safeguarding/report.pdf">Download PDF</a>
+              <a class="btn-quiet" href="/app/settings/safeguarding/report.xlsx">Download for Excel</a>
+            </div>
+
+            <h2 class="section-h2">Everyone, course by course</h2>
+            <div class="table-scroll">
+              <table class="grid sg-grid sg-report">
+                <colgroup>
+                  <col class="sg-col-role">
+                  ${courses.map(() => html`<col>`)}
+                </colgroup>
+                <thead>
+                  <tr><th>Person</th>${courses.map((c) => html`<th class="sg-course">${c.name}</th>`)}</tr>
+                </thead>
+                <tbody>
+                  ${rows.map((r) => html`<tr class="${outstanding(r).length ? '' : 'sg-row-done'}">
+                    <th scope="row">
+                      <a href="/app/settings/people/${r.personId}#safeguarding">${r.name}</a>
+                      <div class="sg-for">${r.roles.join(', ')}</div>
+                    </th>
+                    ${courses.map((c) => {
+                      const mine = r.courses.find((x) => x.courseId === c.id);
+                      return html`<td class="sg-cell">${mine
+                        ? html`${STATE_CHIP[mine.state]()}${mine.doneAt
+                            ? html`<div class="sg-when">${formatDate(mine.doneAt.slice(0, 10))}</div>` : ''}`
+                        : html`<span class="sg-na" title="Not needed for their roles">—</span>`}</td>`;
+                    })}
+                  </tr>`)}
+                </tbody>
+              </table>
+            </div>
+            <p class="hint">A dash means their roles do not need that course.</p>
+
+            <h2 class="section-h2">Still to do</h2>
+            ${behind === 0
+              ? html`<div class="notice notice-ok"><p style="margin:0">
+                  Everybody has done every course their roles need.</p></div>`
+              : html`<div class="sg-todo">
+                  ${courses.map((c) => {
+                    const who = rows.flatMap((r) => r.courses
+                      .filter((x) => x.courseId === c.id && x.state !== 'done')
+                      .map((x) => ({ r, state: x.state })));
+                    if (!who.length) return '';
+                    return html`<div class="card sg-todo-card">
+                      <h3 style="margin-top:0">${c.name}
+                        <span class="bookings-count">${who.length} to do</span></h3>
+                      <ul class="sg-todo-list">
+                        ${who.map(({ r, state }) => html`<li>
+                          <a href="/app/settings/people/${r.personId}#safeguarding">${r.name}</a>
+                          ${STATE_CHIP[state]()}
+                        </li>`)}
+                      </ul>
+                    </div>`;
+                  })}
+                </div>`}
+          `}
+    `,
+  );
 }

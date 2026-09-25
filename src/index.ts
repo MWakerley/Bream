@@ -55,7 +55,7 @@ import { listRooms, listBookings, getBooking, findClashes, readBooking, instants
          listSeries, planSeries, getSeries, applySeriesEdit, type BookingInput } from './rooms.js';
 import { FREQUENCIES, describeSeries, type Frequency } from './recurrence.js';
 import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
-         bookingEditPage } from './views/events.js';
+         bookingEditPage, formatWhen, runsOver } from './views/events.js';
 import { myRotaPage, requestsPage, type MyDuty, type AwayRow, type ChangeRequestRow } from './views/me.js';
 import { roomsCalendarPage, rotaCalendarPage } from './views/calendars.js';
 import { thisMonth } from './views/calendar.js';
@@ -64,15 +64,17 @@ import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listE
          makeSlug, fieldKey, readBookingForm, hasRoom,
          getBooking as getEventBooking, saveBooking, type BookingAttempt,
          listOrganisers, readOrganisers, saveOrganisers, eventRoomIds, readRoomIds,
-         eventRoomClashes, describeClashes, syncEventRooms } from './events.js';
+         eventRoomClashes, describeClashes, syncEventRooms, readEventWhen } from './events.js';
 import { sendAcknowledgement, notifyOrganisers, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
-import { formatDate } from './views/rota.js';
+import { formatDate, lastDay } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
 import { rotaXlsx, rotaPdf } from './export/rota.js';
 import { loadGrid as loadSgGrid, saveGrid as saveSgGrid, loadPerson as loadSgPerson,
-         savePerson as saveSgPerson } from './safeguarding.js';
-import { safeguardingPage } from './views/safeguarding.js';
+         savePerson as saveSgPerson, loadReport as loadSgReport } from './safeguarding.js';
+import { safeguardingXlsx, safeguardingPdf } from './export/safeguarding.js';
+import { safeguardingPage, safeguardingReportPage } from './views/safeguarding.js';
+import { readKeys } from './keyholders.js';
 import { attendeesXlsx, attendeesPdf } from './export/attendees.js';
 import { sundaysBetween, createSundays, provisionalSundays, chunked,
          type SundayPlan } from './services.js';
@@ -420,6 +422,26 @@ app.get('/app/settings/people', async (c) =>
 app.get('/app/settings/safeguarding', async (c) =>
   c.html(safeguardingPage(await loadSgGrid(c.env.DB), viewCtx(c))));
 
+app.get('/app/settings/safeguarding/report', async (c) => {
+  const grid = await loadSgGrid(c.env.DB);
+  return c.html(safeguardingReportPage(grid, await loadSgReport(c.env.DB, grid), viewCtx(c)));
+});
+
+app.get('/app/settings/safeguarding/report.xlsx', async (c) => {
+  const grid = await loadSgGrid(c.env.DB);
+  const today = new Date().toISOString().slice(0, 10);
+  return download(safeguardingXlsx(grid, await loadSgReport(c.env.DB, grid), today),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    `safeguarding-report-${today}.xlsx`);
+});
+
+app.get('/app/settings/safeguarding/report.pdf', async (c) => {
+  const grid = await loadSgGrid(c.env.DB);
+  const today = new Date().toISOString().slice(0, 10);
+  return download(await safeguardingPdf(grid, await loadSgReport(c.env.DB, grid), today),
+    'application/pdf', `safeguarding-report-${today}.pdf`);
+});
+
 app.post('/app/settings/safeguarding', async (c) => {
   const grid = await loadSgGrid(c.env.DB);
   const n = await saveSgGrid(c.env.DB, grid, await c.req.formData());
@@ -430,7 +452,8 @@ app.post('/app/settings/safeguarding', async (c) => {
 
 app.get('/app/settings/keyholders', async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT id, display_name, full_name, email, phone, is_active, keyholder_since, keyholder_note
+    `SELECT id, display_name, full_name, email, phone, is_active, keyholder_since, keyholder_note,
+            keyholder_keys
        FROM people WHERE is_keyholder = 1
       ORDER BY is_active DESC, display_name`,
   ).all<KeyholderRow>();
@@ -982,7 +1005,8 @@ async function personView(
   const [person, roles, settings] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, display_name, full_name, email, needs_review, review_note, is_active, is_admin,
-              on_break, on_break_since, is_guest, is_keyholder, keyholder_since, keyholder_note
+              on_break, on_break_since, is_guest, is_keyholder, keyholder_since, keyholder_note,
+              keyholder_keys
          FROM people WHERE id = ?1`,
     ).bind(id).first<any>(),
     listRoles(c.env.DB),
@@ -1250,14 +1274,16 @@ app.post('/app/settings/people/:id', async (c) => {
               WHEN ?9 = 0 THEN NULL
               ELSE keyholder_since
             END,
-            keyholder_note = CASE WHEN ?9 = 1 THEN ?10 ELSE NULL END,
+            keyholder_keys = CASE WHEN ?9 = 1 THEN ?10 ELSE NULL END,
+            -- No longer asked for, but an old note still goes when the tick does.
+            keyholder_note = CASE WHEN ?9 = 1 THEN keyholder_note ELSE NULL END,
             updated_at = datetime('now')
       WHERE id = ?1`,
   ).bind(
     id, str('display_name') ?? 'Unnamed', str('full_name'), str('email'),
     form.get('is_active') ? 1 : 0, form.get('clear_review') ? 1 : 0,
     form.get('on_break') ? 1 : 0, form.get('is_guest') ? 1 : 0,
-    form.get('is_keyholder') ? 1 : 0, str('keyholder_note'),
+    form.get('is_keyholder') ? 1 : 0, JSON.stringify(readKeys(form)),
   ).run();
 
   const roles = await listRoles(c.env.DB);
@@ -2196,7 +2222,11 @@ async function roomsView(
   notice?: { tone: 'ok' | 'bad'; text: string },
   form?: Record<string, string>,
 ) {
-  const weekFrom = c.req.query('from') ?? new Date().toISOString().slice(0, 10);
+  // An emptied or mistyped date box sends ?from= with nothing usable in it,
+  // which used to reach new Date(NaN) and fail the whole page.
+  const asked = c.req.query('from') ?? '';
+  const weekFrom = /^\d{4}-\d{2}-\d{2}$/.test(asked) && !Number.isNaN(Date.parse(asked))
+    ? asked : new Date().toISOString().slice(0, 10);
   const [rooms, bookings, series] = await Promise.all([
     listRooms(c.env.DB),
     listBookings(c.env.DB, weekFrom),
@@ -2212,8 +2242,8 @@ app.get('/app/rooms', (c) => {
   const on = c.req.query('on');
   const room = c.req.query('room');
   const prefill: Record<string, string> = {};
-  if (on && /^d{4}-d{2}-d{2}$/.test(on)) prefill.on_date = on;
-  if (room && /^d+$/.test(room)) prefill.room_id = room;
+  if (on && /^\d{4}-\d{2}-\d{2}$/.test(on)) prefill.on_date = on;
+  if (room && /^\d+$/.test(room)) prefill.room_id = room;
   return roomsView(
     c,
     prefill.on_date
@@ -2367,7 +2397,11 @@ app.get('/app/rooms/calendar', async (c) => {
   const [rooms, all] = await Promise.all([listRooms(c.env.DB), listBookings(c.env.DB, fetchFrom, 49)]);
   const counts = new Map<number, number>();
   for (const b of all) {
-    if (b.starts_at.slice(0, 7) === month) counts.set(b.room_id, (counts.get(b.room_id) ?? 0) + 1);
+    // Counted if it touches the month at all, so a hold that starts on the 31st
+    // still counts for the 1st.
+    if (b.starts_at.slice(0, 7) <= month && lastDay(b.starts_at, b.ends_at).slice(0, 7) >= month) {
+      counts.set(b.room_id, (counts.get(b.room_id) ?? 0) + 1);
+    }
   }
   const bookings = roomId ? all.filter((b) => b.room_id === roomId) : all;
   return c.html(roomsCalendarPage({ rooms, roomId, bookings, counts, month, ctx: viewCtx(c) }));
@@ -2464,6 +2498,15 @@ app.post('/app/rooms/:id', async (c) => {
   const parsed = readBooking(form);
   const [booking, rooms] = await Promise.all([getBooking(c.env.DB, id), listRooms(c.env.DB)]);
   if (!booking) return c.notFound();
+  // A room held for an event is changed through the event. The page no longer
+  // offers a form for one, but an old tab could still post here, and this form
+  // would cut a hold that runs over a weekend down to one day.
+  if (booking.event_id) {
+    return c.html(editBookingPage({
+      booking, rooms, ctx: viewCtx(c),
+      notice: { tone: 'bad', text: 'Not saved: this room is held for an event. Change it on the event.' },
+    }), 409);
+  }
 
   if (!parsed.ok) {
     return c.html(editBookingPage({ booking, rooms, ctx: viewCtx(c), notice: { tone: 'bad', text: parsed.error } }));
@@ -2490,6 +2533,16 @@ app.post('/app/rooms/:id', async (c) => {
 app.post('/app/rooms/:id/cancel', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return c.notFound();
+  // A room held for an event is let go by unticking it on the event, so the
+  // event and the diary cannot disagree about whether it has the room.
+  const held = await c.env.DB.prepare('SELECT event_id FROM room_bookings WHERE id = ?1')
+    .bind(id).first<{ event_id: number | null }>();
+  if (held?.event_id) {
+    return roomsView(c, {
+      tone: 'bad',
+      text: 'Not cancelled: that room is held for an event. Untick it on the event to let it go.',
+    });
+  }
   // Cancelled, not deleted: a booking somebody made and someone else cancelled
   // is worth still being able to look up.
   await c.env.DB.prepare("UPDATE room_bookings SET status = 'cancelled' WHERE id = ?1")
@@ -2528,7 +2581,7 @@ async function roomSettingsView(
             (SELECT COUNT(*) FROM room_bookings b
               WHERE b.room_id = r.id AND b.status = 'booked') AS total,
             (SELECT COUNT(*) FROM room_bookings b
-              WHERE b.room_id = r.id AND b.status = 'booked' AND b.starts_at >= ?1) AS upcoming
+              WHERE b.room_id = r.id AND b.status = 'booked' AND b.ends_at > ?1) AS upcoming
        FROM rooms r ORDER BY r.sort_order, r.name`,
   ).bind(`${today}T00:00`).all<RoomSettingRow>();
   return c.html(roomSettingsPage({ rooms: results, ctx: viewCtx(c), notice }));
@@ -2627,7 +2680,8 @@ app.post('/app/events/new', async (c) => {
   const form = await c.req.formData();
   const s = (k: string) => String(form.get(k) ?? '').trim();
   const echo = Object.fromEntries(
-    ['title', 'description', 'on_date', 'start_time', 'end_time', 'location', 'capacity', 'max_per_booking', 'closes']
+    ['title', 'description', 'on_date', 'start_time', 'end_date', 'end_time', 'location', 'capacity',
+      'max_per_booking', 'closes']
       .map((k) => [k, s(k)]));
   const rooms = await listRooms(c.env.DB);
   const roomIds = readRoomIds(form).filter((id) => rooms.some((r) => r.id === id));
@@ -2640,20 +2694,16 @@ app.post('/app/events/new', async (c) => {
   }), status);
 
   const title = s('title');
-  const onDate = s('on_date');
-  const startTime = s('start_time');
-  const endTime = s('end_time');
-  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(onDate) || !/^\d{2}:\d{2}$/.test(startTime)
-      || !/^\d{2}:\d{2}$/.test(endTime)) {
-    return refuse('A name, a date, a start time and a finish time are all needed.');
-  }
-  if (endTime <= startTime) return refuse('It has to finish after it starts.');
+  if (!title) return refuse('Give the event a name.');
+  const when = readEventWhen(form, true);
+  if (!when.ok) return refuse(when.error);
+  const { startsAt } = when;
+  // Required above, so always present here.
+  const endsAt = when.endsAt!;
 
   const organisers = readOrganisers(form, notify);
   if (!organisers.ok) return refuse(organisers.error);
 
-  const startsAt = `${onDate}T${startTime}`;
-  const endsAt = `${onDate}T${endTime}`;
   // Checked before the event is written, so a clash never leaves behind an
   // event that looks as though it has its rooms when it does not.
   const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt);
@@ -2722,13 +2772,12 @@ app.post('/app/events/:id/details', async (c) => {
   };
 
   const title = str('title');
-  const onDate = str('on_date');
-  const startTime = str('start_time');
-  if (!title || !onDate || !startTime) {
-    return eventAdminView(c, id, {
-      tone: 'bad', text: 'A name, a date and a start time are all needed.',
-    });
-  }
+  if (!title) return eventAdminView(c, id, { tone: 'bad', text: 'Give the event a name.' });
+  // The finish is optional here only because events from before it was asked
+  // for have none; rooms need one, which is checked below.
+  const when = readEventWhen(form, false);
+  if (!when.ok) return eventAdminView(c, id, { tone: 'bad', text: when.error });
+  const { startsAt, endsAt } = when;
 
   const rawCapacity = String(form.get('capacity') ?? '').trim();
   const capacity = rawCapacity === '' ? null : Number(rawCapacity);
@@ -2738,20 +2787,13 @@ app.post('/app/events/:id/details', async (c) => {
     });
   }
 
-  const endTime = str('end_time');
-  if (endTime && endTime <= startTime) {
-    return eventAdminView(c, id, { tone: 'bad', text: 'It has to finish after it starts.' });
-  }
   const rooms = await listRooms(c.env.DB);
   const roomIds = readRoomIds(form).filter((r) => rooms.some((x) => x.id === r));
-  if (roomIds.length && !endTime) {
+  if (roomIds.length && !endsAt) {
     return eventAdminView(c, id, {
       tone: 'bad', text: 'Give a finish time, so the rooms can be booked until then.',
     });
   }
-  const startsAt = `${onDate}T${startTime}`;
-  const endsAt = endTime ? `${onDate}T${endTime}` : null;
-
   // Checked before anything is saved. Moving the event onto a time when one of
   // its rooms is taken must not leave the event moved and its room behind.
   if (endsAt) {
@@ -2881,8 +2923,7 @@ async function tellOrganisers(
     ]);
     const sent = await notifyOrganisers(c.env.EMAIL, c.env.ACK_FROM, organisers, {
       eventTitle: event.title,
-      eventDate: formatDate(event.starts_at.slice(0, 10)),
-      eventTime: event.starts_at.slice(11, 16),
+      eventWhen: formatWhen(event.starts_at, event.ends_at),
       name: booking.name,
       email: booking.email,
       phone: booking.phone,
@@ -3549,8 +3590,13 @@ app.post('/events/:slug', async (c) => {
       {
         name: parsed.value.name,
         eventTitle: event.title,
-        eventDate: formatDate(event.starts_at.slice(0, 10)),
+        // {date} names both days for an event that runs over, so older saved
+        // wording ("It is on {date} at {time}") still tells the truth.
+        eventDate: runsOver(event)
+          ? `${formatDate(event.starts_at.slice(0, 10))} to ${formatDate(lastDay(event.starts_at, event.ends_at!))}`
+          : formatDate(event.starts_at.slice(0, 10)),
         eventTime: event.starts_at.slice(11, 16),
+        eventWhen: formatWhen(event.starts_at, event.ends_at),
         location: event.location,
         partySize: parsed.value.partySize,
       },

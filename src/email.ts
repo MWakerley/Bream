@@ -17,9 +17,13 @@
 export interface AckContext {
   name: string;
   eventTitle: string;
-  /** Already formatted for reading, e.g. 'Sun 11 Oct 2026'. */
+  /** Already formatted for reading, e.g. 'Sun 11 Oct 2026' — or, for an event
+   *  that runs over, 'Sat 10 Oct 2026 to Sun 11 Oct 2026'. */
   eventDate: string;
   eventTime: string;
+  /** The whole span in one phrase, e.g. 'Sat 10 Oct 2026, 19:00–21:00'. Optional
+   *  so the sign-in emails, which borrow this context, need not invent one. */
+  eventWhen?: string;
   location: string | null;
   partySize: number;
 }
@@ -28,18 +32,25 @@ export interface AckContext {
 export const PLACEHOLDERS: { token: string; means: string }[] = [
   { token: '{name}', means: 'the name they booked under' },
   { token: '{event}', means: 'the name of the event' },
-  { token: '{date}', means: 'the date, e.g. Sun 11 Oct 2026' },
+  { token: '{date}', means: 'the day it starts, e.g. Sun 11 Oct 2026 — both days if it runs over' },
   { token: '{time}', means: 'the start time' },
+  { token: '{when}', means: 'the whole thing, e.g. Sat 10 Oct 2026, 19:00–21:00 — or both days if it runs over' },
   { token: '{where}', means: 'where it is' },
   { token: '{places}', means: 'how many places they booked' },
 ];
 
 export function fillPlaceholders(template: string, c: AckContext): string {
-  return template
+  // Most events have the old stock wording saved ("It is on {date} at {time}"),
+  // because the box is filled with the default when acknowledgements are
+  // switched on. That phrase is read as the whole span, so an event that runs
+  // over still says when it finishes, without anybody editing every event.
+  const t = c.eventWhen ? template.replace(/\{date\} at \{time\}/g, '{when}') : template;
+  return t
     .replace(/\{name\}/g, c.name)
     .replace(/\{event\}/g, c.eventTitle)
     .replace(/\{date\}/g, c.eventDate)
     .replace(/\{time\}/g, c.eventTime)
+    .replace(/\{when\}/g, c.eventWhen ?? `${c.eventDate} at ${c.eventTime}`)
     .replace(/\{where\}/g, c.location ?? 'the church')
     .replace(/\{places\}/g, String(c.partySize));
 }
@@ -124,8 +135,8 @@ ${escapeHtml(body).split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`).join(
 
 export interface OrganiserNotice {
   eventTitle: string;
-  eventDate: string;
-  eventTime: string;
+  /** The whole span, e.g. 'Sat 10 Oct 2026, 19:00–21:00'. */
+  eventWhen: string;
   name: string;
   email: string | null;
   phone: string | null;
@@ -170,7 +181,7 @@ export async function notifyOrganisers(
     ...n.answers.map((a) => `${a.label}: ${a.value}`),
     '',
     `That makes ${n.booked} coming${n.capacity != null ? ` out of ${n.capacity}` : ''}.`,
-    `It is on ${n.eventDate} at ${n.eventTime}.`,
+    `When: ${n.eventWhen}.`,
     '',
     `The full list: ${n.adminUrl}`,
     '',
@@ -193,7 +204,7 @@ export const DEFAULT_ACK_BODY = `Dear {name},
 
 Thank you for booking {places} place(s) at {event}.
 
-It is on {date} at {time}, at {where}.
+It is on {when}, at {where}.
 
 We look forward to seeing you.
 
