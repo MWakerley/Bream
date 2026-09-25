@@ -32,7 +32,8 @@ import {
 } from './db.js';
 import { homePage } from './views/home.js';
 import { setupPage, signInPage } from './views/signin.js';
-import { combinationsPage, pairsPage, peoplePage, rolesPage } from './views/settings.js';
+import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage, keyholdersPage,
+         type KeyholderRow } from './views/settings.js';
 import { combinationsByRolePage } from './views/combinations.js';
 import { draftRulesPage } from './views/draftrules.js';
 import { worshipPage } from './views/worship.js';
@@ -393,6 +394,7 @@ app.get('/app', async (c) => {
   );
 });
 
+app.use('/app/settings', requireAdmin);
 app.use('/app/settings/*', requireAdmin);
 
 // Building the rota, and the settings behind it, are administrator jobs. Without
@@ -405,8 +407,19 @@ app.use('/app/rota/requests', requireAdmin);
 app.use('/app/rota/requests/*', requireAdmin);
 app.use('/app/rota/service/:id/role/*', requireAdmin);
 
+app.get('/app/settings', (c) => c.html(settingsHomePage(viewCtx(c))));
+
 app.get('/app/settings/people', async (c) =>
   c.html(peoplePage(await listPeople(c.env.DB), viewCtx(c))));
+
+app.get('/app/settings/keyholders', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, display_name, full_name, email, phone, is_active, keyholder_since, keyholder_note
+       FROM people WHERE is_keyholder = 1
+      ORDER BY is_active DESC, display_name`,
+  ).all<KeyholderRow>();
+  return c.html(keyholdersPage(results, viewCtx(c)));
+});
 
 // ---- merge duplicates -----------------------------------------------------
 
@@ -953,7 +966,7 @@ async function personView(
   const [person, roles, settings] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, display_name, full_name, email, needs_review, review_note, is_active, is_admin,
-              on_break, on_break_since, is_guest
+              on_break, on_break_since, is_guest, is_keyholder, keyholder_since, keyholder_note
          FROM people WHERE id = ?1`,
     ).bind(id).first<any>(),
     listRoles(c.env.DB),
@@ -1211,12 +1224,21 @@ app.post('/app/settings/people/:id', async (c) => {
               ELSE on_break_since
             END,
             is_guest = ?8,
+            is_keyholder = ?9,
+            -- Stamped the same way as on_break_since, for the same reasons.
+            keyholder_since = CASE
+              WHEN ?9 = 1 AND is_keyholder = 0 THEN datetime('now')
+              WHEN ?9 = 0 THEN NULL
+              ELSE keyholder_since
+            END,
+            keyholder_note = CASE WHEN ?9 = 1 THEN ?10 ELSE NULL END,
             updated_at = datetime('now')
       WHERE id = ?1`,
   ).bind(
     id, str('display_name') ?? 'Unnamed', str('full_name'), str('email'),
     form.get('is_active') ? 1 : 0, form.get('clear_review') ? 1 : 0,
     form.get('on_break') ? 1 : 0, form.get('is_guest') ? 1 : 0,
+    form.get('is_keyholder') ? 1 : 0, str('keyholder_note'),
   ).run();
 
   const roles = await listRoles(c.env.DB);

@@ -33,7 +33,7 @@ const NAV: NavItem[] = [
 ];
 
 const ADMIN_NAV: NavItem[] = [
-  { href: '/app/settings/people', label: 'Settings', match: '^/app/settings', area: 'settings' },
+  { href: '/app/settings', label: 'Settings', match: '^/app/settings', area: 'settings' },
 ];
 
 /**
@@ -76,7 +76,9 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
   {
     prefix: '/app/settings',
     items: [
+      { href: '/app/settings', label: 'Overview', match: '^/app/settings$', area: 'settings' },
       { href: '/app/settings/people', label: 'People', match: '^/app/settings/people', area: 'settings' },
+      { href: '/app/settings/keyholders', label: 'Keyholders', match: '^/app/settings/keyholders', area: 'settings' },
       { href: '/app/settings/roles', label: 'Roles', match: '^/app/settings/roles', area: 'settings' },
       { href: '/app/settings/combinations', label: 'Combination rules', match: '^/app/settings/combinations', area: 'settings' },
       { href: '/app/settings/draft-rules', label: 'Draft rota rules', match: '^/app/settings/draft-rules', area: 'settings' },
@@ -224,3 +226,10 @@ ${chrome
 export function chip(tone: 'green' | 'amber' | 'red' | 'neutral' | 'navy', label: string) {
   return html`<span class="chip chip-${tone}">${label}</span>`;
 }
+
+/**
+ * A key, for keyholders. Inline SVG rather than an emoji: an emoji key looks
+ * different on every device and not at all on some older iPads. Hidden from
+ * screen readers, because the word "Keyholder" always sits next to it.
+ */
+export const KEY_ICON = `<svg class="icon-key" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;color:var(--navy)"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2"/><path d="m16 7 3 3"/><path d="m19 4 2 2"/></svg>`;

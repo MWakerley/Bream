@@ -34,7 +34,7 @@ export function draftRulesPage(opts: {
       heading: 'Rules for draft rotas',
       intro: 'Set once here instead of typing the same thing against every preacher one at a '
         + 'time. Anything a person has said for themselves still wins.',
-      back: { href: '/app/settings/people', label: 'Settings' },
+      back: { href: '/app/settings', label: 'Settings' },
       ...ctx,
     },
     html`

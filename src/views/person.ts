@@ -1,10 +1,10 @@
-import { html } from 'hono/html';
-import { layout, chip, type ViewCtx } from './layout.js';
+import { html, raw } from 'hono/html';
+import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
 import type { RoleRow } from '../db.js';
 import { formatDate, formatDateTime } from './rota.js';
 import { UNITS, toUnits } from '../frequency.js';
 
-const BACK = { href: '/app/settings/people', label: 'People and roles' };
+const BACK = { href: '/app/settings/people', label: 'People' };
 
 export interface PersonRoleSetting {
   role_id: number;
@@ -32,6 +32,11 @@ export interface PersonEditData {
   on_break_since: string | null;
   /** A visitor: assignable by hand, never drawn from the pool automatically. */
   is_guest: number;
+  /** Holds a key to the buildings. On the keyholder register when ticked. */
+  is_keyholder?: number;
+  keyholder_since?: string | null;
+  /** Which keys, in the church's own words. Optional. */
+  keyholder_note?: string | null;
   /** Services they are still down for. Only loaded when it matters — that is,
    *  when they are on a break and somebody should see what was already agreed. */
   upcoming?: {
@@ -223,6 +228,26 @@ export function personPage(opts: {
                 <span class="check-note">A visiting preacher or worship leader. You can still put
                   them on a service yourself; the rota will never pick them on its own.</span></span>
             </label>
+            <label class="check">
+              <input type="checkbox" id="is_keyholder" name="is_keyholder" value="1" ${p.is_keyholder ? 'checked' : ''}>
+              <span><span class="check-label">${raw(KEY_ICON)} Keyholder</span>
+                <span class="check-note">Has a key to the buildings${p.is_keyholder && p.keyholder_since
+                  ? ` — since ${formatDate(p.keyholder_since.slice(0, 10))}` : ''}. Listed on the
+                  <a href="/app/settings/keyholders">keyholder register</a>.</span></span>
+            </label>
+            <div class="field" id="keyholder-note" ${p.is_keyholder ? '' : 'hidden'}>
+              <label for="keyholder_note_in">Which keys</label>
+              <span class="hint">Optional — e.g. "Church Centre front door".</span>
+              <input id="keyholder_note_in" name="keyholder_note" type="text"
+                     value="${p.keyholder_note ?? ''}">
+            </div>
+            <script>
+              (function () {
+                var box = document.getElementById('is_keyholder');
+                var note = document.getElementById('keyholder-note');
+                box.addEventListener('change', function () { note.hidden = !box.checked; });
+              }());
+            </script>
             ${p.needs_review
               ? html`<label class="check">
                   <input type="checkbox" name="clear_review" value="1">

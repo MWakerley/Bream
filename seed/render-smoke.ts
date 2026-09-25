@@ -11,7 +11,8 @@
  */
 import { homePage } from '../src/views/home.js';
 import { signInPage, setupPage } from '../src/views/signin.js';
-import { combinationsPage, pairsPage, peoplePage, rolesPage } from '../src/views/settings.js';
+import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage,
+         keyholdersPage } from '../src/views/settings.js';
 import { gapsPage, readingsPage, rotaDashboard, servicePage, formatDate } from '../src/views/rota.js';
 import { servicesPage } from '../src/views/services.js';
 import { personPage, mergePage } from '../src/views/person.js';
@@ -219,6 +220,32 @@ await check('services', () => servicesPage({
   notice: { tone: 'ok', text: '5 added' },
 }), ['Create the Sundays', 'Add this service', '5 added']);
 
+await check('settings has its own overview', () => settingsHomePage(CTX),
+  ['/app/settings/people', '/app/settings/keyholders', 'Keyholders', 'Roles and numbers']);
+await check('the people page is just people', () => peoplePage(
+  [{ id: 1, display_name: 'Sue', full_name: null, email: null, is_active: 1, is_admin: 0,
+     needs_review: 0, review_note: null, happy_with_anyone: 1, is_keyholder: 1,
+     role_names: 'Reader', role_count: 1 }], CTX),
+  ['Find a person', 'Sue', 'icon-key', 'keyholder'], ['Combination rules</a>']);
+await check('the keyholder register', () => keyholdersPage([
+  { id: 1, display_name: 'Sue', full_name: 'Sue Baker', email: 'sue@example.org', phone: null,
+    is_active: 1, keyholder_since: '2026-09-25 10:00:00', keyholder_note: 'Church Centre front door' },
+  { id: 2, display_name: 'Ron', full_name: null, email: null, phone: '01594 000000',
+    is_active: 0, keyholder_since: null, keyholder_note: null },
+], CTX), ['Keyholder register', '2 people hold a key', 'Sue Baker', 'Church Centre front door',
+  'Fri 25 Sep 2026', 'No longer serving', '1 keyholder has stopped serving']);
+await check('an empty register says so', () => keyholdersPage([], CTX),
+  ['Nobody is marked as a keyholder yet']);
+await check('a keyholder is ticked on their record', () => personPage({
+  person: {
+    id: 7, display_name: 'Sue', full_name: null, email: null, needs_review: 0, review_note: null,
+    is_active: 1, is_admin: 0, on_break: 0, on_break_since: null, is_guest: 0,
+    is_keyholder: 1, keyholder_since: '2026-09-01 09:00:00', keyholder_note: 'Vestry',
+    settings: new Map(),
+  },
+  roles, ctx: CTX,
+}), ['name="is_keyholder" value="1" checked', 'icon-key', 'value="Vestry"', 'keyholder register'],
+  ['id="keyholder-note" hidden']);
 await check('person edit', () => personPage({
   person: {
     id: 7, display_name: 'Andy', full_name: null, email: null,

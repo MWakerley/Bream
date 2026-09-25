@@ -1,14 +1,102 @@
-import { html } from 'hono/html';
-import { layout, chip, type ViewCtx } from './layout.js';
+import { html, raw } from 'hono/html';
+import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
 import { searchBox } from './search.js';
+import { formatDate } from './rota.js';
 import type { CombinationRow, PairingRow, PersonWithRoles, RoleRow } from '../db.js';
 
 const BACK = { href: '/app', label: 'All areas' };
+const SETTINGS = { href: '/app/settings', label: 'Settings' };
+
+/** Everything behind the scenes, one card each, so People is one choice among
+ *  them rather than the page every other setting hangs off. */
+const SECTIONS: { href: string; label: string; note: string }[] = [
+  { href: '/app/settings/people', label: 'People', note: 'Everyone on the roster: what each can do, how often, and finding somebody.' },
+  { href: '/app/settings/keyholders', label: 'Keyholders', note: 'The register of who holds a key to the buildings.' },
+  { href: '/app/settings/roles', label: 'Roles and numbers', note: 'Each role and how many it needs.' },
+  { href: '/app/settings/combinations', label: 'Combination rules', note: 'Which roles one person can do together on the same day.' },
+  { href: '/app/settings/draft-rules', label: 'Draft rota rules', note: 'The rules a generated rota follows.' },
+  { href: '/app/settings/pairs', label: 'Who works with whom', note: 'People who serve together, or should be kept apart.' },
+  { href: '/app/settings/services', label: 'Services', note: 'The Sunday pattern and one-off services.' },
+  { href: '/app/settings/rooms', label: 'Rooms', note: 'Adding and renaming rooms.' },
+  { href: '/app/settings/profiles', label: 'What people can see', note: 'Profiles, and which areas each one opens.' },
+];
+
+export function settingsHomePage(ctx: ViewCtx) {
+  return layout(
+    { title: 'Settings', heading: 'Settings', back: BACK, ...ctx },
+    html`
+      <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))">
+        ${SECTIONS.map((x) => html`<a class="card" href="${x.href}"
+              style="display:block;text-decoration:none;color:inherit;margin:0">
+            <h2 style="margin:0 0 .35rem">${x.href.endsWith('keyholders') ? raw(KEY_ICON) : ''} ${x.label}</h2>
+            <p style="margin:0;color:var(--ink-2)">${x.note}</p>
+          </a>`)}
+      </div>
+    `,
+  );
+}
+
+export interface KeyholderRow {
+  id: number;
+  display_name: string;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  is_active: number;
+  keyholder_since: string | null;
+  keyholder_note: string | null;
+}
+
+/**
+ * The keyholder register. Everyone with the tick, including people who have
+ * stopped serving — they are the ones most likely to still have a key that
+ * ought to come back, so they are marked rather than hidden.
+ */
+export function keyholdersPage(rows: KeyholderRow[], ctx: ViewCtx) {
+  const gone = rows.filter((r) => !r.is_active);
+  return layout(
+    { title: 'Keyholders', heading: 'Keyholder register', back: SETTINGS, ...ctx },
+    html`
+      <p class="page-intro">
+        ${rows.length === 0
+          ? 'Nobody is marked as a keyholder yet.'
+          : `${rows.length} ${rows.length === 1 ? 'person holds' : 'people hold'} a key.`}
+        To add somebody, open them under <a href="/app/settings/people">People</a> and tick
+        ${raw(KEY_ICON)} <strong>Keyholder</strong>.
+      </p>
+      ${gone.length
+        ? html`<div class="notice notice-warn"><p style="margin:0">
+            <strong>${gone.length} ${gone.length === 1 ? 'keyholder has' : 'keyholders have'} stopped serving.</strong>
+            Worth checking whether the key has come back; untick them once it has.
+          </p></div>`
+        : ''}
+      ${rows.length
+        ? html`<div class="table-scroll">
+            <table class="grid">
+              <thead><tr><th>Name</th><th>Which keys</th><th>Contact</th><th>Since</th><th></th></tr></thead>
+              <tbody>
+                ${rows.map((r) => html`<tr class="${r.is_active ? '' : 'row-gap'}">
+                  <td>${raw(KEY_ICON)} <a href="/app/settings/people/${r.id}"><strong>${r.display_name}</strong></a>
+                    ${r.full_name && r.full_name !== r.display_name
+                      ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${r.full_name}</div>` : ''}</td>
+                  <td>${r.keyholder_note ?? html`<span style="color:var(--ink-2)">—</span>`}</td>
+                  <td style="color:var(--ink-2)">${r.email ?? r.phone ?? '—'}
+                    ${r.email && r.phone ? html`<div>${r.phone}</div>` : ''}</td>
+                  <td>${r.keyholder_since ? formatDate(r.keyholder_since.slice(0, 10)) : '—'}</td>
+                  <td>${r.is_active ? '' : chip('amber', 'No longer serving')}</td>
+                </tr>`)}
+              </tbody>
+            </table>
+          </div>`
+        : ''}
+    `,
+  );
+}
 
 export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
   const needsReview = people.filter((p) => p.needs_review);
   return layout(
-    { title: 'People and roles', back: BACK, ...ctx },
+    { title: 'People', heading: 'People', back: SETTINGS, ...ctx },
     html`
       <p class="page-intro">
         ${people.length} people. Click any name to change what they can do and how often
@@ -45,11 +133,7 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
         <a class="btn-primary" href="/app/settings/people/new">Add a person</a>
         <a class="btn-secondary" href="/app/settings/people/merge">Merge duplicates</a>
         <a class="btn-secondary" href="/app/settings/people/by-role">Edit by role</a>
-        <a class="btn-secondary" href="/app/settings/profiles">What people can see</a>
-        <a class="btn-secondary" href="/app/settings/roles">Roles and numbers</a>
-        <a class="btn-secondary" href="/app/settings/combinations">Combination rules</a>
-        <a class="btn-secondary" href="/app/settings/draft-rules">Draft rota rules</a>
-        <a class="btn-secondary" href="/app/settings/pairs">Who works with whom</a>
+        <a class="btn-secondary" href="/app/settings/keyholders">${raw(KEY_ICON)} Keyholders</a>
       </div>
 
       ${searchBox({
@@ -73,11 +157,13 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
             ${people.map(
               (p) => html`<tr class="${p.needs_review ? 'row-gap' : ''}"
                     data-search="${[p.display_name, p.full_name, p.email, p.role_names,
-                      p.on_break ? 'taking a break' : '', p.is_guest ? 'guest' : '']
+                      p.on_break ? 'taking a break' : '', p.is_guest ? 'guest' : '',
+                      p.is_keyholder ? 'keyholder' : '']
                       .filter(Boolean)
                       .join(' ')}">
                 <td>
                   <a href="/app/settings/people/${p.id}"><strong>${p.display_name}</strong></a>
+                  ${p.is_keyholder ? html`<span title="Keyholder" aria-label="Keyholder">${raw(KEY_ICON)}</span>` : ''}
                 </td>
                 <td>${p.role_names ?? html`<span style="color:var(--ink-2)">nothing ticked yet</span>`}</td>
                 <td class="num">${p.role_count}</td>

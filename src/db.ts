@@ -51,6 +51,10 @@ export interface PersonRow {
    * when the system asks whether a pool is big enough.
    */
   is_guest: number;
+  /** Holds a key to the buildings. Nothing to do with the rota. */
+  is_keyholder: number;
+  keyholder_since: string | null;
+  keyholder_note: string | null;
 }
 
 export interface RoleRow {

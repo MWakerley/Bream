@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import { AREAS, type ProfileRow } from '../access.js';
 
-const BACK = { href: '/app/settings/people', label: 'Settings' };
+const BACK = { href: '/app/settings', label: 'Settings' };
 
 export function profilesPage(opts: {
   profiles: ProfileRow[];
