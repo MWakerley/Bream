@@ -5,6 +5,7 @@ import { monthCalendar, type CalendarEntry } from './calendar.js';
 import { daysCovered, timeOnDay } from './rooms.js';
 import { FREQUENCIES } from '../recurrence.js';
 import { describeRequestWhen, type FormSettings, type PublicRoom, type RequestRow } from '../roomRequests.js';
+import type { DiarySettings } from '../rooms.js';
 
 // ---------------------------------------------------------------------------
 // The public page
@@ -395,6 +396,60 @@ export function requestsDashboard(requests: RequestRow[], canDecide: boolean) {
     </section>`;
 }
 
+/** A shareable address with a button that copies it. */
+function linkRow(link: string) {
+  return html`<p class="link-row">
+    <a class="btn-secondary" href="${link}" target="_blank" rel="noopener">${link}</a>
+    <button type="button" class="btn-quiet" data-link="${link}"
+            onclick="var b = this; if (navigator.clipboard) { navigator.clipboard.writeText(b.dataset.link).then(function () { b.textContent = 'Copied'; }); } else { window.prompt('Copy this link:', b.dataset.link); }">Copy link</button>
+  </p>`;
+}
+
+/**
+ * The room diary on the website: its two links, and whether it is showing.
+ *
+ * A card of its own with its own Save, below the form's settings and apart
+ * from them. It is a different thing — looking, not asking — and saving one
+ * must never quietly change the other.
+ */
+function diaryCard(d: { settings: DiarySettings; calendarLink: string; listLink: string }) {
+  const on = !!d.settings.is_public;
+  return html`
+    <section class="card" id="diary" aria-labelledby="diary-h">
+      <h2 id="diary-h" style="margin-top:0;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center">
+        Room diary on your website
+        ${on ? chip('green', 'On the website') : chip('neutral', 'Not showing')}
+      </h2>
+      <p>Two pages anybody can look at, without signing in, to see what is booked in each room.
+        Nothing can be booked from them. Put either link, or both, on the church website.</p>
+      <h3 style="margin-bottom:.4rem">As a calendar</h3>
+      ${linkRow(d.calendarLink)}
+      <h3 style="margin-bottom:.4rem">As a list</h3>
+      ${linkRow(d.listLink)}
+      <p class="${on ? '' : 'notice notice-warn'}" style="margin-bottom:1rem">
+        ${on
+          ? 'Showing now: anyone following these links can see what is booked this month and up to a year ahead.'
+          : html`<strong>Not showing:</strong> anyone following these links is told the room diary is not available.`}
+      </p>
+
+      <form method="post" action="/app/rooms/booking-form/diary">
+        <div class="checks" style="grid-template-columns:1fr;max-width:34rem">
+          <label class="check">
+            <input type="checkbox" name="is_public" value="1" ${on ? 'checked' : ''}>
+            <span><span class="check-label">Show the room diary on the website</span>
+              <span class="check-note">Untick to take both pages down; the links stay the same for when it is back.</span></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="show_titles" value="1" ${d.settings.show_titles ? 'checked' : ''}>
+            <span><span class="check-label">Show what each booking is for</span>
+              <span class="check-note">Untick and every booking just says "Booked". Anything asked for through the booking form, and events not yet published, never say.</span></span>
+          </label>
+        </div>
+        <button class="btn-primary" type="submit" style="margin-top:1rem">Save</button>
+      </form>
+    </section>`;
+}
+
 /** Rooms → Booking form: whether the public form is open, and its rules. */
 export function bookingFormSettingsPage(opts: {
   settings: FormSettings;
@@ -404,6 +459,8 @@ export function bookingFormSettingsPage(opts: {
   captchaReady: boolean;
   ctx: ViewCtx;
   notice?: { tone: 'ok' | 'bad'; text: string };
+  /** The room diary for the website, shown in a card of its own. */
+  diary?: { settings: DiarySettings; calendarLink: string; listLink: string };
 }) {
   const { settings: s, rooms, link, ctx, notice } = opts;
   const anyRoom = rooms.some((r) => r.public_booking);
@@ -430,11 +487,7 @@ export function bookingFormSettingsPage(opts: {
         <p>${open
           ? 'Anyone with this link can ask to book a room — they do not need to sign in. Share it on the website or in an email:'
           : 'This is the page people will use. Until it is open, anyone following the link is asked to contact the office instead.'}</p>
-        <p class="link-row">
-          <a class="btn-secondary" href="${link}" target="_blank" rel="noopener">${link}</a>
-          <button type="button" class="btn-quiet" data-link="${link}"
-                  onclick="var b = this; if (navigator.clipboard) { navigator.clipboard.writeText(b.dataset.link).then(function () { b.textContent = 'Copied'; }); } else { window.prompt('Copy this link:', b.dataset.link); }">Copy link</button>
-        </p>
+        ${linkRow(link)}
         ${open
           ? ''
           : html`<p class="notice notice-warn" style="margin-bottom:0">
@@ -492,6 +545,8 @@ export function bookingFormSettingsPage(opts: {
         </div>
         <button class="btn-primary" type="submit">Save</button>
       </form>
+
+      ${opts.diary ? diaryCard(opts.diary) : ''}
     `,
   );
 }

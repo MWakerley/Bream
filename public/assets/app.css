@@ -1080,3 +1080,8 @@ table.grid.sg-grid thead th.sg-course { text-align: center; font-size: .6875rem;
 /* A shareable link with its buttons beside it, wrapping on a phone. */
 .link-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .link-row .btn-secondary { overflow-wrap: anywhere; }
+
+/* A month arrow that would leave the months a calendar may show — the
+   website's room diary reaches from this month to a year on. */
+.cal-head .is-off,
+.cal-head .is-off:hover { opacity: .35; cursor: default; background: var(--paper); }

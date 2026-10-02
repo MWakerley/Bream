@@ -1,5 +1,6 @@
 import type { BookingRow, RoomRow } from './views/rooms.js';
 import { expandSeries, type Frequency } from './recurrence.js';
+import { shiftMonth } from './views/calendar.js';
 
 /**
  * Room bookings.
@@ -342,4 +343,140 @@ export async function planSeries(
     else free.push(d);
   }
   return { dates: free, clashes, skipped, truncated };
+}
+
+// ---------------------------------------------------------------------------
+// The room diary on the website
+// ---------------------------------------------------------------------------
+//
+// Two read-only pages anybody can open, /rooms/calendar and /rooms/list. Every
+// booking they show comes through listPublicDiary below and nowhere else, so
+// what the website can say about a booking is decided in one place.
+
+/** How far ahead of this month the website's diary reaches. */
+export const DIARY_MONTHS_AHEAD = 12;
+
+export interface DiarySettings { is_public: number; show_titles: number }
+
+export async function loadDiarySettings(db: D1Database): Promise<DiarySettings> {
+  const row = await db.prepare(
+    'SELECT is_public, show_titles FROM room_diary_settings WHERE id = 1',
+  ).first<DiarySettings>();
+  // Not public, and no titles, if the row is somehow missing: a page anybody
+  // can open must fail shut, as the booking form does.
+  return row ?? { is_public: 0, show_titles: 0 };
+}
+
+/** The rooms the website's diary has a tab for: the active ones, by name only. */
+export async function listDiaryRooms(db: D1Database): Promise<{ id: number; name: string }[]> {
+  const { results } = await db
+    .prepare('SELECT id, name FROM rooms WHERE is_active = 1 ORDER BY sort_order, name')
+    .all<{ id: number; name: string }>();
+  return results;
+}
+
+/** Everything the website's diary knows about a booking. Nothing else is read. */
+export interface PublicDiaryRow {
+  room_id: number;
+  room_name: string;
+  starts_at: string;
+  ends_at: string;
+  /** NULL wherever it must not be shown — see listPublicDiary. */
+  title: string | null;
+  /** 1 for a time held for somebody who asked online and is waiting to hear. */
+  is_tentative: number;
+  /** 1 when the room is held for an event that is not published yet. */
+  unpublished_event: number;
+}
+
+/** The columns above, for the test that checks nothing else ever comes back. */
+export const PUBLIC_DIARY_COLUMNS = [
+  'room_id', 'room_name', 'starts_at', 'ends_at', 'title', 'is_tentative', 'unpublished_event',
+] as const;
+
+/**
+ * What is booked, for the website.
+ *
+ * THIS IS THE PRIVACY BOUNDARY. It reads the room, the times and the title,
+ * and never the contact, the notes, who booked it, the request it came from,
+ * its series or its id — so no change to a page can show those by accident,
+ * because the page never has them. Cancelled bookings and rooms no longer in
+ * use are left out.
+ *
+ * The title is withheld HERE, not only on the page, wherever it must not be
+ * shown, so it never leaves the database:
+ *
+ *   * titles switched off on Rooms → Booking form: every booking is "Booked".
+ *   * a time held for a request still waiting (is_tentative): what a member of
+ *     the public typed is not the church's to publish, and it may yet be
+ *     declined. The page says "Held — not yet confirmed".
+ *   * anything that came from the public form at all (request_id), even once
+ *     approved: the same words, typed by the same person, who was never told
+ *     they would be on the website.
+ *   * a room held for an event that is not published yet: the website must not
+ *     announce an event before its organisers do. The page says "Booked".
+ */
+export async function listPublicDiary(
+  db: D1Database,
+  fromDate: string,
+  toDate: string,
+  roomId: number | null,
+  showTitles: boolean,
+): Promise<PublicDiaryRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT b.room_id, r.name AS room_name, b.starts_at, b.ends_at,
+              CASE WHEN ?4 = 1 AND b.is_tentative = 0 AND b.request_id IS NULL
+                        AND (b.event_id IS NULL OR e.is_published = 1)
+                   THEN b.title END AS title,
+              b.is_tentative,
+              -- An event id with no event behind it counts as unpublished:
+              -- when in doubt, say less.
+              CASE WHEN b.event_id IS NOT NULL AND COALESCE(e.is_published, 0) <> 1
+                   THEN 1 ELSE 0 END AS unpublished_event
+         FROM room_bookings b
+         JOIN rooms r ON r.id = b.room_id
+         LEFT JOIN events e ON e.id = b.event_id
+        WHERE b.status = 'booked' AND r.is_active = 1
+          -- Overlapping the window, as on the internal diary, so a weekend
+          -- away that began on the Saturday is still there on the Sunday.
+          AND b.starts_at < ?2 AND b.ends_at > ?1
+          AND (?3 IS NULL OR b.room_id = ?3)
+        ORDER BY b.starts_at, r.sort_order, r.name`,
+    )
+    .bind(`${fromDate}T00:00`, `${toDate}T00:00`, roomId, showTitles ? 1 : 0)
+    .all<PublicDiaryRow>();
+  return results;
+}
+
+const addDays = (d: string, n: number) =>
+  new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * The month the website's diary shows, and the days it may read for it.
+ *
+ * Kept between this month and DIARY_MONTHS_AHEAD months on, whatever is asked
+ * for: the website is not a way to read the church's past diary, and a month
+ * that does not exist falls back to this one quietly rather than failing.
+ *
+ * The list starts from today. The calendar starts from the 1st of this month —
+ * a grid with its first days blank would look as though nothing had been on —
+ * and reaches a week either side of the month it shows, for the days of the
+ * neighbouring months at the edges of the grid, but never before this month
+ * or past the last one. `to` is the day after the last day read.
+ */
+export function publicDiaryWindow(view: 'calendar' | 'list', asked: string | undefined, today: string) {
+  const first = today.slice(0, 7);
+  const last = shiftMonth(first, DIARY_MONTHS_AHEAD);
+  const real = asked && /^\d{4}-(0[1-9]|1[0-2])$/.test(asked) ? asked : first;
+  const month = real < first ? first : real > last ? last : real;
+  const next = `${shiftMonth(month, 1)}-01`;
+  if (view === 'list') {
+    return { month, first, last, from: month === first ? today : `${month}-01`, to: next };
+  }
+  const floor = `${first}-01`;
+  const ceiling = `${shiftMonth(last, 1)}-01`;
+  const from = addDays(`${month}-01`, -7);
+  const to = addDays(next, 7);
+  return { month, first, last, from: from < floor ? floor : from, to: to > ceiling ? ceiling : to };
 }
