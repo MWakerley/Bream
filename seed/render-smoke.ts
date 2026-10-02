@@ -322,12 +322,61 @@ await check('person edit', () => personPage({
     is_active: 1, is_admin: 0,
     settings: new Map([[1, {
       role_id: 1, can_do: 1, willing: 1,
-      max_per_period: 2, period_days: 30, min_gap_days: null, done: 4,
+      max_per_period: 2, period_days: 30, min_gap_days: null, ask_any_time: 0, done: 4,
     }]]),
   },
   roles, ctx: CTX, saved: true,
 }), ['Andy', 'What they can do', 'How often', 'Has done this 4 times',
-     'Not recorded doing this yet', 'Save this person', 'Not a duplicate']);
+     'Not recorded doing this yet', 'Save this person', 'Not a duplicate',
+     // The card is now the only thing the draft goes by, so it has to say so.
+     'what the draft rota goes by', 'whatever is left once everybody who has said is counted']);
+
+/**
+ * Which unit each named <select> has selected, followed by the whole page with
+ * its whitespace squeezed to single spaces.
+ *
+ * The templates wrap `selected` onto its own line, so a plain substring test
+ * for value="months" selected would never match. Squeezing first means the
+ * assertions can be written the way the HTML reads.
+ */
+async function unitsShown(render: () => unknown, names: string[]): Promise<string> {
+  const out = String(await render()).replace(/\s+/g, ' ');
+  const picked = names.map((n) => {
+    const at = out.indexOf(`name="${n}"`);
+    if (at < 0) return `${n}=missing`;
+    const block = out.slice(at, out.indexOf('</select>', at));
+    return `${n}=${block.match(/value="(\w+)" selected/)?.[1] ?? 'none'}`;
+  });
+  return `${picked.join(' ')}\n${out}`;
+}
+
+// Weeks being merely the first option meant a blank row showed weeks, so
+// somebody typing "2" without looking asked for a fortnight. Blank rows now
+// start on months; a saved value still comes back in the unit it was typed in.
+await check('a blank frequency row starts on months', () => unitsShown(() => personPage({
+  person: {
+    id: 7, display_name: 'Steve', full_name: null, email: null, needs_review: 0,
+    review_note: null, is_active: 1, is_admin: 0,
+    settings: new Map([[1, {
+      role_id: 1, can_do: 1, willing: 1,
+      max_per_period: null, period_days: null, min_gap_days: 14, ask_any_time: 1, done: 30,
+    }], [2, {
+      role_id: 2, can_do: 1, willing: 1,
+      max_per_period: null, period_days: null, min_gap_days: null, ask_any_time: 0, done: 3,
+    }]]),
+  },
+  roles, ctx: CTX,
+}), ['periodu_1', 'gapu_1', 'periodu_2', 'gapu_2', 'periodu_3', 'gapu_3']), [
+  // Nothing set: both selects on months, for a ticked role and an unticked one.
+  'periodu_2=months', 'gapu_2=months', 'periodu_3=months', 'gapu_3=months',
+  'periodu_1=months',
+  // 14 days still reads back as 2 weeks, not as half a month.
+  'gapu_1=weeks', 'name="gapn_1" value="2"',
+  // "As often as needed" has a box of its own on every row, ticked when set.
+  'As often as needed', 'name="anytime_1" value="1" checked', 'name="anytime_2" value="1" aria-label',
+  'name="anytime_6" value="1"',
+], ['periodu_2=weeks', 'gapu_2=weeks', 'periodu_3=weeks', 'gapu_3=weeks', '=none', '=missing',
+    'name="anytime_2" value="1" checked']);
 
 await check('merge', () => mergePage({
   groups: [{
@@ -494,18 +543,22 @@ await check('change requests', () => requestsPage({
 await check('change requests (none)', () => requestsPage({ requests: [], ctx: CTX }),
   ['Nothing outstanding']);
 
-await check('people by role', () => peopleByRolePage({
+const BY_ROLE = {
   roles, role: roles[0]!,
   people: [
     { id: 1, display_name: 'Steve', needs_review: 0, on_break: 0, is_guest: 0, can_do: 1,
-      max_per_period: 2, period_days: 30, min_gap_days: null, done: 15 },
+      max_per_period: 2, period_days: 30, min_gap_days: null, ask_any_time: 1, done: 15 },
     { id: 2, display_name: 'Matt R', needs_review: 1, on_break: 1, is_guest: 0, can_do: 1,
-      max_per_period: null, period_days: null, min_gap_days: 91, done: 2 },
+      max_per_period: null, period_days: null, min_gap_days: 91, ask_any_time: 0, done: 2 },
     { id: 3, display_name: 'Sue', needs_review: 0, on_break: 0, is_guest: 1, can_do: 0,
-      max_per_period: null, period_days: null, min_gap_days: null, done: 0 },
+      max_per_period: null, period_days: null, min_gap_days: null, ask_any_time: 0, done: 0 },
+    { id: 4, display_name: 'Pat', needs_review: 0, on_break: 0, is_guest: 0, can_do: 1,
+      max_per_period: null, period_days: null, min_gap_days: 14, ask_any_time: 0, done: 6 },
   ],
   ctx: CTX,
-}), [
+};
+
+await check('people by role', () => peopleByRolePage(BY_ROLE), [
   'Who can do Preacher', 'Steve', 'Sue',
   // The hidden list of who was shown is what stops a filtered save wiping
   // everybody it did not display, so its absence must fail the test.
@@ -514,7 +567,21 @@ await check('people by role', () => peopleByRolePage({
   // A tick says somebody COULD do it; the warning counts who the rota may
   // actually pick, and says why the two numbers differ.
   'taking a break', 'the rota can use now', 'are ticked, but',
+  'The draft rota goes by these figures',
 ]);
+
+// The same months default and "as often as needed" box as a person's own page,
+// since this is the other place the same figures are typed.
+await check('by role, a blank row starts on months', () => unitsShown(
+  () => peopleByRolePage(BY_ROLE),
+  ['periodu_1', 'gapu_1', 'gapu_2', 'periodu_3', 'gapu_3', 'gapu_4'],
+), [
+  'periodu_1=months', 'gapu_1=months', 'gapu_2=quarters',
+  'periodu_3=months', 'gapu_3=months',
+  'gapu_4=weeks', 'name="gapn_4" value="2"',
+  'As often as needed', 'name="anytime_1" value="1" checked', 'name="anytime_3" value="1" aria-label',
+], ['gapu_1=weeks', 'periodu_3=weeks', 'gapu_3=weeks', '=none', '=missing',
+    'name="anytime_2" value="1" checked']);
 
 // --- searching ------------------------------------------------------------
 // The filter runs in the browser, so what this can prove is that every row
@@ -816,17 +883,11 @@ await check('the people list marks breaks and guests', () => peoplePage([
   'taking a break', 'guest']);
 
 // --- the rules a draft is built to ---------------------------------------
-// Every figure on this page already existed: the generator derived it from the
-// size of a team and refused people on it without ever saying so. The page's
-// job is to say that plainly, because somebody who thinks they are adding a
-// new rule will set it differently from somebody who knows they are correcting
-// one that has been running all along.
+// Only the rules for the whole rota live here now. How often one person does a
+// job is said on their own record, so the page that used to hold a per-role
+// figure has to send anybody looking for it there, and must not quietly keep a
+// second copy that would overrule what a preacher has asked for.
 await check('the draft rules page', () => draftRulesPage({
-  roles: [
-    { ...role(1, 'Preacher'), default_min_gap_days: 21, default_target_days: null },
-    { ...role(2, 'Service leader'), default_min_gap_days: 28, default_target_days: 91 },
-    { ...role(3, 'Reader', 2, 2), default_min_gap_days: null, default_target_days: null },
-  ],
   rules: {
     any_role_gap: 'fortnight_prefer', max_roles_per_service: null,
     when_short: 'bend_both', fairness: 'balanced', list_every_empty_place: 0,
@@ -834,38 +895,34 @@ await check('the draft rules page', () => draftRulesPage({
   ctx: CTX,
 }), [
   'Rules for draft rotas',
-  'Preacher', 'Service leader', 'Reader',
-  // 21 days reads back as 3 weeks, and 91 as 1 quarter — the unit somebody
-  // would actually have typed, which is what toUnits() exists for.
-  'value="3"', 'value="1"',
-  'name="gapn_1"', 'name="targetn_2"',
   'Before someone', 'Most jobs one person may have at a single service',
   'If a service would still be short', 'Spreading the work out',
-  // The framing that makes the whole page make sense.
-  'These figures are not new',
   // The firm option has to be described as firm.
   'Never on two Sundays running',
+  // Where the per-person figures live now, for whoever comes looking here.
+  'How often one person does the same job', 'set for each person now',
+  'href="/app/settings/people"', 'href="/app/settings/people/by-role"', 'Edit by role',
+  'gets a fair share of whatever is left',
+  'action="/app/settings/draft-rules"', 'Save these rules',
+], [
+  // The per-role table, and the warning and exceptions that hung off it.
+  'name="gapn_1"', 'name="targetn_2"', 'Aim for about',
+  'These figures are not new', 'Save these exceptions', 'draft-rules/exempt',
 ]);
 
-// The churchwarden's own "unless of course someone is doing them frequently",
-// asked at the moment a tightened figure would push somebody off.
-await check('tightening a rule names back who it would push off', () => draftRulesPage({
-  roles: [{ ...role(1, 'Preacher'), default_min_gap_days: 28, default_target_days: null }],
+// The whole-rota rules come back as they were saved, since this is all the
+// page's form now carries.
+await check('the whole-rota rules come back as saved', async () => String(await draftRulesPage({
   rules: {
-    any_role_gap: 'fortnight_prefer', max_roles_per_service: 2,
+    any_role_gap: 'not_two_sundays', max_roles_per_service: 2,
     when_short: 'leave_empty', fairness: 'even', list_every_empty_place: 1,
   },
   ctx: CTX,
-  affected: [{ role_id: 1, role_name: 'Preacher', people: [
-    { id: 5, name: 'Steve', every: 14 },
-  ] }],
-}), [
-  'already do these jobs more often',
-  'Ask Steve as often as needed', 'about every 14 days',
-  'value="1:5"',
-  // The whole-rota rules come back selected as they were saved.
-  'value="2"', 'Save these exceptions',
-]);
+})).replace(/\s+/g, ' '), [
+  'name="max_roles" type="number" min="1" max="6" style="width:6rem" value="2"',
+  'value="not_two_sundays" selected', 'value="leave_empty" selected', 'value="even" selected',
+  'name="list_every_empty_place" value="1" checked',
+], ['value="fortnight_prefer" selected', 'value="bend_both" selected', 'value="balanced" selected']);
 
 // --- the worship team's own roster ---------------------------------------
 const BAND = [

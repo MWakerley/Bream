@@ -201,6 +201,8 @@ export interface PersonForRole {
   max_per_period: number | null;
   period_days: number | null;
   min_gap_days: number | null;
+  /** "As often as needed" for this role. 0 when they have no row yet. */
+  ask_any_time: number;
   /** How many times they have actually done this role. */
   done: number;
 }
@@ -222,6 +224,7 @@ export async function listPeopleForRole(
       `SELECT p.id, p.display_name, p.needs_review, p.on_break, p.is_guest,
               COALESCE(pr.can_do, 0) AS can_do,
               pr.max_per_period, pr.period_days, pr.min_gap_days,
+              COALESCE(pr.ask_any_time, 0) AS ask_any_time,
               (SELECT COUNT(*) FROM assignments a
                 WHERE a.person_id = p.id AND a.role_id = ?1) AS done
          FROM people p

@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import { searchBox } from './search.js';
-import { UNITS, toUnits } from '../frequency.js';
+import { UNITS, toUnits, unitFor } from '../frequency.js';
 import type { PersonForRole, RoleRow } from '../db.js';
 
 /**
@@ -112,7 +112,7 @@ export function peopleByRolePage(opts: {
             <thead>
               <tr>
                 <th>Can do it</th><th>Name</th><th class="num">Done</th>
-                <th>At most</th><th>Not more often than</th>
+                <th>At most</th><th>Not more often than</th><th>As often as needed</th>
               </tr>
             </thead>
             <!-- Hiding a row does not take its inputs out of the form: a hidden
@@ -151,7 +151,7 @@ export function peopleByRolePage(opts: {
                              aria-label="How many, for ${p.display_name}">
                       <select name="periodu_${p.id}" aria-label="Unit for ${p.display_name}">
                         ${UNITS.map((u) => html`<option value="${u.value}"
-                          ${toUnits(p.period_days)?.unit === u.value ? 'selected' : ''}>${u.label}</option>`)}
+                          ${unitFor(p.period_days) === u.value ? 'selected' : ''}>${u.label}</option>`)}
                       </select>
                     </span>
                   </td>
@@ -163,15 +163,33 @@ export function peopleByRolePage(opts: {
                              aria-label="Minimum gap for ${p.display_name}">
                       <select name="gapu_${p.id}" aria-label="Gap unit for ${p.display_name}">
                         ${UNITS.map((u) => html`<option value="${u.value}"
-                          ${toUnits(p.min_gap_days)?.unit === u.value ? 'selected' : ''}>${u.label}</option>`)}
+                          ${unitFor(p.min_gap_days) === u.value ? 'selected' : ''}>${u.label}</option>`)}
                       </select>
                     </span>
+                  </td>
+                  <td>
+                    <!-- Covered by the same "shown" list as the Yes box: an
+                         unticked box sends nothing, and the save reads that as
+                         unticked only for the people this page listed. -->
+                    <label class="check" style="padding:.4rem .6rem">
+                      <input type="checkbox" name="anytime_${p.id}" value="1"
+                             ${p.ask_any_time ? 'checked' : ''}
+                             aria-label="Ask ${p.display_name} to do ${role.name} as often as needed">
+                      <span class="check-label" style="font-size:.9375rem">Yes</span>
+                    </label>
                   </td>
                 </tr>`,
               )}
             </tbody>
           </table>
         </div>
+
+        <p style="color:var(--ink-2);font-size:.9375rem;margin-bottom:0">
+          The draft rota goes by these figures. Leave somebody's blank for no strong view, and
+          they get a fair share of whatever is left. <strong>As often as needed</strong> lets the
+          draft ask them every week if need be — their own <strong>At most</strong> and
+          <strong>Not more often than</strong> still count.
+        </p>
 
         <div class="btn-row" style="margin-top:1.25rem">
           <button class="btn-primary" type="submit">Save who can do ${role.name}</button>

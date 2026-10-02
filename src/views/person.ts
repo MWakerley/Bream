@@ -2,7 +2,7 @@ import { html, raw } from 'hono/html';
 import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
 import type { RoleRow } from '../db.js';
 import { formatDate, formatDateTime } from './rota.js';
-import { UNITS, toUnits } from '../frequency.js';
+import { UNITS, toUnits, unitFor } from '../frequency.js';
 import { personSafeguardingCard } from './safeguarding.js';
 import { KEYS, parseKeys } from '../keyholders.js';
 import type { PersonSafeguarding, SafeguardingGrid } from '../safeguarding.js';
@@ -16,6 +16,9 @@ export interface PersonRoleSetting {
   max_per_period: number | null;
   period_days: number | null;
   min_gap_days: number | null;
+  /** "As often as needed": lifts the gap the draft would otherwise work out for
+   *  them, and the gap between any two jobs. Their own minimum still counts. */
+  ask_any_time: number;
   /** How many times they have actually done it, from the imported rota. */
   done: number;
 }
@@ -318,9 +321,13 @@ export function personPage(opts: {
 
         <div class="card">
           <h2>How often they want to do it</h2>
+          <!-- This card is the only place the draft rota learns how often somebody
+               wants a job — there is no per-role figure behind it any more — so it
+               says so, rather than leaving it to be guessed. -->
           <p style="color:var(--ink-2)">
-            Only the roles ticked above appear here. Leave blank for "no strong view" —
-            the rota will then aim for a fair share.
+            This is what the draft rota goes by. Only the roles ticked above appear here.
+            Leave blank for no strong view — the draft rota then gives them a fair share of
+            whatever is left once everybody who has said is counted.
           </p>
           <p id="freq-empty" class="hint" hidden>
             Nothing ticked yet. Tick a role above and it will appear here.
@@ -332,6 +339,7 @@ export function personPage(opts: {
                   <th>Role</th>
                   <th>At most</th>
                   <th>Not more often than</th>
+                  <th>As often as needed</th>
                 </tr>
               </thead>
               <tbody>
@@ -339,7 +347,10 @@ export function personPage(opts: {
                   const s = p.settings.get(r.id);
                   // Rendered for every role and hidden unless ticked, so the rows
                   // can appear the moment a box is ticked without a round trip —
-                  // and so the page still works with no JavaScript at all.
+                  // and so the page still works with no JavaScript at all. It also
+                  // matters to the save: every role's row is submitted, hidden or
+                  // not, so an absent "As often as needed" tick really does mean
+                  // unticked rather than "this form never asked".
                   return html`<tr data-freq-for="${r.id}" ${s?.can_do ? '' : 'hidden'}>
                     <td><strong>${r.name}</strong></td>
                     <td>
@@ -355,7 +366,7 @@ export function personPage(opts: {
                         <select name="periodu_${r.id}"
                                 aria-label="Weeks, months or quarters, for ${r.name}">
                           ${UNITS.map((u) => html`<option value="${u.value}"
-                            ${toUnits(s?.period_days ?? null)?.unit === u.value ? 'selected' : ''}>${u.label}</option>`)}
+                            ${unitFor(s?.period_days) === u.value ? 'selected' : ''}>${u.label}</option>`)}
                         </select>
                       </span>
                     </td>
@@ -369,18 +380,31 @@ export function personPage(opts: {
                         <select name="gapu_${r.id}"
                                 aria-label="Weeks, months or quarters, minimum gap for ${r.name}">
                           ${UNITS.map((u) => html`<option value="${u.value}"
-                            ${toUnits(s?.min_gap_days ?? null)?.unit === u.value ? 'selected' : ''}>${u.label}</option>`)}
+                            ${unitFor(s?.min_gap_days) === u.value ? 'selected' : ''}>${u.label}</option>`)}
                         </select>
                       </span>
+                    </td>
+                    <td>
+                      <label class="check" style="padding:.4rem .6rem">
+                        <input type="checkbox" name="anytime_${r.id}" value="1"
+                               ${s?.ask_any_time ? 'checked' : ''}
+                               aria-label="Ask ${p.display_name} to do ${r.name} as often as needed">
+                        <span class="check-label" style="font-size:.9375rem">Yes</span>
+                      </label>
                     </td>
                   </tr>`;
                 })}
               </tbody>
             </table>
           </div>
-          <p style="color:var(--ink-2);font-size:.9375rem;margin-bottom:0">
+          <p style="color:var(--ink-2);font-size:.9375rem">
             For example: "twice a month" is <strong>2 times every 1 month</strong>.
             "Only every three months" is <strong>once every 1 quarter</strong>.
+          </p>
+          <p style="color:var(--ink-2);font-size:.9375rem;margin-bottom:0">
+            <strong>As often as needed</strong> lets the draft ask them every week if need be —
+            for a vicar who preaches most Sundays, say. Their own <strong>At most</strong> and
+            <strong>Not more often than</strong> still count.
           </p>
         </div>
 

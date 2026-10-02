@@ -883,17 +883,21 @@ app.post('/app/settings/people/by-role', async (c) => {
     const period = readUnitPair(form, `periodn_${personId}`, `periodu_${personId}`);
     // A cap needs both halves to mean anything; half of one is treated as unset.
     const capOk = max !== null && period !== null;
+    // Safe to read an absent box as "no": every row the page draws carries one,
+    // and only the people it drew are in `shown`.
+    const anyTime = form.get(`anytime_${personId}`) ? 1 : 0;
     return c.env.DB.prepare(
       `INSERT INTO person_roles (person_id, role_id, can_do, willing,
-                                 max_per_period, period_days, min_gap_days)
-       VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6)
+                                 max_per_period, period_days, min_gap_days, ask_any_time)
+       VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)
        ON CONFLICT(person_id, role_id) DO UPDATE SET
          can_do = excluded.can_do,
          max_per_period = excluded.max_per_period,
          period_days = excluded.period_days,
-         min_gap_days = excluded.min_gap_days`,
+         min_gap_days = excluded.min_gap_days,
+         ask_any_time = excluded.ask_any_time`,
     ).bind(personId, roleId, canDo, capOk ? max : null, capOk ? period : null,
-      readUnitPair(form, `gapn_${personId}`, `gapu_${personId}`));
+      readUnitPair(form, `gapn_${personId}`, `gapu_${personId}`), anyTime);
   });
 
   for (let i = 0; i < stmts.length; i += 50) await c.env.DB.batch(stmts.slice(i, i + 50));
@@ -1021,6 +1025,7 @@ async function personView(
               COALESCE(pr.can_do, 0)  AS can_do,
               COALESCE(pr.willing, 1) AS willing,
               pr.max_per_period, pr.period_days, pr.min_gap_days,
+              COALESCE(pr.ask_any_time, 0) AS ask_any_time,
               (SELECT COUNT(*) FROM assignments a
                 WHERE a.person_id = ?1 AND a.role_id = r.id) AS done
          FROM roles r
@@ -1303,17 +1308,23 @@ app.post('/app/settings/people/:id', async (c) => {
     // generator does arithmetic on.
     const period = readUnitPair(form, `periodn_${r.id}`, `periodu_${r.id}`);
     const pairOk = max !== null && period !== null;
+    // "As often as needed". The page draws a row for every role, ticked or not,
+    // so a missing box here means unticked. That holds only because the person
+    // page is the one form that posts here: a form without the table would
+    // clear every tick, so it would need its own handler.
+    const anyTime = form.get(`anytime_${r.id}`) ? 1 : 0;
     return c.env.DB.prepare(
       `INSERT INTO person_roles (person_id, role_id, can_do, willing,
-                                 max_per_period, period_days, min_gap_days)
-       VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6)
+                                 max_per_period, period_days, min_gap_days, ask_any_time)
+       VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)
        ON CONFLICT(person_id, role_id) DO UPDATE SET
          can_do = excluded.can_do,
          max_per_period = excluded.max_per_period,
          period_days = excluded.period_days,
-         min_gap_days = excluded.min_gap_days`,
+         min_gap_days = excluded.min_gap_days,
+         ask_any_time = excluded.ask_any_time`,
     ).bind(id, r.id, canDo, pairOk ? max : null, pairOk ? period : null,
-      readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`));
+      readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`), anyTime);
   });
   for (let i = 0; i < stmts.length; i += 50) await c.env.DB.batch(stmts.slice(i, i + 50));
 
@@ -1416,40 +1427,25 @@ app.post('/app/settings/roles/new', async (c) => {
 /**
  * The rules the draft rota is built to.
  *
- * Everything here already existed as a number the generator derived from the
- * size of a team and never showed anybody. Migration 0017 wrote those numbers
- * down; this page is where they become somebody's decision rather than an
- * accident of how many people happen to be on a list.
+ * Only the rules for the whole rota now. This page also used to set, per role,
+ * how often one person may do the same job — but that answered the same
+ * question as each person's own record, and a team-wide figure could hold back
+ * a preacher who had asked to preach more without anything on their record
+ * saying why. How often somebody does a job is now said in one place only: on
+ * their own record, or a whole team at once on People > Edit by role.
  */
 async function draftRulesView(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   notice?: { tone: 'ok' | 'bad'; text: string },
-  affected?: { role_name: string; role_id: number; people: { id: number; name: string; every: number }[] }[],
 ) {
-  const [roles, rules] = await Promise.all([listRoles(c.env.DB), getRotaRules(c.env.DB)]);
-  return c.html(draftRulesPage({ roles, rules, ctx: viewCtx(c), notice, affected }));
+  const rules = await getRotaRules(c.env.DB);
+  return c.html(draftRulesPage({ rules, ctx: viewCtx(c), notice }));
 }
 
 app.get('/app/settings/draft-rules', (c) => draftRulesView(c));
 
 app.post('/app/settings/draft-rules', async (c) => {
   const form = await c.req.formData();
-  const roles = await listRoles(c.env.DB);
-
-  // What each role's floor was before this save, so the page can name back the
-  // people a TIGHTENED figure would newly push off. Loosening one pushes nobody
-  // off, so only an increase is worth asking about.
-  const before = new Map(roles.map((r) => [r.id, r.default_min_gap_days]));
-
-  const writes = roles.map((r) => {
-    const gap = readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`);
-    const target = readUnitPair(form, `targetn_${r.id}`, `targetu_${r.id}`);
-    return c.env.DB.prepare(
-      'UPDATE roles SET default_min_gap_days = ?2, default_target_days = ?3 WHERE id = ?1',
-    ).bind(r.id, gap, target);
-  });
-  for (const chunk of chunked(writes, 100)) await c.env.DB.batch(chunk);
-
   const maxRoles = Number(form.get('max_roles'));
   await saveRotaRules(c.env.DB, {
     any_role_gap: String(form.get('any_role_gap') ?? 'fortnight_prefer'),
@@ -1459,68 +1455,9 @@ app.post('/app/settings/draft-rules', async (c) => {
     list_every_empty_place: form.get('list_every_empty_place') ? 1 : 0,
   });
 
-  // Who a newly tightened figure would push off. This is the churchwarden's own
-  // "unless of course someone is doing them frequently", asked at the moment it
-  // arises rather than left as something he has to know to go and do.
-  const affected = [];
-  for (const r of roles) {
-    const now = readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`);
-    const was_ = before.get(r.id) ?? null;
-    if (now == null || (was_ != null && now <= was_)) continue;
-
-    const { results } = await c.env.DB.prepare(
-      `SELECT p.id, p.display_name AS name,
-              CAST((julianday(MAX(s.service_date)) - julianday(MIN(s.service_date)))
-                   / MAX(COUNT(*) - 1, 1) AS INTEGER) AS every
-         FROM assignments a
-         JOIN services s ON s.id = a.service_id
-         JOIN people p   ON p.id = a.person_id
-         LEFT JOIN person_roles pr ON pr.person_id = p.id AND pr.role_id = ?1
-        WHERE a.role_id = ?1
-          AND s.service_date >= date('now', '-400 days')
-          AND COALESCE(pr.ask_any_time, 0) = 0
-          AND pr.min_gap_days IS NULL
-        GROUP BY p.id
-       HAVING COUNT(*) >= 2 AND every < ?2
-        ORDER BY every`,
-    ).bind(r.id, now).all<{ id: number; name: string; every: number }>();
-
-    if (results.length) affected.push({ role_id: r.id, role_name: r.name, people: results });
-  }
-
   return draftRulesView(c, {
     tone: 'ok',
-    text: affected.length
-      ? 'Saved. Some people already do these jobs more often than you have just asked for — see below.'
-      : 'Saved. The next draft you generate will follow these rules.',
-  }, affected.length ? affected : undefined);
-});
-
-/** "Ask them as often as needed", ticked against the names the save named back. */
-app.post('/app/settings/draft-rules/exempt', async (c) => {
-  const form = await c.req.formData();
-  const picked = form.getAll('exempt').map(String);
-
-  const writes = picked.map((v) => {
-    const [roleId, personId] = v.split(':').map(Number);
-    if (!Number.isInteger(roleId) || !Number.isInteger(personId)) return null;
-    // The row always exists — they have been ticked as able to do the role —
-    // but ON CONFLICT keeps this safe if it somehow does not.
-    return c.env.DB.prepare(
-      `INSERT INTO person_roles (person_id, role_id, can_do, ask_any_time)
-       VALUES (?1, ?2, 1, 1)
-       ON CONFLICT(person_id, role_id) DO UPDATE SET ask_any_time = 1`,
-    ).bind(personId, roleId);
-  }).filter(Boolean) as D1PreparedStatement[];
-
-  if (writes.length) {
-    for (const chunk of chunked(writes, 100)) await c.env.DB.batch(chunk);
-  }
-  return draftRulesView(c, {
-    tone: 'ok',
-    text: writes.length
-      ? `${writes.length} ${writes.length === 1 ? 'person' : 'people'} will now be asked as often as needed.`
-      : 'Nothing ticked, so nothing changed.',
+    text: 'Saved. The next draft you generate will follow these rules.',
   });
 });
 
