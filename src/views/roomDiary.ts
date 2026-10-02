@@ -33,13 +33,25 @@ export interface DiaryPageOpts {
   from: string;
   to: string;
   showTitles: boolean;
+  /** The date in Britain, as 'YYYY-MM-DD': where Today leads, and the day
+   *  ringed on the calendar. */
+  today: string;
 }
 
 export const HELD = 'Held — not yet confirmed';
+export const PRIVATE = 'Private booking';
 
-/** What the website says a booking is for. */
+/**
+ * What the website says a booking is for.
+ *
+ * The query has already withheld the title of a private booking; it is
+ * checked again here so a page handed the wrong rows still says no more.
+ * Private says so whether titles are on or off — it is what the person who
+ * ticked it was promised the website would say.
+ */
 export function diaryLabel(b: PublicDiaryRow, showTitles: boolean): string {
   if (b.is_tentative) return HELD;
+  if (b.is_private) return PRIVATE;
   if (!showTitles || b.unpublished_event || !b.title) return 'Booked';
   return b.title;
 }
@@ -113,6 +125,7 @@ export function publicDiaryCalendarPage(o: DiaryPageOpts) {
       baseHref: '/rooms/calendar',
       extraQuery: o.roomId ? `room=${o.roomId}` : '',
       months: o.months,
+      today: o.today,
       emptyMessage: `Nothing booked in ${monthLabel(o.month)}${room ? ` for the ${room.name}` : ''}.`,
     })}
   `);
@@ -135,7 +148,8 @@ export function publicDiaryListPage(o: DiaryPageOpts) {
     ${roomTabs('/rooms/list', o)}
     ${KEY}
     <p><a class="btn-quiet" href="/rooms/calendar?${query(o.roomId, o.month)}">See this as a calendar</a></p>
-    ${monthHead({ month: o.month, baseHref: '/rooms/list', extraQuery: o.roomId ? `room=${o.roomId}` : '', months: o.months })}
+    ${monthHead({ month: o.month, baseHref: '/rooms/list', extraQuery: o.roomId ? `room=${o.roomId}` : '',
+      months: o.months, today: o.today })}
 
     ${days.length === 0
       ? html`<div class="card"><p style="margin:0">
@@ -148,7 +162,10 @@ export function publicDiaryListPage(o: DiaryPageOpts) {
               <thead><tr><th>Room</th><th>Time</th><th>What for</th></tr></thead>
               <tbody>
                 ${list
-                  .sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.room_name.localeCompare(b.room_name))
+                  // By time only, as the calendar and the internal list are.
+                  // The sort is stable, so bookings at the same time keep the
+                  // query's order — the rooms in their own order, not A to Z.
+                  .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
                   .map((b) => html`<tr>
                     <td><strong>${b.room_name}</strong></td>
                     <td class="num">${timeOnDay(b, d)}</td>

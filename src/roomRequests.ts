@@ -376,6 +376,11 @@ export type Decision =
  *
  * If something has since been booked over its held dates (an event holding the
  * room anyway, say), approval is refused unless `anyway` is given.
+ *
+ * Approving never makes a booking private: is_private is left at 0, on the
+ * dates and on any series, so the room diary on the website says what an
+ * approved booking is for. Somebody can still tick "Private booking" on it
+ * afterwards, as on any other booking.
  */
 export async function approveRequest(db: D1Database, id: number, by: number, anyway = false): Promise<Decision> {
   const req = await getRequest(db, id);

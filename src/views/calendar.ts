@@ -44,6 +44,25 @@ export function thisMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+/**
+ * Today's date in Britain, as 'YYYY-MM-DD', for the pages the public sees.
+ *
+ * new Date().toISOString() is the date in UTC, which all summer is still
+ * yesterday between midnight and one in the morning here: the website's room
+ * diary listed yesterday, and on the 1st opened on last month. Intl knows when
+ * the clocks change. The parts are put together by hand, as formatDateTime in
+ * rota.ts does, rather than trusting a locale to write dates as YYYY-MM-DD —
+ * that is a habit of en-CA, not a promise. The instant can be given, so a test
+ * can stand at a fixed moment.
+ */
+export function londonToday(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 /** Every day shown in the grid: the month, padded to whole weeks from Monday. */
 function gridDays(ym: string): { date: string; inMonth: boolean }[] {
   const [y, m] = ym.split('-').map(Number);
@@ -70,14 +89,20 @@ function gridDays(ym: string): { date: string; inMonth: boolean }[] {
  * goes nowhere. The website's room diary reaches only from this month to a
  * year on, and an arrow that led to a month it then refused to show would
  * look broken.
+ *
+ * `today` ('YYYY-MM-DD') is where Today leads; the website's diary gives the
+ * date in Britain. Without it, this month in UTC, as the system's own
+ * calendars have always had it.
  */
 export function monthHead(opts: {
   month: string;
   baseHref: string;
   extraQuery?: string;
   months?: { first: string; last: string };
+  today?: string;
 }) {
   const { month, baseHref, months } = opts;
+  const current = opts.today ? opts.today.slice(0, 7) : thisMonth();
   const extra = opts.extraQuery ? `&${opts.extraQuery}` : '';
   const arrow = (by: -1 | 1) => {
     const to = shiftMonth(month, by);
@@ -92,7 +117,7 @@ export function monthHead(opts: {
       ${arrow(-1)}
       <h2 class="cal-month">${monthLabel(month)}</h2>
       ${arrow(1)}
-      <a class="btn-quiet" href="${baseHref}?month=${thisMonth()}${extra}">Today</a>
+      <a class="btn-quiet" href="${baseHref}?month=${current}${extra}">Today</a>
     </div>`;
 }
 
@@ -104,6 +129,9 @@ export function monthCalendar(opts: {
   extraQuery?: string;
   /** The months the arrows may reach, as 'YYYY-MM'. Optional; see monthHead. */
   months?: { first: string; last: string };
+  /** Today, as 'YYYY-MM-DD': the day ringed, and where Today leads. Optional;
+   *  without it, the date in UTC. */
+  today?: string;
   emptyMessage?: string;
   /**
    * Makes each day itself clickable, for "book this day".
@@ -123,7 +151,7 @@ export function monthCalendar(opts: {
   };
 }) {
   const { month, entries, baseHref } = opts;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
 
   const byDay = new Map<string, CalendarEntry[]>();
   for (const e of entries) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
@@ -132,7 +160,7 @@ export function monthCalendar(opts: {
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   return html`
-    ${monthHead({ month, baseHref, extraQuery: opts.extraQuery, months: opts.months })}
+    ${monthHead({ month, baseHref, extraQuery: opts.extraQuery, months: opts.months, today: opts.today })}
 
     ${entries.length === 0 && opts.emptyMessage
       ? html`<div class="notice notice-info"><p style="margin:0">${opts.emptyMessage}</p></div>`

@@ -438,6 +438,47 @@ await check('edit booking', () => editBookingPage({
   booking: BOOKING, rooms: ROOMS, ctx: CTX,
 }), ['Home group', 'Save changes', '19:00']);
 
+// "Private booking": the same tick on all three forms, ticked when it is set,
+// and a chip wherever the system lists or draws a private booking.
+const TICK = ['name="is_private" value="1"', '<span class="check-label">Private booking</span>',
+  'The room diary on the website shows just "Private booking" and the time — not what it is for.'];
+const TICKED = 'name="is_private" value="1" checked';
+const PRIV_BOOKING = { ...BOOKING, title: 'Counselling', is_private: 1 };
+await check('the new-booking form has the private tick, clear to start with', () => roomsPage({
+  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
+}), [...TICK, 'For a repeating booking, every date it books.'], [TICKED]);
+await check('and a booking refused for a clash comes back still ticked', () => roomsPage({
+  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
+  form: { title: 'Counselling', is_private: '1' }, notice: { tone: 'bad', text: 'That room is already booked.' },
+}), [TICKED, 'value="Counselling"']);
+await check('a private booking is listed in full, with a "Private" chip', () => roomsPage({
+  rooms: ROOMS, bookings: [PRIV_BOOKING, { ...BOOKING, id: 2, starts_at: '2026-11-20T21:00', ends_at: '2026-11-20T22:00', title: 'Choir' }],
+  series: [{ ...SERIES[0]!, is_private: 1 }], ctx: CTX, weekFrom: '2026-11-18',
+}), ['Counselling', 'class="chip chip-neutral"', '>Private</span>', 'Choir'], []);
+await check('an ordinary booking has no chip', () => roomsPage({
+  rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18',
+}), ['Home group'], ['>Private</span>']);
+await check('the booking page has the tick, ticked, and the chip', () => editBookingPage({
+  booking: PRIV_BOOKING, rooms: ROOMS, ctx: CTX,
+}), [...TICK, TICKED, '>Private</span>', 'shows this just as "Private booking"'], ['This week only']);
+await check('an ordinary booking page has the tick unticked, and no chip', () => editBookingPage({
+  booking: BOOKING, rooms: ROOMS, ctx: CTX,
+}), TICK, [TICKED, '>Private</span>']);
+await check('one week of a series says the tick is for that week only', () => editBookingPage({
+  booking: { ...BOOKING, series_id: 1 }, rooms: ROOMS, ctx: CTX,
+}), ['This week only', 'unless the series is saved with &quot;Private booking&quot; ticked, which makes every week private']);
+await check('the series page has the tick, and says how far it reaches', () => editSeriesPage({
+  series: SERIES[0]!, rooms: ROOMS, ctx: CTX,
+}), [...TICK, 'Every booking in the series — see above.', 'reaches further',
+     'any week changed on its own keeps the tick it has'], [TICKED, '>Private</span>']);
+await check('a private series opens ticked, with the chip', () => editSeriesPage({
+  series: { ...SERIES[0]!, is_private: 1 }, rooms: ROOMS, ctx: CTX,
+}), [TICKED, '>Private</span>', 'shows these just as "Private booking"']);
+await check('the room calendar says "(private)" after a private booking', () => roomsCalendarPage({
+  rooms: ROOMS, roomId: null, bookings: [PRIV_BOOKING, { ...BOOKING, id: 2, starts_at: '2026-11-21T19:00', ends_at: '2026-11-21T21:00' }],
+  counts: new Map(), month: '2026-11', ctx: CTX,
+}), ['Counselling (private)', 'the website shows just &quot;Private booking&quot;', 'Home group'], ['Home group (private)']);
+
 // ---- events --------------------------------------------------------------
 const EVENT = {
   id: 1, slug: 'harvest-supper', title: 'Harvest Supper',
@@ -1358,7 +1399,7 @@ await check('and nothing at all on a quiet week', () => homePage({
   const { publicDiaryCalendarPage, publicDiaryListPage, diaryClosedPage } = await import('../src/views/roomDiary.js');
   const DIARY_ROOMS = [{ id: 1, name: 'Main church' }, { id: 2, name: 'Church Centre' }, { id: 3, name: 'Prayer room' }];
   const row = (o: Record<string, unknown>) => ({ room_id: 2, room_name: 'Church Centre', title: 'Home group',
-    starts_at: '2026-10-06T19:00', ends_at: '2026-10-06T21:00', is_tentative: 0, unpublished_event: 0, ...o });
+    starts_at: '2026-10-06T19:00', ends_at: '2026-10-06T21:00', is_tentative: 0, unpublished_event: 0, is_private: 0, ...o });
   const DIARY = [
     // Carries what a booking row has inside the system, as if the page had been
     // handed the wrong rows: none of it may reach the page.
@@ -1372,7 +1413,7 @@ await check('and nothing at all on a quiet week', () => homePage({
   ];
   const diary = (o: Record<string, unknown> = {}) => ({ rooms: DIARY_ROOMS, roomId: null, bookings: DIARY,
     month: '2026-10', months: { first: '2026-10', last: '2027-10' }, from: '2026-10-01', to: '2026-11-08',
-    showTitles: true, ...o });
+    showTitles: true, today: '2026-10-01', ...o });
   // Nothing on either page may be a way in: no form, no "+", no link into the
   // system, none to the booking form.
   const NOT_BOOKABLE = ['<form', 'cal-add', 'href="/app', '/app/', '/rooms/book', 'Sign out',
@@ -1417,6 +1458,44 @@ await check('and nothing at all on a quiet week', () => homePage({
     publicDiaryCalendarPage(diary({ month: '2027-10', bookings: [] })),
     ['is-off', 'href="/rooms/calendar?month=2027-09"', 'Nothing booked in October 2027'],
     ['href="/rooms/calendar?month=2027-11']);
+  // A private booking says only that, on both pages, titles on or off — even
+  // handed a row still carrying its title, as if the query had not withheld it.
+  const PRIV = [
+    row({ title: 'Counselling SECRET-PRIVATE', is_private: 1, starts_at: '2026-10-07T10:00', ends_at: '2026-10-07T11:00' }),
+    row({ title: null, is_private: 1, room_id: 1, room_name: 'Main church', starts_at: '2026-10-07T14:00', ends_at: '2026-10-07T15:00' }),
+  ];
+  for (const showTitles of [true, false]) {
+    const on = showTitles ? 'titles on' : 'titles off';
+    await check(`a private booking is just "Private booking" on the list, with its room and time (${on})`, async () => {
+      const out = String(await publicDiaryListPage(diary({ bookings: PRIV, showTitles })));
+      return (out.match(/<td>\s*Private booking\s*</g) ?? []).length === 2 ? out : 'not two plain "Private booking"';
+    }, ['Wed 7 Oct 2026', '10:00–11:00', '14:00–15:00', 'Church Centre</strong>', 'Main church</strong>'],
+      [...NOT_BOOKABLE, 'Counselling', 'SECRET']);
+    await check(`and on the calendar (${on})`, () => publicDiaryCalendarPage(diary({ bookings: PRIV, showTitles })),
+      ['Church Centre: Private booking', 'Main church: Private booking'], [...NOT_BOOKABLE, 'Counselling', 'SECRET']);
+  }
+  await check('a private booking on one room\'s calendar is "Private booking" too', () =>
+    publicDiaryCalendarPage(diary({ bookings: PRIV.slice(0, 1), roomId: 2 })),
+    ['<strong>10:00–11:00</strong> Private booking', 'title="Church Centre: Private booking, Wed 7 Oct 2026, 10:00–11:00"'],
+    [...NOT_BOOKABLE, 'Counselling']);
+
+  await check('bookings at the same time keep the rooms in their own order, not A to Z', async () => {
+    const out = String(await publicDiaryListPage(diary({ bookings: [
+      row({ room_id: 1, room_name: 'Main church', title: 'Morning prayer', starts_at: '2026-10-07T09:00', ends_at: '2026-10-07T10:00' }),
+      row({ title: 'Parent and baby', starts_at: '2026-10-07T09:00', ends_at: '2026-10-07T10:00' }),
+    ] })));
+    return out.indexOf('Morning prayer') < out.indexOf('Parent and baby') ? out : 'Church Centre listed before Main church';
+  }, ['Morning prayer', 'Parent and baby']);
+
+  await check('Today leads to this month as Britain counts it', () =>
+    publicDiaryListPage(diary({ month: '2026-11', today: '2026-10-02', bookings: [] })),
+    ['<a class="btn-quiet" href="/rooms/list?month=2026-10">Today</a>']);
+  await check('and the calendar rings that day, and only that day', async () => {
+    const out = String(await publicDiaryCalendarPage(diary({ today: '2026-10-02' })));
+    return /cal-today"\s+role="cell">\s*<span class="cal-n">2<\/span>/.test(out) && (out.match(/cal-today/g) ?? []).length === 1
+      ? out : 'not 2 October alone ringed';
+  }, ['<a class="btn-quiet" href="/rooms/calendar?month=2026-10">Today</a>']);
+
   await check('switched off, both pages say only that', () => diaryClosedPage(),
     ['The room diary is not available at the moment.'], ['<table', 'cal-', 'All rooms', '<form', '/app/', '/rooms/book']);
 
@@ -1432,7 +1511,11 @@ await check('and nothing at all on a quiet week', () => homePage({
   }, ['Room diary on your website', 'On the website', 'href="https://x.test/rooms/calendar"',
       'data-link="https://x.test/rooms/calendar"', 'href="https://x.test/rooms/list"', 'data-link="https://x.test/rooms/list"',
       'action="/app/rooms/booking-form/diary"', 'Show the room diary on the website', 'Show what each booking is for',
-      'name="is_public" value="1" checked', 'name="show_titles" value="1" checked', 'Showing now']);
+      'name="is_public" value="1" checked', 'name="show_titles" value="1" checked', 'Showing now',
+      // An approved request says what it is now; only private bookings, times
+      // still waiting and unpublished events never do.
+      'a booking ticked "Private booking", a time held for somebody still waiting to hear, and an event not yet published never say'],
+    ['Anything asked for through the booking form']);
   await check('switched off, the card says so and the ticks are clear', () => bookingFormSettingsPage({
     settings: SETTINGS, rooms: [], link: 'https://x.test/rooms/book', emailReady: true, captchaReady: true, ctx: CTX,
     diary: { ...DIARY_ON, settings: { is_public: 0, show_titles: 0 } },

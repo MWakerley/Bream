@@ -65,7 +65,7 @@ import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookin
          bookingEditPage, formatWhen, runsOver } from './views/events.js';
 import { myRotaPage, requestsPage, type MyDuty, type AwayRow, type ChangeRequestRow } from './views/me.js';
 import { roomsCalendarPage, rotaCalendarPage } from './views/calendars.js';
-import { thisMonth } from './views/calendar.js';
+import { thisMonth, londonToday } from './views/calendar.js';
 import { verifyTurnstile, turnstileReady } from './turnstile.js';
 import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listEventBookings,
          makeSlug, fieldKey, readBookingForm, hasRoom,
@@ -2544,7 +2544,7 @@ app.post('/app/rooms/book', async (c) => {
   const form = await c.req.formData();
   const parsed = readBooking(form);
   const echo = Object.fromEntries(
-    ['room_id', 'on_date', 'from_time', 'to_time', 'title', 'contact', 'notes']
+    ['room_id', 'on_date', 'from_time', 'to_time', 'title', 'contact', 'notes', 'is_private']
       .map((k) => [k, String(form.get(k) ?? '')]),
   );
   if (!parsed.ok) return roomsView(c, { tone: 'bad', text: parsed.error }, echo);
@@ -2559,10 +2559,10 @@ app.post('/app/rooms/book', async (c) => {
   if (clashes.length) return roomsView(c, { tone: 'bad', text: clashNotice(clashes) }, echo);
 
   await c.env.DB.prepare(
-    `INSERT INTO room_bookings (room_id, title, starts_at, ends_at, booked_by, contact, notes)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    `INSERT INTO room_bookings (room_id, title, starts_at, ends_at, booked_by, contact, notes, is_private)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
   ).bind(parsed.value.roomId, parsed.value.title, startsAt, endsAt,
-    c.get('person').id, parsed.value.contact, parsed.value.notes).run();
+    c.get('person').id, parsed.value.contact, parsed.value.notes, parsed.value.isPrivate ? 1 : 0).run();
 
   return roomsView(c, { tone: 'ok', text: `Booked: ${parsed.value.title}.` });
 });
@@ -2605,22 +2605,26 @@ async function bookSeries(
     }, echo);
   }
 
+  // "Private booking" goes on the series as well as on every date it books:
+  // the dates still to come are rebuilt from the series when it is changed,
+  // and the tick has to survive that.
+  const priv = v.isPrivate ? 1 : 0;
   const res = await c.env.DB.prepare(
     `INSERT INTO room_booking_series
-       (room_id, title, contact, notes, freq, from_date, until_date, from_time, to_time, created_by)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+       (room_id, title, contact, notes, freq, from_date, until_date, from_time, to_time, created_by, is_private)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
   ).bind(v.roomId, v.title, v.contact, v.notes, repeat, v.onDate, until,
-    v.fromTime, v.toTime, c.get('person').id).run();
+    v.fromTime, v.toTime, c.get('person').id, priv).run();
   const seriesId = Number(res.meta.last_row_id);
 
   const stmt = c.env.DB.prepare(
     `INSERT INTO room_bookings
-       (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+       (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id, is_private)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
   );
   const rows = plan.dates.map((d) => stmt.bind(
     v.roomId, v.title, `${d}T${v.fromTime}`, `${d}T${v.toTime}`,
-    c.get('person').id, v.contact, v.notes, seriesId));
+    c.get('person').id, v.contact, v.notes, seriesId, priv));
   for (let i = 0; i < rows.length; i += 100) await c.env.DB.batch(rows.slice(i, i + 100));
 
   // Everything the run could not do, said plainly.
@@ -2739,6 +2743,7 @@ app.post('/app/rooms/series/:id', async (c) => {
     result = await applySeriesEdit(c.env.DB, id, {
       roomId, title, contact: str('contact') || null, notes: str('notes') || null,
       freq: freq as Frequency, untilDate: until, fromTime, toTime,
+      isPrivate: !!form.get('is_private'),
     }, c.get('person').id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -2944,14 +2949,18 @@ app.post('/app/rooms/:id', async (c) => {
     return c.html(editBookingPage({ booking, rooms, ctx: viewCtx(c), notice: { tone: 'bad', text: clashNotice(clashes) } }));
   }
 
+  // One week of a series edited here is detached from it, its "Private
+  // booking" tick included: a later change to the series leaves this week's
+  // tick as set here — unless the series is saved ticked private, which makes
+  // every week private (applySeriesEdit says why).
   await c.env.DB.prepare(
     `UPDATE room_bookings
         SET room_id = ?2, title = ?3, starts_at = ?4, ends_at = ?5,
-            contact = ?6, notes = ?7, status = 'booked',
+            contact = ?6, notes = ?7, status = 'booked', is_private = ?8,
             series_detached = CASE WHEN series_id IS NULL THEN 0 ELSE 1 END
       WHERE id = ?1`,
   ).bind(id, parsed.value.roomId, parsed.value.title, startsAt, endsAt,
-    parsed.value.contact, parsed.value.notes).run();
+    parsed.value.contact, parsed.value.notes, parsed.value.isPrivate ? 1 : 0).run();
 
   return roomsView(c, { tone: 'ok', text: `Updated: ${parsed.value.title}.` });
 });
@@ -4128,12 +4137,15 @@ async function publicDiaryView(c: Context<{ Bindings: Env; Variables: Vars }>, v
   // back to every room rather than an error.
   const asked = Number(c.req.query('room'));
   const roomId = rooms.some((r) => r.id === asked) ? asked : null;
-  const w = publicDiaryWindow(view, c.req.query('month'), new Date().toISOString().slice(0, 10));
+  // The date in Britain, not UTC, or for the first hour of a summer day the
+  // website would still be showing yesterday.
+  const today = londonToday();
+  const w = publicDiaryWindow(view, c.req.query('month'), today);
   const showTitles = !!settings.show_titles;
   const bookings = await listPublicDiary(c.env.DB, w.from, w.to, roomId, showTitles);
 
   const opts = { rooms, roomId, bookings, month: w.month, months: { first: w.first, last: w.last },
-    from: w.from, to: w.to, showTitles };
+    from: w.from, to: w.to, showTitles, today };
   return c.html(view === 'calendar' ? publicDiaryCalendarPage(opts) : publicDiaryListPage(opts));
 }
 

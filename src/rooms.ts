@@ -28,7 +28,7 @@ export async function listBookings(
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
               b.contact, b.notes, b.status, b.series_id, b.event_id, b.is_tentative, b.request_id,
-              p.display_name AS booked_by_name
+              b.is_private, p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by
@@ -49,7 +49,7 @@ export async function getBooking(db: D1Database, id: number): Promise<BookingRow
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
               b.contact, b.notes, b.status, b.series_id, b.event_id, b.is_tentative, b.request_id,
-              p.display_name AS booked_by_name
+              b.is_private, p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by
@@ -98,6 +98,8 @@ export interface BookingInput {
   title: string;
   contact: string | null;
   notes: string | null;
+  /** "Private booking": the website's room diary shows only that, and the time. */
+  isPrivate: boolean;
 }
 
 /** Validates a submitted booking, returning the instants or an error message. */
@@ -125,6 +127,8 @@ export function readBooking(form: FormData): { ok: true; value: BookingInput } |
       roomId, onDate, fromTime, toTime, title,
       contact: s('contact') || null,
       notes: s('notes') || null,
+      // A checkbox: sent when ticked, missing when not.
+      isPrivate: !!form.get('is_private'),
     },
   };
 }
@@ -150,6 +154,8 @@ export interface SeriesRow {
   until_date: string;
   from_time: string;
   to_time: string;
+  /** 1 when every booking it makes is a "Private booking" on the website. */
+  is_private: number;
   /** Occurrences still to come. */
   upcoming: number;
   total: number;
@@ -211,6 +217,16 @@ export interface SeriesEditResult {
  *     off would be the system arguing with the person using it.
  *
  * Everything else in the future is rebuilt from the new pattern.
+ *
+ * THE "PRIVATE BOOKING" TICK REACHES FURTHER, in one direction only. It is
+ * what the website's room diary may say, not what happened, so it is copied
+ * onto every booking the series still owns — the past ones too, since the
+ * website shows the whole of this month, earlier days included. A week
+ * changed on its own keeps its own tick when the series is unticked, as it
+ * keeps its own room and times; but ticking the series private makes that
+ * week private as well. A private series with one week still showing what it
+ * is for would be worse than none, and the website saying too little is the
+ * mistake that hurts nobody.
  */
 export async function applySeriesEdit(
   db: D1Database,
@@ -218,9 +234,11 @@ export async function applySeriesEdit(
   next: {
     roomId: number; title: string; contact: string | null; notes: string | null;
     freq: Frequency; untilDate: string; fromTime: string; toTime: string;
+    isPrivate: boolean;
   },
   bookedBy: number,
 ): Promise<SeriesEditResult> {
+  const priv = next.isPrivate ? 1 : 0;
   const today = new Date().toISOString().slice(0, 10);
   const from = `${today}T00:00`;
 
@@ -255,10 +273,17 @@ export async function applySeriesEdit(
   await db.prepare(
     `UPDATE room_booking_series
         SET room_id = ?2, title = ?3, contact = ?4, notes = ?5,
-            freq = ?6, until_date = ?7, from_time = ?8, to_time = ?9
+            freq = ?6, until_date = ?7, from_time = ?8, to_time = ?9, is_private = ?10
       WHERE id = ?1`,
   ).bind(id, next.roomId, next.title, next.contact, next.notes,
-    next.freq, next.untilDate, next.fromTime, next.toTime).run();
+    next.freq, next.untilDate, next.fromTime, next.toTime, priv).run();
+
+  // The tick, onto every booking the series owns, past ones included; onto
+  // the weeks changed on their own only when it makes them private. See above.
+  await db.prepare(
+    `UPDATE room_bookings SET is_private = ?2
+      WHERE series_id = ?1 AND (series_detached = 0 OR ?2 = 1)`,
+  ).bind(id, priv).run();
 
   // Out with the future ones this series still owns outright...
   await db.prepare(
@@ -272,12 +297,12 @@ export async function applySeriesEdit(
   if (wanted.length) {
     const stmt = db.prepare(
       `INSERT INTO room_bookings
-         (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+         (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id, is_private)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
     );
     const rows = wanted.map((d) => stmt.bind(
       next.roomId, next.title, `${d}T${next.fromTime}`, `${d}T${next.toTime}`,
-      bookedBy, next.contact, next.notes, id));
+      bookedBy, next.contact, next.notes, id, priv));
     for (let i = 0; i < rows.length; i += 100) await db.batch(rows.slice(i, i + 100));
   }
 
@@ -387,11 +412,13 @@ export interface PublicDiaryRow {
   is_tentative: number;
   /** 1 when the room is held for an event that is not published yet. */
   unpublished_event: number;
+  /** 1 for a booking ticked "Private booking": the page says only that. */
+  is_private: number;
 }
 
 /** The columns above, for the test that checks nothing else ever comes back. */
 export const PUBLIC_DIARY_COLUMNS = [
-  'room_id', 'room_name', 'starts_at', 'ends_at', 'title', 'is_tentative', 'unpublished_event',
+  'room_id', 'room_name', 'starts_at', 'ends_at', 'title', 'is_tentative', 'unpublished_event', 'is_private',
 ] as const;
 
 /**
@@ -403,16 +430,19 @@ export const PUBLIC_DIARY_COLUMNS = [
  * because the page never has them. Cancelled bookings and rooms no longer in
  * use are left out.
  *
- * The title is withheld HERE, not only on the page, wherever it must not be
- * shown, so it never leaves the database:
+ * The diary is there to show people what is going on in the church, so a
+ * booking says what it is for unless there is a reason not to — and a
+ * booking asked for online and since approved is no exception: the church
+ * has said yes to it. The title is withheld HERE, not only on the page,
+ * wherever it must not be shown, so it never leaves the database:
  *
  *   * titles switched off on Rooms → Booking form: every booking is "Booked".
+ *   * a booking ticked "Private booking" (is_private), on the booking or on
+ *     its series: somebody decided it is nobody else's business. The page
+ *     says "Private booking".
  *   * a time held for a request still waiting (is_tentative): what a member of
  *     the public typed is not the church's to publish, and it may yet be
  *     declined. The page says "Held — not yet confirmed".
- *   * anything that came from the public form at all (request_id), even once
- *     approved: the same words, typed by the same person, who was never told
- *     they would be on the website.
  *   * a room held for an event that is not published yet: the website must not
  *     announce an event before its organisers do. The page says "Booked".
  */
@@ -426,14 +456,17 @@ export async function listPublicDiary(
   const { results } = await db
     .prepare(
       `SELECT b.room_id, r.name AS room_name, b.starts_at, b.ends_at,
-              CASE WHEN ?4 = 1 AND b.is_tentative = 0 AND b.request_id IS NULL
+              CASE WHEN ?4 = 1 AND b.is_tentative = 0 AND b.is_private = 0
                         AND (b.event_id IS NULL OR e.is_published = 1)
                    THEN b.title END AS title,
               b.is_tentative,
               -- An event id with no event behind it counts as unpublished:
               -- when in doubt, say less.
               CASE WHEN b.event_id IS NOT NULL AND COALESCE(e.is_published, 0) <> 1
-                   THEN 1 ELSE 0 END AS unpublished_event
+                   THEN 1 ELSE 0 END AS unpublished_event,
+              -- Anything but 0 is private, matching the title above, which
+              -- is withheld for anything but 0.
+              CASE WHEN b.is_private = 0 THEN 0 ELSE 1 END AS is_private
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN events e ON e.id = b.event_id
@@ -464,6 +497,10 @@ const addDays = (d: string, n: number) =>
  * and reaches a week either side of the month it shows, for the days of the
  * neighbouring months at the edges of the grid, but never before this month
  * or past the last one. `to` is the day after the last day read.
+ *
+ * `today` is the date in Britain (londonToday), not in UTC: in summer UTC is
+ * still yesterday for the first hour of the day, which listed yesterday's
+ * bookings and, on the 1st, opened the calendar on a month already gone.
  */
 export function publicDiaryWindow(view: 'calendar' | 'list', asked: string | undefined, today: string) {
   const first = today.slice(0, 7);
