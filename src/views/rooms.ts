@@ -45,7 +45,11 @@ export const PRIVATE_CHIP = html`<span class="chip chip-neutral"
  * booking. `more` is a sentence for where it reaches further or less far.
  */
 function privateTick(on: boolean, more = '') {
-  return html`<label class="check" style="max-width:34rem;margin-bottom:1.25rem">
+  // was_private is what the box showed when the page was drawn, so a save from
+  // a page left open can tell "unticked it" from "never saw it ticked" — see
+  // privateAfterSave in src/rooms.ts.
+  return html`<input type="hidden" name="was_private" value="${on ? '1' : '0'}">
+  <label class="check" style="max-width:34rem;margin-bottom:1.25rem">
     <input type="checkbox" name="is_private" value="1" ${on ? 'checked' : ''}>
     <span><span class="check-label">Private booking</span>
       <span class="check-note">The room diary on the website shows just "Private booking" and the time — not what it is for.${more ? ` ${more}` : ''}</span></span>

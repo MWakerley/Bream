@@ -133,6 +133,23 @@ export function readBooking(form: FormData): { ok: true; value: BookingInput } |
   };
 }
 
+/**
+ * Whether a booking (or a series) is private once an edit is saved.
+ *
+ * Normally just the tick. The exception is a page left open: drawn unticked,
+ * while somebody else — or the same person, in another tab, or by ticking the
+ * whole series — has made it private since. Saving that page with the box
+ * untouched is not a decision to put the booking's title on the website, and
+ * honouring the stale box would do exactly that, without a word. So a booking
+ * that is private now stays private unless the page showed it ticked and the
+ * person unticked it. Being wrong this way only ever says less.
+ */
+export function privateAfterSave(form: { get(k: string): unknown }, nowPrivate: boolean): boolean {
+  const ticked = !!form.get('is_private');
+  if (!ticked && nowPrivate && form.get('was_private') === '0') return true;
+  return ticked;
+}
+
 export const instants = (v: BookingInput) => ({
   startsAt: `${v.onDate}T${v.fromTime}`,
   endsAt: `${v.onDate}T${v.toTime}`,

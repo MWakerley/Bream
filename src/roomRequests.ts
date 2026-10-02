@@ -382,7 +382,14 @@ export type Decision =
  * approved booking is for. Somebody can still tick "Private booking" on it
  * afterwards, as on any other booking.
  */
-export async function approveRequest(db: D1Database, id: number, by: number, anyway = false): Promise<Decision> {
+export async function approveRequest(
+  db: D1Database, id: number, by: number, anyway = false,
+  /** Ticked on the Approve form. The only moment it can be set in time: a
+   *  request cannot be edited while it waits, and once approved its title is on
+   *  the website's room diary. Unticked, it shows what it is for, like any
+   *  other booking — the church's own choice of default. */
+  isPrivate = false,
+): Promise<Decision> {
   const req = await getRequest(db, id);
   if (!req || req.status !== 'pending') return { ok: false, why: 'gone' };
   if (req.clashes_now > 0 && !anyway) return { ok: false, why: 'clashes', clashes: req.clashes_now };
@@ -396,20 +403,21 @@ export async function approveRequest(db: D1Database, id: number, by: number, any
     // so it never claims weeks it does not have.
     stmts.push(db.prepare(
       `INSERT INTO room_booking_series
-         (room_id, title, contact, notes, freq, from_date, until_date, from_time, to_time, created_by)
-       SELECT ?2, ?3, ?4, 'Asked for online', ?5, ?6, ?7, ?8, ?9, ?10 WHERE ${pending}`,
+         (room_id, title, contact, notes, freq, from_date, until_date, from_time, to_time, created_by,
+          is_private)
+       SELECT ?2, ?3, ?4, 'Asked for online', ?5, ?6, ?7, ?8, ?9, ?10, ?11 WHERE ${pending}`,
     ).bind(id, req.room_id, title, [req.name, req.phone ?? req.email].join(' · '), req.freq,
       req.starts_at.slice(0, 10), req.last_held ?? req.until_date, req.starts_at.slice(11, 16),
-      req.ends_at.slice(11, 16), by));
+      req.ends_at.slice(11, 16), by, isPrivate ? 1 : 0));
   }
   stmts.push(db.prepare(
     `UPDATE room_bookings
-        SET is_tentative = 0, booked_by = ?2, notes = 'Asked for online',
+        SET is_tentative = 0, booked_by = ?2, notes = 'Asked for online', is_private = ?4,
             series_id = CASE WHEN ?3 = 1
               THEN (SELECT MAX(id) FROM room_booking_series WHERE room_id = room_bookings.room_id AND created_by = ?2)
               ELSE series_id END
       WHERE request_id = ?1 AND status = 'booked' AND ${pending}`,
-  ).bind(id, by, repeating ? 1 : 0));
+  ).bind(id, by, repeating ? 1 : 0, isPrivate ? 1 : 0));
   stmts.push(db.prepare(
     `UPDATE room_requests SET status = 'approved', decided_at = datetime('now'), decided_by = ?2
       WHERE id = ?1 AND status = 'pending'`,

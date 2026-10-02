@@ -359,6 +359,14 @@ function requestCard(r: RequestRow) {
     </div>
     <div class="req-actions">
       <form method="post" action="/app/rooms/requests/${r.id}/approve" class="inline-form">
+        <!-- Ticked here or never in time: a request cannot be edited while it
+             waits, and the moment it is approved its title is on the room
+             diary on the website. -->
+        <label class="check req-private">
+          <input type="checkbox" name="is_private" value="1">
+          <span><span class="check-label">Private booking</span>
+            <span class="check-note">The website shows just "Private booking" and the time.</span></span>
+        </label>
         ${r.clashes_now
           // Something has been booked over its dates since it was asked for —
           // an event holding the room anyway, say. Approving double-books, so

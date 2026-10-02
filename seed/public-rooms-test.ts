@@ -432,6 +432,36 @@ console.log('\nthe pages as the website and the office use them:');
   await post(`/app/rooms/series/${pId}`, pForm({ is_private: '1', to_time: '20:00' }));
   ok('but changing the series with the tick kept makes that week private again — when in doubt, say less',
     pAfter() === '1 1 1d 1', pAfter());
+
+  // A page left open while the booking was made private elsewhere. Saving it
+  // with the box untouched must not put the title back on the website...
+  await post(`/app/rooms/${third.id}`, { room_id: String(roomA), on_date: third.starts_at.slice(0, 10),
+    from_time: '18:00', to_time: '19:15', title: P, was_private: '0' });
+  ok('a stale page, drawn unticked, does not quietly make a private booking public',
+    booking(P)[2]?.is_private === 1, pAfter());
+  await post(`/app/rooms/series/${pId}`, pForm({ was_private: '0', to_time: '20:15' }));
+  ok('nor does a stale series page', seriesOf(P)?.is_private === 1 && pAfter() === '1 1 1d 1', pAfter());
+  // ...but unticking a box that was drawn ticked is a decision, and stands.
+  await post(`/app/rooms/${third.id}`, { room_id: String(roomA), on_date: third.starts_at.slice(0, 10),
+    from_time: '18:00', to_time: '19:15', title: P, was_private: '1' });
+  ok('unticking a box the page showed ticked still makes it public', booking(P)[2]?.is_private === 0, pAfter());
+  // Put that week back as the series checks below expect to find it.
+  await post(`/app/rooms/${third.id}`, { room_id: String(roomA), on_date: third.starts_at.slice(0, 10),
+    from_time: '18:00', to_time: '19:15', title: P, is_private: '1', was_private: '0' });
+
+  // Ticked on the Approve form: private from the moment it is approved, since
+  // a request cannot be edited while it waits.
+  const req2 = run(`INSERT INTO room_requests (room_id, name, email, purpose, organisation, people, is_member, starts_at, ends_at, status)
+                    VALUES (?, 'Bea Asker', 'bea@example.org', 'Bereavement support', 'Smith family', 6, 0, ?, ?, 'pending')`,
+    roomR, `${M}-13T14:00`, `${M}-13T16:00`);
+  run(`INSERT INTO room_bookings (room_id, title, starts_at, ends_at, contact, notes, is_tentative, request_id)
+       VALUES (?, 'Bereavement support (Smith family)', ?, ?, 'Bea Asker · bea@example.org', 'Asked for online — waiting to be approved', 1, ?)`,
+    roomR, `${M}-13T14:00`, `${M}-13T16:00`, req2);
+  await quietly(() => post(`/app/rooms/requests/${req2}/approve`, { is_private: '1' }));
+  const afterApprove = await call(`/rooms/list?month=${M}`);
+  ok('a request approved with Private ticked is private from the start',
+    booking('Bereavement support (Smith family)')[0]?.is_private === 1
+    && !afterApprove.body.includes('Bereavement support') && !afterApprove.body.includes('Smith family'));
   await post(`/app/rooms/series/${pId}`, pForm());
   ok('and unticking the series leaves the week changed on its own as it was', pAfter() === '0 0 1d 0', pAfter());
 

@@ -58,7 +58,8 @@ import { roomsPage, editBookingPage, editSeriesPage, clashNotice } from './views
 import { roomSettingsPage, type RoomSettingRow } from './views/roomsettings.js';
 import { listRooms, listBookings, getBooking, findClashes, readBooking, instants,
          listSeries, planSeries, getSeries, applySeriesEdit, type BookingInput,
-         loadDiarySettings, listDiaryRooms, listPublicDiary, publicDiaryWindow } from './rooms.js';
+         loadDiarySettings, listDiaryRooms, listPublicDiary, publicDiaryWindow,
+         privateAfterSave } from './rooms.js';
 import { publicDiaryCalendarPage, publicDiaryListPage, diaryClosedPage } from './views/roomDiary.js';
 import { FREQUENCIES, describeSeries, type Frequency } from './recurrence.js';
 import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
@@ -2743,7 +2744,7 @@ app.post('/app/rooms/series/:id', async (c) => {
     result = await applySeriesEdit(c.env.DB, id, {
       roomId, title, contact: str('contact') || null, notes: str('notes') || null,
       freq: freq as Frequency, untilDate: until, fromTime, toTime,
-      isPrivate: !!form.get('is_private'),
+      isPrivate: privateAfterSave(form, !!series.is_private),
     }, c.get('person').id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -2873,8 +2874,9 @@ async function tellRequester(c: Context<{ Bindings: Env; Variables: Vars }>, r: 
 app.post('/app/rooms/requests/:id/approve', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return c.notFound();
-  const anyway = (await c.req.formData()).get('anyway') === '1';
-  const d = await approveRequest(c.env.DB, id, c.get('person').id, anyway);
+  const form = await c.req.formData();
+  const anyway = form.get('anyway') === '1';
+  const d = await approveRequest(c.env.DB, id, c.get('person').id, anyway, form.get('is_private') === '1');
   if (!d.ok) {
     return roomsView(c, {
       tone: 'bad',
@@ -2960,7 +2962,7 @@ app.post('/app/rooms/:id', async (c) => {
             series_detached = CASE WHEN series_id IS NULL THEN 0 ELSE 1 END
       WHERE id = ?1`,
   ).bind(id, parsed.value.roomId, parsed.value.title, startsAt, endsAt,
-    parsed.value.contact, parsed.value.notes, parsed.value.isPrivate ? 1 : 0).run();
+    parsed.value.contact, parsed.value.notes, privateAfterSave(form, !!booking.is_private) ? 1 : 0).run();
 
   return roomsView(c, { tone: 'ok', text: `Updated: ${parsed.value.title}.` });
 });
