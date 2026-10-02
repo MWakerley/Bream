@@ -30,7 +30,9 @@ export function safeguardingPage(
       ${sgTabs('grid')}
       ${notice ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>` : ''}
       <form method="post" action="/app/settings/safeguarding">
-        <div class="table-scroll">
+        <!-- Role against course, so on a phone it stays a grid that scrolls
+             sideways, the roles held still down the left (.matrix in app.css). -->
+        <div class="table-scroll matrix">
           <table class="grid sg-grid">
             <!-- A fixed layout, so the columns share the page width instead of
                  each long course name pushing the table off the right-hand side. -->
@@ -219,7 +221,10 @@ export function safeguardingReportPage(grid: SafeguardingGrid, rows: ReportRow[]
             </div>
 
             <h2 class="section-h2">Everyone, course by course</h2>
-            <div class="table-scroll">
+            <!-- The same on a phone: people held still down the left while the
+                 courses scroll under them. A finished row's green edge is a
+                 box-shadow on its th, which the pinned cell keeps. -->
+            <div class="table-scroll matrix">
               <table class="grid sg-grid sg-report">
                 <colgroup>
                   <col class="sg-col-role">

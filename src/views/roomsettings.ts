@@ -45,7 +45,9 @@ export function roomSettingsPage(opts: {
 
       <form method="post" action="/app/settings/rooms">
         <div class="table-scroll">
-          <table class="grid">
+          <!-- A card per room on a phone (.stack in app.css), its name box at
+               the top. -->
+          <table class="grid stack">
             <thead>
               <tr><th>Name</th><th class="num">Holds</th><th>Note</th>
                   <th class="num">Bookings</th><th>In use</th></tr>
@@ -53,23 +55,23 @@ export function roomSettingsPage(opts: {
             <tbody>
               ${rooms.map(
                 (r) => html`<tr>
-                  <td>
+                  <td class="stack-title">
                     <input type="text" name="name_${r.id}" value="${r.name}"
                            aria-label="Name of ${r.name}" required>
                   </td>
-                  <td>
+                  <td data-label="Holds">
                     <input type="number" name="capacity_${r.id}" value="${r.capacity ?? ''}"
                            min="1" max="2000" style="width:6rem" placeholder="—"
                            aria-label="Capacity of ${r.name}">
                   </td>
-                  <td>
+                  <td data-label="Note">
                     <input type="text" name="notes_${r.id}" value="${r.notes ?? ''}"
                            aria-label="Note about ${r.name}">
                   </td>
-                  <td class="num">
+                  <td class="num" data-label="Bookings">
                     ${r.upcoming} <span style="color:var(--ink-2)">to come, ${r.total} total</span>
                   </td>
-                  <td>
+                  <td data-label="In use">
                     <label class="check" style="padding:.4rem .6rem">
                       <input type="checkbox" name="active_${r.id}" value="1" ${r.is_active ? 'checked' : ''}
                              aria-label="${r.name} is in use">

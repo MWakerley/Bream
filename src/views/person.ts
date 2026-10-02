@@ -333,7 +333,10 @@ export function personPage(opts: {
             Nothing ticked yet. Tick a role above and it will appear here.
           </p>
           <div class="table-scroll">
-            <table class="grid" id="freq-table">
+            <!-- A card per role on a phone (.stack in app.css), the role as its
+                 title and each control under its column's name. Unticked rows
+                 stay hidden there too: [hidden] wins over the cards' display. -->
+            <table class="grid stack" id="freq-table">
               <thead>
                 <tr>
                   <th>Role</th>
@@ -352,8 +355,8 @@ export function personPage(opts: {
                   // not, so an absent "As often as needed" tick really does mean
                   // unticked rather than "this form never asked".
                   return html`<tr data-freq-for="${r.id}" ${s?.can_do ? '' : 'hidden'}>
-                    <td><strong>${r.name}</strong></td>
-                    <td>
+                    <td class="stack-title"><strong>${r.name}</strong></td>
+                    <td data-label="At most">
                       <span class="freq">
                         <input type="number" min="1" max="30" style="width:4.5rem"
                                name="max_${r.id}" value="${s?.max_per_period ?? ''}"
@@ -370,7 +373,7 @@ export function personPage(opts: {
                         </select>
                       </span>
                     </td>
-                    <td>
+                    <td data-label="Not more often than">
                       <span class="freq">
                         <span>once every</span>
                         <input type="number" min="1" max="24" style="width:4.5rem"
@@ -384,7 +387,7 @@ export function personPage(opts: {
                         </select>
                       </span>
                     </td>
-                    <td>
+                    <td data-label="As often as needed">
                       <label class="check" style="padding:.4rem .6rem">
                         <input type="checkbox" name="anytime_${r.id}" value="1"
                                ${s?.ask_any_time ? 'checked' : ''}
@@ -620,20 +623,21 @@ export function mergePage(opts: {
                 </p>
                 <form method="post" action="/app/settings/people/merge">
                   <div class="table-scroll">
-                    <table class="grid">
+                    <!-- A card per record on a phone (.stack in app.css). -->
+                    <table class="grid stack">
                       <thead><tr><th>Keep</th><th>Merge in</th><th>Name</th>
                                  <th class="num">Times on the rota</th><th></th></tr></thead>
                       <tbody>
                         ${g.people.map(
                           (p, i) => html`<tr>
-                            <td><input type="radio" name="keep_id" value="${p.id}" ${i === 0 ? 'checked' : ''}
+                            <td data-label="Keep"><input type="radio" name="keep_id" value="${p.id}" ${i === 0 ? 'checked' : ''}
                                        aria-label="Keep ${p.display_name}" style="width:1.3rem;height:1.3rem"></td>
-                            <td><input type="checkbox" name="merge_ids" value="${p.id}"
+                            <td data-label="Merge in"><input type="checkbox" name="merge_ids" value="${p.id}"
                                        aria-label="Merge ${p.display_name}" style="width:1.3rem;height:1.3rem"></td>
-                            <td><a href="/app/settings/people/${p.id}"><strong>${p.display_name}</strong></a>
+                            <td class="stack-title"><a href="/app/settings/people/${p.id}"><strong>${p.display_name}</strong></a>
                                 ${p.needs_review ? chip('amber', 'flagged') : ''}</td>
-                            <td class="num">${p.done}</td>
-                            <td>
+                            <td class="num" data-label="Times on the rota">${p.done}</td>
+                            <td class="stack-actions">
                               <button class="linkish" type="submit"
                                       formaction="/app/settings/people/${p.id}/not-duplicate"
                                       formnovalidate
