@@ -93,22 +93,24 @@ export function eventsListPage(opts: {
         ? html`<div class="card"><p style="margin:0">
             No events yet. <a href="/app/events/new">Add the first one</a>.</p></div>`
         : html`<div class="table-scroll">
-            <table class="grid">
+            <table class="grid stack">
               <thead><tr><th>Event</th><th>When</th><th class="num">Booked</th><th>Places left</th><th>Status</th></tr></thead>
               <tbody>
                 ${events.map((e) => {
                   const left = placesLeft(e);
                   return html`<tr class="${left === 0 ? 'row-gap' : ''}">
-                    <td>
+                    <td class="stack-title">
                       <a href="/app/events/${e.id}"><strong>${e.title}</strong></a>
-                      ${e.location ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${e.location}</div>` : ''}
+                      ${/* Light under the heavy card heading this cell becomes on
+                           a phone; on a computer it is the cell's own weight. */ ''}
+                      ${e.location ? html`<div style="font-size:.9375rem;font-weight:400;color:var(--ink-2)">${e.location}</div>` : ''}
                     </td>
-                    <td>${formatDate(dateOf(e.starts_at))}
+                    <td data-label="When">${formatDate(dateOf(e.starts_at))}
                       <div class="num" style="font-size:.9375rem;color:var(--ink-2)">${timeOf(e.starts_at)}${runsOver(e)
                         ? ` · until ${formatDate(lastDay(e.starts_at, e.ends_at!))}` : ''}</div></td>
-                    <td class="num">${e.booked}${e.capacity ? ` / ${e.capacity}` : ''}
+                    <td class="num" data-label="Booked">${e.booked}${e.capacity ? ` / ${e.capacity}` : ''}
                       <div style="font-size:.9375rem;color:var(--ink-2)">${e.bookings} booking${e.bookings === 1 ? '' : 's'}</div></td>
-                    <td>${left == null
+                    <td data-label="Places left">${left == null
                       ? html`<span style="color:var(--ink-2)">no limit</span>`
                       : left === 0 ? chip('red', 'Full') : html`<strong>${left}</strong>`}</td>
                     <td>${e.is_published ? chip('green', 'Taking bookings') : chip('neutral', 'Not published')}</td>
@@ -388,7 +390,7 @@ function bookingTable(opts: {
     ${rows.length === 0
       ? html`<div class="card"><p style="margin:0">${opts.empty ?? 'None.'}</p></div>`
       : html`<div class="table-scroll" style="margin-bottom:1.5rem">
-          <table class="grid">
+          <table class="grid stack">
             <thead>
               <tr>
                 <th>Name</th><th class="num">Places</th><th>Contact</th>
@@ -399,15 +401,14 @@ function bookingTable(opts: {
             <tbody>
               ${rows.map((b) => html`<tr class="${b.status === 'cancelled' ? 'row-cancelled' : ''}"
                     data-search="${[b.name, b.email, b.phone].filter(Boolean).join(' ')}">
-                  <td><a href="/app/events/${e.id}/bookings/${b.id}"><strong>${b.name}</strong></a></td>
-                  <td class="num">${b.party_size}</td>
-                  <td style="color:var(--ink-2)">
-                    ${b.email ?? b.phone ?? '—'}
+                  <td class="stack-title"><a href="/app/events/${e.id}/bookings/${b.id}"><strong>${b.name}</strong></a></td>
+                  <td class="num" data-label="Places">${b.party_size}</td>
+                  <td data-label="Contact" style="color:var(--ink-2)">${b.email ?? b.phone ?? '—'}
                     ${b.email && b.phone ? html`<div>${b.phone}</div>` : ''}
                   </td>
-                  ${fields.map((fl) => html`<td>${b.answers[String(fl.id)] ?? '—'}</td>`)}
-                  <td style="color:var(--ink-2)">${b.created_at.slice(0, 10)}</td>
-                  <td>
+                  ${fields.map((fl) => html`<td data-label="${fl.label}">${b.answers[String(fl.id)] ?? '—'}</td>`)}
+                  <td data-label="Booked" style="color:var(--ink-2)">${b.created_at.slice(0, 10)}</td>
+                  <td class="stack-actions">
                     <a class="linkish" href="/app/events/${e.id}/bookings/${b.id}">Change</a>
                     ${b.status === 'booked'
                       ? html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/cancel"
@@ -634,8 +635,10 @@ export function eventAdminPage(opts: {
       <div class="card">
         ${e.poster_key
           ? html`<p style="margin-top:0">This appears at the top of the booking page.</p>
+              <!-- min(), because 22rem is wider than this card on a phone, and
+                   an inline max-width overrides img's own max-width:100%. -->
               <p><img src="/events/${e.slug}/poster" alt="Poster for ${e.title}"
-                      style="max-width:22rem;border-radius:var(--radius);box-shadow:var(--shadow)"></p>
+                      style="max-width:min(22rem, 100%);border-radius:var(--radius);box-shadow:var(--shadow)"></p>
               <form method="post" action="/app/events/${e.id}/poster/delete" class="inline-form"
                     onsubmit="return confirm('Remove the poster?')">
                 <button class="btn-quiet" type="submit">Remove it</button>
@@ -751,18 +754,21 @@ export function eventAdminPage(opts: {
         ${fields.length === 0
           ? html`<p><em>Nothing extra asked yet.</em></p>`
           : html`<div class="table-scroll" style="margin-bottom:1.25rem">
-              <table class="grid">
+              <table class="grid stack">
                 <thead><tr><th>Question</th><th>Kind</th><th>Must answer</th><th></th></tr></thead>
                 <tbody>
                   ${fields.map(
                     (fl) => html`<tr>
-                      <td><strong>${fl.label}</strong>
-                        ${fl.hint ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${fl.hint}</div>` : ''}
-                        ${fl.options ? html`<div style="font-size:.9375rem;color:var(--ink-2)">Choices: ${(JSON.parse(fl.options) as string[]).join(', ')}</div>` : ''}
+                      <td class="stack-title"><strong>${fl.label}</strong>
+                        ${/* The weight is the cell's own on a computer; it is set
+                             so these stay light under the heavy card heading that
+                             the question becomes on a phone. */ ''}
+                        ${fl.hint ? html`<div style="font-size:.9375rem;font-weight:400;color:var(--ink-2)">${fl.hint}</div>` : ''}
+                        ${fl.options ? html`<div style="font-size:.9375rem;font-weight:400;color:var(--ink-2)">Choices: ${(JSON.parse(fl.options) as string[]).join(', ')}</div>` : ''}
                       </td>
-                      <td>${KINDS.find((k) => k.value === fl.kind)?.label ?? fl.kind}</td>
-                      <td>${fl.required ? chip('navy', 'Yes') : chip('neutral', 'No')}</td>
-                      <td>
+                      <td data-label="Kind">${KINDS.find((k) => k.value === fl.kind)?.label ?? fl.kind}</td>
+                      <td data-label="Must answer">${fl.required ? chip('navy', 'Yes') : chip('neutral', 'No')}</td>
+                      <td class="stack-actions">
                         <form method="post" action="/app/events/${e.id}/fields/${fl.id}/delete"
                               class="inline-form" onsubmit="return confirm('Remove this question?')">
                           <button class="linkish" type="submit" style="color:var(--bad)">Remove</button>
