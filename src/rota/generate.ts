@@ -36,9 +36,19 @@ const DEBT_CAP = 2.5;
 /** A stated rhythm implies a floor even when nobody sets one. */
 const IMPLIED_FLOOR = 0.5;
 /** However many places the people with a stated rhythm would take, those with
- *  none are reckoned to share at least this many between them — see the
- *  fair-share section for why it cannot be allowed to reach nought. */
+ *  none are reckoned to share at least this many between them A QUARTER — see
+ *  the fair-share section for why it cannot be allowed to reach nought, and for
+ *  why it is a figure per quarter rather than per draft. */
 const LEFTOVER_FLOOR = 1;
+/** Thirteen weeks: the length of draft LEFTOVER_FLOOR is reckoned against. */
+const QUARTER_DAYS = 91;
+/** A draft with services on only one day is taken to speak for a week of rota,
+ *  the commonest spacing there is. See coveredDays. */
+const ONE_DAY_SPEAKS_FOR = 7;
+/** Somebody who left their figure blank is "standing in", rather than taking a
+ *  fair share, once what is left for them is less than half what an even share
+ *  would have given them. Only the wording of a reason turns on it. */
+const STAND_IN_FACTOR = 2;
 /** Relaxation never goes below this, whatever the tier. */
 const RELAX_FLOOR_DAYS = 7;
 
@@ -146,12 +156,58 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     // nonsense row must not turn a whole role's arithmetic into NaN.
     return every != null && Number.isFinite(every) && every > 0 ? every : null;
   };
-  /** How many of a role's places somebody's own rhythm would take. */
-  const statedTurns = (every: number, slots: number) => Math.min(slots, horizonDays / every);
+
+  // How long a stretch of the calendar the draft speaks for, in each role.
+  //
+  // horizonDays runs from the first service to the last, and that is one
+  // service short of it: four Sundays are four weeks of rota, not the 22 days
+  // from the first to the fourth, and one Sunday is that week, not a single
+  // day. Measured from first to last, a weekly vicar's rhythm came to a seventh
+  // of a place in a one-Sunday draft and three of four in a month, and the
+  // people who said nothing took the rest — so how often he preached depended
+  // on how many weeks somebody happened to ask for, not on what his record said.
+  //
+  // Each service is counted as standing for the average spacing of the role's
+  // own services, so a weekly role counts a week apiece and a monthly one a
+  // month; services on one day only are taken to speak for a week. The choosing
+  // reads this only in a role where somebody HAS stated a figure; where nobody
+  // has, the old horizon arithmetic below is left exactly as it was.
+  const coveredDays = new Map<number, number>();
+  {
+    const daysByRole = new Map<number, Set<number>>();
+    for (const s of sorted) {
+      for (const r of s.roles) {
+        if (!(r.ideal > 0)) continue;
+        const set = daysByRole.get(r.roleId) ?? new Set<number>();
+        set.add(s.day);
+        daysByRole.set(r.roleId, set);
+      }
+    }
+    for (const [roleId, set] of daysByRole) {
+      const days = [...set].sort((a, b) => a - b);
+      const n = days.length;
+      coveredDays.set(roleId, n > 1
+        ? ((days[n - 1]! - days[0]!) * n) / (n - 1)
+        : ONE_DAY_SPEAKS_FOR);
+    }
+  }
+  const covered = (roleId: number) => coveredDays.get(roleId) ?? horizonDays;
+
+  /** How many of a role's places somebody's own rhythm would take: the weeks
+   *  the draft covers divided by their rhythm, so a weekly vicar is every one of
+   *  the Sundays in a draft of any length. */
+  const statedTurns = (every: number, roleId: number, slots: number) =>
+    Math.min(slots, covered(roleId) / every);
 
   const evenShare = new Map<number, number>(); // the old figure: everybody alike
   const fairShare = new Map<number, number>(); // the target for those who said nothing
   const unstatedTurns = new Map<number, number>(); // places each of them is expected to take
+  // What the reasons quote and the audit reports, kept apart from the figures
+  // the choosing runs on, so that rewording an explanation can never change who
+  // is chosen.
+  const shareToQuote = new Map<number, number>(); // the fair share, as a reason says it
+  const standingIn = new Set<number>(); // roles where those who said nothing only fill in
+  const statedAsk = new Map<number, { demand: number; unstated: number }>();
   for (const [roleId, slots] of slotsPerRole) {
     const pool = eligible.get(roleId) ?? [];
     const n = pool.length;
@@ -160,10 +216,20 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     for (const pid of pool) {
       const every = statedEvery(capBy.get(`${pid}:${roleId}`));
       if (every == null) unstated++;
-      else statedDemand += statedTurns(every, slots);
+      else statedDemand += statedTurns(every, roleId, slots);
     }
+    statedAsk.set(roleId, { demand: statedDemand, unstated });
     const even = n > 0 && slots > 0 ? (horizonDays * n) / slots : horizonDays;
     evenShare.set(roleId, even);
+    // The same even share measured over the weeks the draft covers. It is the
+    // figure a reason quotes even where nobody has said anything. The horizon
+    // figure the choosing still runs on there is a little short over a quarter
+    // (52 days rather than 56 for eight preachers), which changes nothing anyone
+    // would notice; but in a one-Sunday draft it is "once every 8 days" for one
+    // of eight preachers, which reads as nonsense.
+    const span = covered(roleId);
+    const evenCovered = n > 0 && slots > 0 ? (span * n) / slots : span;
+    shareToQuote.set(roleId, evenCovered);
     if (unstated === n || !(slots > 0)) {
       fairShare.set(roleId, even);
       if (n > 0 && slots > 0) unstatedTurns.set(roleId, slots / n);
@@ -177,17 +243,35 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     // When the people who stated a rhythm would between them fill every place —
     // the vicar who asks for every week — what is left is nought, and their
     // share of nought is "never": an infinite target, or a division by zero.
-    // Instead they are reckoned to share at least one place over the draft, so
-    // each is aimed at no less often than once in (horizon * unstated) days. In
+    // Instead they are reckoned to share at least one place a quarter, so each
+    // is aimed at no less often than once in about (91 * unstated) days. In
     // practice that makes them fill-ins, there for the Sundays the vicar is away
     // or held back, and still ordered among themselves by who has gone longest.
     //
     // The figure is a TARGET, measured as debt; the floor it would imply is
     // capped separately in floorGap, so a long target never makes a fill-in
     // harder to reach on the day they are needed.
-    const leftover = Math.max(LEFTOVER_FLOOR, slots - Math.min(slots, statedDemand));
-    fairShare.set(roleId, (horizonDays * unstated) / leftover);
+    //
+    // That one place is reckoned per QUARTER, in proportion to the weeks the
+    // draft covers, and the share is measured over those same weeks. Held at
+    // one place per draft, it was the whole of a one-Sunday draft and a quarter
+    // of a four-Sunday one, so the fill-ins' target came out at a week or two —
+    // well overdue on any Sunday — and they took the Sundays the vicar had
+    // asked for. In proportion, the target is the same however many weeks are
+    // drafted at once: about 637 days for seven fill-ins behind a weekly vicar,
+    // whether the draft is one Sunday or thirteen.
+    const leftover = Math.max(
+      LEFTOVER_FLOOR * (span / QUARTER_DAYS),
+      slots - Math.min(slots, statedDemand),
+    );
+    const share = (span * unstated) / leftover;
+    fairShare.set(roleId, share);
     unstatedTurns.set(roleId, leftover / unstated);
+    shareToQuote.set(roleId, share);
+    // "Once every 637 days" is arithmetically their share, and no help at all
+    // to the person reading why Sue is on: what has happened is that others
+    // asked for most of the places and she is filling a gap.
+    if (share > STAND_IN_FACTOR * evenCovered) standingIn.add(roleId);
   }
 
   const targetInterval = (personId: number, roleId: number): number =>
@@ -258,7 +342,7 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     if (!n || !slots) continue;
     const every = statedEvery(c);
     const turns = every != null
-      ? statedTurns(every, slots)
+      ? statedTurns(every, c.roleId, slots)
       : unstatedTurns.get(c.roleId) ?? slots / n;
     expectedLoad.set(c.personId, (expectedLoad.get(c.personId) ?? 0) + turns);
   }
@@ -315,6 +399,29 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
         `${roleNames.get(roleId) ?? 'A role'}: ${slots} places to fill, but the ` +
         `${pool.length} people who can do it cannot cover more than ${supply} at the ` +
         `intervals they have asked for. Some places will stay empty.`,
+      );
+    }
+    // The opposite of a shortfall: people's own figures asking for every place
+    // there is. Those who left theirs blank are then aimed at almost nothing —
+    // there for the Sundays the others cannot do, and otherwise not at all.
+    // That is what the rules say should happen, but it decides who is on the
+    // rota, and the draft's load list only names people who got a turn, so
+    // without this somebody can drop off a whole quarter with nothing said.
+    // Counted before the clamp in the fair-share loop, so the figure is what
+    // was really asked for. It never fires where nobody has given a figure.
+    const asked = statedAsk.get(roleId);
+    if (asked && asked.unstated > 0 && asked.unstated < pool.length && asked.demand >= slots) {
+      const gave = pool.length - asked.unstated;
+      warnings.push(
+        `${roleNames.get(roleId) ?? 'A role'}: ` +
+        (gave === 1
+          ? 'the one person who gave a figure has'
+          : `the ${gave} people who gave a figure have`) +
+        (slots === 1
+          ? ' asked for the only place, so '
+          : ` asked for about ${Math.round(asked.demand)} of the ${slots} places, so `) +
+        (asked.unstated === 1 ? 'the one who left theirs blank' : `the ${asked.unstated} who left theirs blank`) +
+        ` will only be asked when ${gave === 1 ? 'that person cannot' : 'those people cannot'}.`,
       );
     }
   }
@@ -679,17 +786,24 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
           parts.push(`${name} has not done this in the period looked at`);
         } else {
           const since = svc.day - last;
-          const target = Math.round(targetInterval(chosen, role.roleId));
-          const every = `${target} day${target === 1 ? '' : 's'}`;
+          const asked = statedEvery(capBy.get(k));
+          const days = (d: number) => `${d} day${d === 1 ? '' : 's'}`;
           // Say where the rhythm came from. "Against a rhythm of about 15" left
           // the reader to guess whether that was what the person asked for or
           // something the system made up — and those deserve different answers
           // when somebody asks why they are on again so soon.
+          //
+          // And quote a share only where it means something. Behind somebody
+          // who asked for most of the places it is years ("once every 637
+          // days"), which is true and tells the reader nothing; what has really
+          // happened is that they are filling a gap, so that is what is said.
           parts.push(
-            `${name} last did this ${since} day${since === 1 ? '' : 's'} ago` +
-            (statedEvery(capBy.get(k)) != null
-              ? `, against the once every ${every} or so they asked for`
-              : `, against a fair share of about once every ${every}`),
+            `${name} last did this ${days(since)} ago` +
+            (asked != null
+              ? `, against the once every ${days(Math.round(asked))} or so they asked for`
+              : standingIn.has(role.roleId)
+                ? ', and is standing in: most of these places go to people who asked to do it more often'
+                : `, against a fair share of about once every ${days(Math.max(1, Math.round(shareToQuote.get(role.roleId) ?? horizonDays)))}`),
           );
         }
         for (const other of placedInRole.get(role.roleId) ?? []) {
