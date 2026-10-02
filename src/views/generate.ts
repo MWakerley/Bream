@@ -63,8 +63,6 @@ export function generateFormPage(opts: {
               on a day they have said they are away.</li>
           <li><strong>It leaves a place empty rather than inventing a name.</strong> Empty
               places are listed so you can see exactly what still needs a person.</li>
-          <li><strong>People still marked "needs review" are skipped</strong> — the import
-              cannot tell which person a first name refers to.</li>
           <li><strong>Anyone taking a break is left out</strong>, and so is anyone marked as a
               guest. If either is already down for a service in the range, the draft takes them
               off and fills the place — and names each one before anything is saved. The only

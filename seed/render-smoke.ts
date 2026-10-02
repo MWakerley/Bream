@@ -681,11 +681,23 @@ await check('the event page lists cancelled bookings too', () => eventAdminPage(
   // once, and the single one says it only means a booking that is still cancelled.
   '/app/events/1/bookings/2/delete', 'name="only_cancelled"',
   'Delete John Hale’s cancelled booking for good?',
-  '/app/events/1/cancelled/delete', 'Delete all 1 cancelled booking',
 ], [
   // A real booking is never one click from being deleted off the list.
   '/app/events/1/bookings/1/delete',
+  // With only one cancelled, its own Delete is enough; "Delete all 1" is noise.
+  '/app/events/1/cancelled/delete',
 ]);
+
+await check('two or more cancelled bookings can be cleared at once', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, ctx: CTX, origin: 'https://x.test', ...EV_EXTRA,
+  bookings: [
+    { id: 2, name: 'John Hale', email: null, phone: null, party_size: 2,
+      status: 'cancelled', created_at: '2026-09-11 11:00:00', answers: {} },
+    { id: 3, name: 'Ann Lee', email: null, phone: null, party_size: 1,
+      status: 'cancelled', created_at: '2026-09-12 11:00:00', answers: {} },
+  ],
+}), ['/app/events/1/cancelled/delete', 'Delete all 2 cancelled bookings',
+     'data-confirm="Delete all 2 cancelled bookings for good?']);
 
 // Somebody who may only look is not offered a delete they would be refused.
 await check('a viewer is not offered the cancelled-booking deletes', () => eventAdminPage({

@@ -850,12 +850,14 @@ export function eventAdminPage(opts: {
                       + 'the numbers, so deleting them changes nothing but this list.',
                     rows: cancelled, e, fields, manage,
                   })}
-                  ${manage
+                  ${/* Only for two or more: with one, its own Delete is right beside it,
+                       and "Delete all 1" just says the same thing twice. */
+                    manage && cancelled.length > 1
                     ? html`<form method="post" action="/app/events/${e.id}/cancelled/delete"
                           class="inline-form"
-                          data-confirm="Delete all ${cancelled.length} cancelled booking${cancelled.length === 1 ? '' : 's'} for good? ${cancelled.length === 1 ? 'It goes' : 'They go'} from this page and cannot be got back. Nobody booked or on the waiting list is touched."
+                          data-confirm="Delete all ${cancelled.length} cancelled bookings for good? They go from this page and cannot be got back. Nobody booked or on the waiting list is touched."
                           onsubmit="return confirm(this.dataset.confirm)">
-                        <button class="btn-danger" type="submit">Delete all ${cancelled.length} cancelled booking${cancelled.length === 1 ? '' : 's'}</button>
+                        <button class="btn-danger" type="submit">Delete all ${cancelled.length} cancelled bookings</button>
                       </form>`
                     : ''}`
                 : ''}
