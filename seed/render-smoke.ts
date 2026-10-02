@@ -876,6 +876,19 @@ await check('and the rota menu no longer does', async () => {
 await check('a volunteer is not offered the generator', () => rotaDashboard(
   [], { ...CTX, path: '/app/rota', areas: VOLUNTEER_AREAS },
 ), ['Calendar'], ['Generate a rota', 'Change requests']);
+// On a phone the menu folds behind a button, with the area you are in listing
+// its own pages under it. It is a second copy of the menu, so it must offer
+// exactly what the bar does — the volunteer check above covers both copies.
+await check('the phone menu lists this area\'s pages under it, and Sign out', async () => {
+  const out = String(await settingsHomePage({ ...CTX, path: '/app/settings/roles', areas: ADMIN_AREAS }));
+  const menu = out.slice(out.indexOf('<details class="phone-menu">'), out.indexOf('</details>', out.indexOf('<details class="phone-menu">')));
+  const sub = menu.slice(menu.indexOf('phone-menu-sub'));
+  return menu.includes('href="/app/rota"') && /href="\/app\/settings\/roles" class="is-active"\s+aria-current="page"/.test(sub)
+    && menu.includes('Signed in as Matt') && menu.includes('action="/auth/sign-out"')
+    ? out : 'the phone menu is missing an area, the current page or Sign out';
+}, ['<summary class="phone-menu-button">', 'Generate a rota']);
+await check('and on a page with no section, no list under it', () => homePage({ ctx: CTX, gapCount: 0, isAdmin: true }),
+  ['<details class="phone-menu">', 'Signed in as Matt'], ['phone-menu-sub', 'class="subnav"']);
 
 
 
@@ -1504,7 +1517,9 @@ await check('and nothing at all on a quiet week', () => homePage({
     ['<a class="btn-quiet" href="/rooms/list?month=2026-10">Today</a>']);
   await check('and the calendar rings that day, and only that day', async () => {
     const out = String(await publicDiaryCalendarPage(diary({ today: '2026-10-02' })));
-    return /cal-today"\s+role="cell">\s*<span class="cal-n">2<\/span>/.test(out) && (out.match(/cal-today/g) ?? []).length === 1
+    // The weekday is the phone's: on a computer the column heading says it.
+    return /cal-today"\s+role="cell">\s*<span class="cal-dow">Fri<\/span>\s*<span class="cal-n">2<\/span>/.test(out)
+      && (out.match(/cal-today/g) ?? []).length === 1
       ? out : 'not 2 October alone ringed';
   }, ['<a class="btn-quiet" href="/rooms/calendar?month=2026-10">Today</a>']);
 

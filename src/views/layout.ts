@@ -92,6 +92,43 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
   },
 ];
 
+/**
+ * Polish for a phone, on top of a header that already works without it.
+ *
+ * Escape, or a tap anywhere else, closes the menu, as people expect of one
+ * that lies over the page. And the strip of in-section pages, which scrolls
+ * sideways on a phone, starts with the page you are on in view — in Settings
+ * that can be the tenth of twelve, well off the right-hand edge. Inline and
+ * straight after the header, so the strip is already in place when the page
+ * is first drawn rather than jumping a moment later. Phones only, as app.css
+ * counts them, so a tablet's strip starts where it always has.
+ *
+ * Plain ES5, as search.js is, for the oldest iPad in the building.
+ */
+const HEADER_SCRIPT = html`<script>
+(function () {
+  var menu = document.querySelector('details.phone-menu');
+  if (menu) {
+    document.addEventListener('keydown', function (e) {
+      if (!menu.open || !(e.key === 'Escape' || e.keyCode === 27)) return;
+      var inside = menu.contains(document.activeElement);
+      menu.open = false;
+      if (inside) menu.querySelector('summary').focus();
+    });
+    document.addEventListener('click', function (e) {
+      if (menu.open && !menu.contains(e.target)) menu.open = false;
+    });
+  }
+  var strip = document.querySelector('.subnav');
+  var here = strip && strip.querySelector('[aria-current]');
+  var phone = window.matchMedia && window.matchMedia('(max-width: 40rem)').matches;
+  if (phone && here && strip.scrollWidth > strip.clientWidth) {
+    strip.scrollLeft += here.getBoundingClientRect().left - strip.getBoundingClientRect().left
+      - (strip.clientWidth - here.offsetWidth) / 2;
+  }
+})();
+</script>`;
+
 export interface LayoutOptions {
   title: string;
   heading?: string;
@@ -142,6 +179,27 @@ export function layout(o: LayoutOptions, body: Html) {
   const subItems = (sub?.items ?? [])
     .filter((i) => !allowed || !i.area || allowed.has(i.area));
 
+  // The menu is drawn twice: once as the bar a computer has always had, and
+  // once folded behind a "Menu" button for a phone. On a phone the bar's logo,
+  // six areas and Sign out wrapped to three lines and stood a third of the way
+  // down the screen on every page. Folded, the area you are in lists its own
+  // pages under it, so the twelve in Settings can be read down a list rather
+  // than hunted for along a sideways strip.
+  //
+  // A <details> rather than a script: it opens and closes with no JavaScript
+  // at all, and tells a screen reader whether it is open by itself. It cannot
+  // simply BE the computer's bar as well: a closed details hides what is in
+  // it, and only the newest browsers can be told to show it anyway — an older
+  // iPad would lose its menu. Hence two copies. Only one is ever displayed:
+  // app.css hides the other with display:none, which takes it from screen
+  // readers as well as from view.
+  const isActive = (i: NavItem) => (i.match ? new RegExp(i.match).test(path) : false);
+  const navLink = (i: NavItem) => {
+    const active = isActive(i);
+    return html`<a href="${i.href}" class="${active ? 'is-active' : ''}"
+                       ${active ? html`aria-current="page"` : ''}>${i.label}</a>`;
+  };
+
   return html`<!doctype html>
 <html lang="en-GB">
 <head>
@@ -170,11 +228,7 @@ ${chrome
       <img src="/assets/logo-transparent.png" width="227" height="93" alt="Bream Church">
     </a>
     <nav class="mainnav" aria-label="Main">
-      ${items.map((i) => {
-        const active = i.match ? new RegExp(i.match).test(path) : false;
-        return html`<a href="${i.href}" class="${active ? 'is-active' : ''}"
-                       ${active ? html`aria-current="page"` : ''}>${i.label}</a>`;
-      })}
+      ${items.map(navLink)}
     </nav>
     <div class="topbar-end">
       ${o.signedInAs ? html`<span class="who">${o.signedInAs}</span>` : ''}
@@ -184,19 +238,42 @@ ${chrome
             </form>`
           : ''}
     </div>
+    <details class="phone-menu">
+      <summary class="phone-menu-button">
+        <svg class="phone-menu-icon is-shut" aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <svg class="phone-menu-icon is-open" aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        Menu
+      </summary>
+      <div class="phone-menu-panel">
+        <nav aria-label="Main">
+          <ul class="phone-menu-list">
+            ${items.map((i) => html`<li>${navLink(i)}${isActive(i) && subItems.length > 1
+              ? html`<ul class="phone-menu-sub" aria-label="In this section">
+                  ${subItems.map((s) => html`<li>${navLink(s)}</li>`)}
+                </ul>`
+              : ''}</li>`)}
+          </ul>
+        </nav>
+        ${o.signedInAs
+          ? html`<div class="phone-menu-end">
+              <span class="who">Signed in as ${o.signedInAs}</span>
+              <form method="post" action="/auth/sign-out" class="inline-form">
+                <button class="btn-quiet" type="submit">Sign out</button>
+              </form>
+            </div>`
+          : ''}
+      </div>
+    </details>
   </div>
   ${subItems.length > 1
       ? html`<div class="subbar">
     <nav class="subnav" aria-label="In this section">
-      ${subItems.map((i) => {
-        const active = i.match ? new RegExp(i.match).test(path) : false;
-        return html`<a href="${i.href}" class="${active ? 'is-active' : ''}"
-                       ${active ? html`aria-current="page"` : ''}>${i.label}</a>`;
-      })}
+      ${subItems.map(navLink)}
     </nav>
   </div>`
       : ''}
-</header>`
+</header>
+${HEADER_SCRIPT}`
       : html`<header class="topbar topbar-bare">
   <div class="topbar-inner">
     <span class="brand"><img src="/assets/logo-transparent.png" width="227" height="93" alt="Bream Church"></span>
