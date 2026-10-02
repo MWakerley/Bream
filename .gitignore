@@ -13,6 +13,7 @@ dist/
 .exp.mjs
 .draft.mjs
 .apply.mjs
+.rooms.mjs
 .claude/worktrees/
 public/_preview/
 .export-test/

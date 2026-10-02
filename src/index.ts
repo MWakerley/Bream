@@ -57,7 +57,9 @@ import { readUnitPair } from './frequency.js';
 import { roomsPage, editBookingPage, editSeriesPage, clashNotice } from './views/rooms.js';
 import { roomSettingsPage, type RoomSettingRow } from './views/roomsettings.js';
 import { listRooms, listBookings, getBooking, findClashes, readBooking, instants,
-         listSeries, planSeries, getSeries, applySeriesEdit, type BookingInput } from './rooms.js';
+         listSeries, planSeries, getSeries, applySeriesEdit, type BookingInput,
+         loadDiarySettings, listDiaryRooms, listPublicDiary, publicDiaryWindow } from './rooms.js';
+import { publicDiaryCalendarPage, publicDiaryListPage, diaryClosedPage } from './views/roomDiary.js';
 import { FREQUENCIES, describeSeries, type Frequency } from './recurrence.js';
 import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
          bookingEditPage, formatWhen, runsOver } from './views/events.js';
@@ -2777,16 +2779,19 @@ async function bookingFormView(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   notice?: { tone: 'ok' | 'bad'; text: string },
 ) {
-  const [settings, { results: rooms }] = await Promise.all([
+  const [settings, { results: rooms }, diary] = await Promise.all([
     loadFormSettings(c.env.DB),
     c.env.DB.prepare(
       'SELECT id, name, public_booking FROM rooms WHERE is_active = 1 ORDER BY sort_order, name',
     ).all<{ id: number; name: string; public_booking: number }>(),
+    loadDiarySettings(c.env.DB),
   ]);
+  const origin = new URL(c.req.url).origin;
   return c.html(bookingFormSettingsPage({
-    settings, rooms, link: `${new URL(c.req.url).origin}/rooms/book`,
+    settings, rooms, link: `${origin}/rooms/book`,
     emailReady: Boolean(c.env.EMAIL && c.env.ACK_FROM), captchaReady: turnstileReady(c.env),
     ctx: viewCtx(c), notice,
+    diary: { settings: diary, calendarLink: `${origin}/rooms/calendar`, listLink: `${origin}/rooms/list` },
   }));
 }
 
@@ -2826,6 +2831,25 @@ app.post('/app/rooms/booking-form', async (c) => {
       .bind(r.id, publicRooms.has(r.id) ? 1 : 0)),
   ]);
   return bookingFormView(c, { tone: 'ok', text: 'Saved.' });
+});
+
+// The room diary on the website: its own Save, so changing it never touches
+// the booking form's settings above, nor they it. Under /app/rooms/booking-form,
+// so it needs rooms.manage exactly as the rest of that page does.
+app.post('/app/rooms/booking-form/diary', async (c) => {
+  const form = await c.req.formData();
+  const isPublic = form.get('is_public') ? 1 : 0;
+  const showTitles = form.get('show_titles') ? 1 : 0;
+  await c.env.DB.prepare(
+    `UPDATE room_diary_settings SET is_public = ?1, show_titles = ?2, updated_at = datetime('now')
+      WHERE id = 1`,
+  ).bind(isPublic, showTitles).run();
+  return bookingFormView(c, {
+    tone: 'ok',
+    text: isPublic
+      ? `Saved. The room diary is on the website${showTitles ? ', showing what each booking is for' : ', with every booking just saying "Booked"'}.`
+      : 'Saved. The room diary is not on the website; its links say it is not available.',
+  });
 });
 
 /** Emails the person who asked, once somebody has decided. Never throws. */
@@ -4081,6 +4105,40 @@ app.get('/rooms/book/received/:receipt', async (c) => {
     fromTime: r.starts_at.slice(11, 16), toTime: r.ends_at.slice(11, 16), email: r.email,
   }));
 });
+
+// ---------------------------------------------------------------------------
+// The room diary on the website — public, no sign-in, nothing bookable
+// ---------------------------------------------------------------------------
+//
+// Outside /app, so outside the sign-in wall, like the booking form and an
+// event's page: these are links for the church website. Read-only — no route
+// here writes anything — and every booking comes through listPublicDiary,
+// which never reads contacts, notes or who booked it. Switched off on Rooms →
+// Booking form, both answer with one polite sentence and nothing else.
+
+async function publicDiaryView(c: Context<{ Bindings: Env; Variables: Vars }>, view: 'calendar' | 'list') {
+  // Never kept by a browser or a cache in between: a booking cancelled, or the
+  // diary switched off, has to be gone from the website at once.
+  c.header('cache-control', 'no-store');
+  const settings = await loadDiarySettings(c.env.DB);
+  if (!settings.is_public) return c.html(diaryClosedPage());
+
+  const rooms = await listDiaryRooms(c.env.DB);
+  // A room that is not one of the tabs — mistyped, or no longer in use — falls
+  // back to every room rather than an error.
+  const asked = Number(c.req.query('room'));
+  const roomId = rooms.some((r) => r.id === asked) ? asked : null;
+  const w = publicDiaryWindow(view, c.req.query('month'), new Date().toISOString().slice(0, 10));
+  const showTitles = !!settings.show_titles;
+  const bookings = await listPublicDiary(c.env.DB, w.from, w.to, roomId, showTitles);
+
+  const opts = { rooms, roomId, bookings, month: w.month, months: { first: w.first, last: w.last },
+    from: w.from, to: w.to, showTitles };
+  return c.html(view === 'calendar' ? publicDiaryCalendarPage(opts) : publicDiaryListPage(opts));
+}
+
+app.get('/rooms/calendar', (c) => publicDiaryView(c, 'calendar'));
+app.get('/rooms/list', (c) => publicDiaryView(c, 'list'));
 
 app.get('/events/:slug/poster', async (c) => {
   const event = await getEventBySlug(c.env.DB, c.req.param('slug'));

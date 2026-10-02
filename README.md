@@ -35,6 +35,7 @@ Three areas, reachable from the main screen once signed in:
 | Event posters, optional email/phone questions | **working** |
 | Acknowledgement emails after booking | **built, needs a sending domain** |
 | Calendar views for the rota and the rooms | **working** |
+| The room diary on the website (`/rooms/calendar`, `/rooms/list`), read-only | **working** |
 | Adding and renaming rooms | **working** |
 | Adding and editing roles | **working** |
 | Profiles: what each person can see | **working** |

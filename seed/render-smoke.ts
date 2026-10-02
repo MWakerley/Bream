@@ -1353,6 +1353,92 @@ await check('and nothing at all on a quiet week', () => homePage({
     link: 'https://x.test/rooms/book', emailReady: true, captchaReady: true, ctx: CTX,
   }), ['tick at least one room people may ask for'], ['Taking requests']);
 
+  // ---- the room diary on the website ----------------------------------------
+  // Imported here rather than at the top so this block stands on its own.
+  const { publicDiaryCalendarPage, publicDiaryListPage, diaryClosedPage } = await import('../src/views/roomDiary.js');
+  const DIARY_ROOMS = [{ id: 1, name: 'Main church' }, { id: 2, name: 'Church Centre' }, { id: 3, name: 'Prayer room' }];
+  const row = (o: Record<string, unknown>) => ({ room_id: 2, room_name: 'Church Centre', title: 'Home group',
+    starts_at: '2026-10-06T19:00', ends_at: '2026-10-06T21:00', is_tentative: 0, unpublished_event: 0, ...o });
+  const DIARY = [
+    // Carries what a booking row has inside the system, as if the page had been
+    // handed the wrong rows: none of it may reach the page.
+    row({ contact: 'Sue Smith 07700 900123', notes: 'Key under the mat SECRET-NOTE', booked_by_name: 'Booker-Name-X',
+          id: 4321, series_id: 9, request_id: 8, event_id: 7 }),
+    row({ title: 'Toddler group (Bream Tots)', starts_at: '2026-10-08T10:00', ends_at: '2026-10-08T11:30', is_tentative: 1 }),
+    row({ title: 'Surprise party', room_id: 1, room_name: 'Main church', starts_at: '2026-10-09T19:00',
+          ends_at: '2026-10-09T23:00', unpublished_event: 1 }),
+    row({ title: 'Weekend away', room_id: 3, room_name: 'Prayer room', starts_at: '2026-10-16T19:00',
+          ends_at: '2026-10-18T16:00' }),
+  ];
+  const diary = (o: Record<string, unknown> = {}) => ({ rooms: DIARY_ROOMS, roomId: null, bookings: DIARY,
+    month: '2026-10', months: { first: '2026-10', last: '2027-10' }, from: '2026-10-01', to: '2026-11-08',
+    showTitles: true, ...o });
+  // Nothing on either page may be a way in: no form, no "+", no link into the
+  // system, none to the booking form.
+  const NOT_BOOKABLE = ['<form', 'cal-add', 'href="/app', '/app/', '/rooms/book', 'Sign out',
+    'Sue Smith', '07700', 'SECRET-NOTE', 'Booker-Name-X', '4321', 'Toddler group', 'Surprise party'];
+
+  await check('the diary calendar has a tab for every room, the month, and the list', () => publicDiaryCalendarPage(diary()),
+    ['Room diary', 'All rooms', 'href="/rooms/calendar?month=2026-10&amp;room=1"', 'href="/rooms/calendar?month=2026-10&amp;room=2"',
+     'href="/rooms/calendar?month=2026-10&amp;room=3"', 'href="/rooms/calendar?month=2026-10"', 'October 2026',
+     'href="/rooms/calendar?month=2026-11"', 'aria-label="Next month"', 'See this as a list', 'href="/rooms/list?month=2026-10"',
+     'Home group', 'Church Centre: Held — not yet confirmed', 'Church Centre: Home group', 'Main church: Booked',
+     '<span class="cal-item'],
+    [...NOT_BOOKABLE, '<a class="cal-item', 'href="/rooms/calendar?month=2026-09']);
+  await check('the diary list is by day, with the same tabs, the month, and the calendar', () => publicDiaryListPage(diary()),
+    ['Tue 6 Oct 2026', 'Thu 8 Oct 2026', 'Fri 9 Oct 2026', '<th>Room</th><th>Time</th><th>What for</th>', '19:00–21:00',
+     'Home group', 'chip-amber">Held — not yet confirmed', 'href="/rooms/list?month=2026-10&amp;room=2"', 'href="/rooms/list?month=2026-11"',
+     'See this as a calendar', 'href="/rooms/calendar?month=2026-10"'],
+    [...NOT_BOOKABLE, 'href="/rooms/list?month=2026-09']);
+  await check('one room keeps its tab, and the other view keeps the room and month', () =>
+    publicDiaryListPage(diary({ roomId: 2, month: '2026-11', bookings: [] })),
+    ['href="/rooms/calendar?month=2026-11&amp;room=2"', 'aria-current="page">Church Centre',
+     'Nothing booked in November 2026 for the Church Centre', 'href="/rooms/list?month=2026-10&amp;room=2"'],
+    NOT_BOOKABLE);
+  await check('this month is listed from today on', () =>
+    publicDiaryListPage(diary({ bookings: [], from: '2026-10-02', to: '2026-11-01' })),
+    ['Nothing booked for the rest of October 2026']);
+  await check('a weekend away is listed on every day it covers', async () => {
+    const out = String(await publicDiaryListPage(diary()));
+    const days = ['Fri 16 Oct 2026', 'Sat 17 Oct 2026', 'Sun 18 Oct 2026'].filter((d) => out.includes(d)).length;
+    return days === 3 ? out : `only ${days} days`;
+  }, ['from 19:00', 'all day', 'until 16:00', 'Fri 16 Oct 2026 19:00 to Sun 18 Oct 2026 16:00']);
+  await check('and nothing is drawn before the days that were read', () =>
+    publicDiaryListPage(diary({ from: '2026-10-17' })), ['Sat 17 Oct 2026', 'Sun 18 Oct 2026'],
+    ['Fri 16 Oct 2026</h3>', 'Tue 6 Oct 2026']);
+  await check('with titles off, every booking just says "Booked"', async () => {
+    const out = String(await publicDiaryListPage(diary({ showTitles: false })));
+    return (out.match(/>\s*Booked\s*</g) ?? []).length >= 3 ? out : 'fewer than three plain "Booked"';
+  }, ['chip-amber">Held — not yet confirmed'], [...NOT_BOOKABLE, 'Home group', 'Weekend away']);
+  await check('and on the calendar too', () => publicDiaryCalendarPage(diary({ showTitles: false })),
+    ['Church Centre: Booked', 'Prayer room: Booked', 'Church Centre: Held — not yet confirmed'],
+    [...NOT_BOOKABLE, 'Home group', 'Weekend away']);
+  await check('at the last month the next arrow goes nowhere', () =>
+    publicDiaryCalendarPage(diary({ month: '2027-10', bookings: [] })),
+    ['is-off', 'href="/rooms/calendar?month=2027-09"', 'Nothing booked in October 2027'],
+    ['href="/rooms/calendar?month=2027-11']);
+  await check('switched off, both pages say only that', () => diaryClosedPage(),
+    ['The room diary is not available at the moment.'], ['<table', 'cal-', 'All rooms', '<form', '/app/', '/rooms/book']);
+
+  const DIARY_ON = { settings: { is_public: 1, show_titles: 1 },
+    calendarLink: 'https://x.test/rooms/calendar', listLink: 'https://x.test/rooms/list' };
+  await check('the booking form page has the diary card, with both full links and its own Save', async () => {
+    const out = String(await bookingFormSettingsPage({
+      settings: SETTINGS, rooms: [{ id: 2, name: 'Church Centre', public_booking: 1 }],
+      link: 'https://x.test/rooms/book', emailReady: true, captchaReady: true, ctx: CTX, diary: DIARY_ON,
+    }));
+    return (out.match(/Copy link/g) ?? []).length === 3 && (out.match(/<form method="post" action="\/app\/rooms\/booking-form/g) ?? []).length === 2
+      ? out : 'not three Copy link buttons and two forms';
+  }, ['Room diary on your website', 'On the website', 'href="https://x.test/rooms/calendar"',
+      'data-link="https://x.test/rooms/calendar"', 'href="https://x.test/rooms/list"', 'data-link="https://x.test/rooms/list"',
+      'action="/app/rooms/booking-form/diary"', 'Show the room diary on the website', 'Show what each booking is for',
+      'name="is_public" value="1" checked', 'name="show_titles" value="1" checked', 'Showing now']);
+  await check('switched off, the card says so and the ticks are clear', () => bookingFormSettingsPage({
+    settings: SETTINGS, rooms: [], link: 'https://x.test/rooms/book', emailReady: true, captchaReady: true, ctx: CTX,
+    diary: { ...DIARY_ON, settings: { is_public: 0, show_titles: 0 } },
+  }), ['Not showing', 'told the room diary is not available', 'name="is_public" value="1" >',
+       'name="show_titles" value="1" >'], ['name="is_public" value="1" checked', 'name="show_titles" value="1" checked']);
+
   const RV = { roomId: 2, onDate: '2026-10-06', fromTime: '10:00', toTime: '11:30', freq: null, untilDate: null,
     name: 'Jane', email: 'jane@example.org', phone: null, organisation: null, purpose: 'Toddler group', people: 12,
     isMember: false, hasInsurance: false, notes: null };

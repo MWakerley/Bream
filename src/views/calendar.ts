@@ -63,12 +63,47 @@ function gridDays(ym: string): { date: string; inMonth: boolean }[] {
   return out;
 }
 
+/**
+ * The month's name with arrows either side, and a way back to this month.
+ *
+ * Given `months`, an arrow that would leave that range is drawn greyed and
+ * goes nowhere. The website's room diary reaches only from this month to a
+ * year on, and an arrow that led to a month it then refused to show would
+ * look broken.
+ */
+export function monthHead(opts: {
+  month: string;
+  baseHref: string;
+  extraQuery?: string;
+  months?: { first: string; last: string };
+}) {
+  const { month, baseHref, months } = opts;
+  const extra = opts.extraQuery ? `&${opts.extraQuery}` : '';
+  const arrow = (by: -1 | 1) => {
+    const to = shiftMonth(month, by);
+    const label = by < 0 ? 'Previous month' : 'Next month';
+    const glyph = by < 0 ? '←' : '→';
+    return months && (to < months.first || to > months.last)
+      ? html`<span class="btn-secondary is-off" aria-disabled="true" title="${label}">${glyph}</span>`
+      : html`<a class="btn-secondary" href="${baseHref}?month=${to}${extra}" aria-label="${label}">${glyph}</a>`;
+  };
+  return html`
+    <div class="cal-head">
+      ${arrow(-1)}
+      <h2 class="cal-month">${monthLabel(month)}</h2>
+      ${arrow(1)}
+      <a class="btn-quiet" href="${baseHref}?month=${thisMonth()}${extra}">Today</a>
+    </div>`;
+}
+
 export function monthCalendar(opts: {
   month: string;
   entries: CalendarEntry[];
   /** Where the arrows point; `${base}?month=YYYY-MM` plus any extra query. */
   baseHref: string;
   extraQuery?: string;
+  /** The months the arrows may reach, as 'YYYY-MM'. Optional; see monthHead. */
+  months?: { first: string; last: string };
   emptyMessage?: string;
   /**
    * Makes each day itself clickable, for "book this day".
@@ -88,7 +123,6 @@ export function monthCalendar(opts: {
   };
 }) {
   const { month, entries, baseHref } = opts;
-  const extra = opts.extraQuery ? `&${opts.extraQuery}` : '';
   const today = new Date().toISOString().slice(0, 10);
 
   const byDay = new Map<string, CalendarEntry[]>();
@@ -98,14 +132,7 @@ export function monthCalendar(opts: {
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   return html`
-    <div class="cal-head">
-      <a class="btn-secondary" href="${baseHref}?month=${shiftMonth(month, -1)}${extra}"
-         aria-label="Previous month">←</a>
-      <h2 class="cal-month">${monthLabel(month)}</h2>
-      <a class="btn-secondary" href="${baseHref}?month=${shiftMonth(month, 1)}${extra}"
-         aria-label="Next month">→</a>
-      <a class="btn-quiet" href="${baseHref}?month=${thisMonth()}${extra}">Today</a>
-    </div>
+    ${monthHead({ month, baseHref, extraQuery: opts.extraQuery, months: opts.months })}
 
     ${entries.length === 0 && opts.emptyMessage
       ? html`<div class="notice notice-info"><p style="margin:0">${opts.emptyMessage}</p></div>`
