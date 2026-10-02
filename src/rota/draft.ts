@@ -80,6 +80,11 @@ export interface DraftView {
   warnings: string[];
   released: DraftReleased[];
   createdSundays: number;
+  /** The church asked to hear about every empty place, not only those below a
+   *  role's minimum ("Tell me about every empty place" in Draft rota rules).
+   *  Kept with the draft because the setting can change while it is open, and
+   *  absent from drafts parked before it was kept, which read as false. */
+  listEveryEmptyPlace?: boolean;
   /** What the last save changed, for the notice on the page it lands on. */
   lastSave?: { serviceId: number; notes: string[]; changed: number };
 }
@@ -111,7 +116,8 @@ export interface DraftDerived {
   fresh: number;
   /** Confirmed bookings left exactly as they were. */
   kept: number;
-  /** Places still short of each role's minimum. */
+  /** Places still short of each role's minimum — or of its ideal, when the
+   *  church asked to hear about every empty place. */
   empty: number;
   worthKnowing: string[];
 }
@@ -147,8 +153,17 @@ const RELAXED = ['sooner than they asked to be asked again', 'over the limit the
 /** derive() works these out again from the people, so the generator's own
  *  copies would only go stale after the first hand change. */
 const AMBER_SUMMARY = 'Settled for an amber combination ';
-/** load.ts keeps a guest's confirmed booking on the next generation ONLY when
- *  its reason starts with exactly this. Do not reword it. */
+/** How a reason starts when a person chose somebody rather than the generator:
+ *  the same words the service page writes. On a CONFIRMED booking load.ts reads
+ *  them, and keeps a guest on the next generation only when the reason starts
+ *  with exactly this — so it is not to be reworded.
+ *
+ *  It protects nothing for a place changed here, though. Apply writes those as
+ *  draft like the rest of the draft, nothing ever turns a draft place into a
+ *  confirmed one, and the next draft applied over the same dates replaces them
+ *  with everything else from this one. The way to keep somebody for certain is
+ *  to put them on from the service's own page once the draft is applied, and
+ *  the Apply card says so. The words match only so the two read alike. */
 const BY_HAND = 'Put on by ';
 const RED_NOTE = 'cannot also be ';
 
@@ -165,7 +180,7 @@ const comboKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`
  * would let Apply's INSERT OR REPLACE overwrite a booking the church has made.
  */
 export function buildDraftView(
-  input: Pick<GeneratorInput, 'services' | 'people' | 'roleNames' | 'pinned'>,
+  input: Pick<GeneratorInput, 'services' | 'people' | 'roleNames' | 'pinned' | 'rules'>,
   result: GeneratorResult,
   extras: { createdSundays: number; released: DraftReleased[]; pinNames: Map<number, string> },
 ): DraftView {
@@ -201,6 +216,12 @@ export function buildDraftView(
         for (const p of people) {
           if (p.pinned) continue;
           for (const relaxed of RELAXED) {
+            // Only the placement the generator actually bent the rule for, which
+            // its own reason says in these words. The sentence alone names a date,
+            // a person and a role, so somebody on the same role at 08:00 and at
+            // 10:30 would hand the 10:30's warning to the 08:00 — and replacing
+            // the one that really broke their limit would leave it behind.
+            if (!p.reason.includes(` — placed ${relaxed} because`)) continue;
             const w = `${s.date}: ${p.name} is on ${roleWord} ${relaxed}.`;
             byWarning.set(w, [...(byWarning.get(w) ?? []), p]);
           }
@@ -226,6 +247,7 @@ export function buildDraftView(
   return {
     v: 2, rev: 0, edits: 0, services, warnings,
     released: extras.released, createdSundays: extras.createdSundays,
+    listEveryEmptyPlace: !!input.rules?.listEveryEmptyPlace,
   };
 }
 
@@ -241,7 +263,11 @@ export function derive(view: DraftView): DraftDerived {
 
   for (const s of view.services) {
     for (const r of s.rows) {
-      empty += Math.max(0, r.min - r.people.length);
+      // Short of the minimum is always worth counting. Short of the ideal only
+      // when the church asked to hear about every empty place — which the
+      // generator honours by reporting those places, and which the count on the
+      // page would otherwise quietly ignore.
+      empty += Math.max(0, (view.listEveryEmptyPlace ? r.ideal : r.min) - r.people.length);
       for (const p of r.people) {
         if (p.pinned) kept++;
         else {
@@ -280,15 +306,25 @@ export function derive(view: DraftView): DraftDerived {
 /**
  * The places in a role a hand change may set.
  *
- * Every place the draft itself fills, and every free place up to the role's
- * ideal. A confirmed booking's place is never one of them: it is changed on the
+ * Every place the draft itself fills, and as many free places as it takes to
+ * bring the role up to its ideal — counted, the way the generator counts, not
+ * read off as place numbers 1 to the ideal. A confirmed booking can sit in a
+ * place numbered above the ideal (put on beside a generated preacher, who was
+ * later taken off), and offering place 1 as well then put a second preacher on
+ * a one-preacher Sunday, under a select with no visible label.
+ *
+ * A confirmed booking's place is never one of them: it is changed on the
  * service's own page once the draft is applied, because a draft that could
  * rewrite confirmed bookings would be one nobody dared apply.
  */
 export function editableSlots(row: DraftRow): number[] {
-  const pinned = new Set(row.people.filter((p) => p.pinned).map((p) => p.slot));
+  const pinned = row.people.filter((p) => p.pinned).length;
+  const used = new Set(row.people.map((p) => p.slot));
+  // The draft's own people keep their places whatever the count, so that any of
+  // them can still be taken off.
   const out = new Set(row.people.filter((p) => !p.pinned).map((p) => p.slot));
-  for (let s = 1; s <= row.ideal; s++) if (!pinned.has(s)) out.add(s);
+  // Then the lowest free numbers, as the generator would pick them.
+  for (let s = 1; pinned + out.size < row.ideal; s++) if (!used.has(s)) out.add(s);
   return [...out].sort((a, b) => a - b);
 }
 
@@ -388,7 +424,7 @@ export function editService(
     row.message = null;
   }
 
-  if (changed > 0) recheckCombinations(svc, ctx);
+  if (changed > 0) recheckCombinations(svc, ctx, new Set(arrivals.map((a) => a.person)));
 
   // What to say after saving. Only about the people just put on: anything else
   // at this service was already on the page before the save.
@@ -414,49 +450,106 @@ export function editService(
   return { view: next, changed, notes };
 }
 
+type Placed = { row: DraftRow; index: number; person: DraftPerson };
+
 /**
- * Amber and red, worked out again for everybody the draft placed at one
- * service, after a hand change.
+ * Amber and red, worked out again at one service after a hand change — but
+ * only for the clashes the change could have touched.
  *
- * Each clash is told once, on the later of the two roles in the order the
- * service is read — or always on the draft's own placement when the other half
- * is a confirmed booking, which is never rewritten. Red is a note rather than a
- * refusal: the generator never makes one, so a red here is something a person
- * chose with the warning in front of them.
+ * A clash neither half of which was changed stays exactly where it was. The
+ * generator puts an amber on whichever of the two it placed second, which
+ * follows how hard each role was to fill rather than the order the service is
+ * read in; working every clash out again on any save moved those to the other
+ * role, took the explanation out of one reason and left the other chip with
+ * none, and told one combination in two different wordings across the draft.
+ * So changing the preacher now leaves the reader's amber alone.
+ *
+ * A clash that involves somebody just put on is told once: on the later of the
+ * two roles in the order the service is read, or always on the draft's own
+ * placement when the other half is a confirmed booking, which is never
+ * rewritten. A clash whose other half has just been taken off simply goes. Red
+ * is a note rather than a refusal: the generator never makes one, so a red
+ * here is something a person chose with the warning in front of them.
  */
-function recheckCombinations(svc: DraftService, ctx: EditContext) {
-  const where = new Map<number, { index: number; person: DraftPerson }[]>();
-  svc.rows.forEach((r, index) => {
-    for (const person of r.people) {
-      where.set(person.personId, [...(where.get(person.personId) ?? []), { index, person }]);
+function recheckCombinations(svc: DraftService, ctx: EditContext, fresh: Set<DraftPerson>) {
+  const placed: Placed[] = svc.rows.flatMap((row, index) => row.people.map((person) => ({ row, index, person })));
+  const nameOf = (r: DraftRow) => ctx.roleNames?.get(r.roleId) ?? r.roleName;
+
+  /** Which of somebody's other places a chip or a note is about, by the role it
+   *  names: the longest name that fits, so "Reader" never claims a chip that
+   *  says "Reader (youth)". Both the name the draft was made with and today's
+   *  are tried, in case the role has been renamed since. */
+  const about = (said: string, lead: string, others: Placed[]) => {
+    let best: Placed | undefined;
+    let bestLength = -1;
+    for (const o of others) {
+      for (const n of [o.row.roleName, nameOf(o.row)]) {
+        const fits = said === `${lead}${n}` || said.startsWith(`${lead}${n} `);
+        if (fits && n.length > bestLength) { best = o; bestLength = n.length; }
+      }
+    }
+    return best;
+  };
+
+  // First, what each of the draft's own placements keeps: whatever it said
+  // about a clash whose two halves are both still here, and neither just put on.
+  const plan = new Map<DraftPerson, { amber: string[]; notes: string[] }>();
+  for (const { index, person: p } of placed) {
+    if (p.pinned) continue;
+    const others = placed.filter((o) => o.index !== index && o.person.personId === p.personId);
+    const stands = (said: string, lead: string) => {
+      if (fresh.has(p)) return false;
+      const o = about(said, lead, others);
+      return !!o && !fresh.has(o.person);
+    };
+    plan.set(p, {
+      amber: p.amber.filter((a) => stands(a, 'also ')),
+      notes: (p.notes ?? []).filter((n) => !n.startsWith(RED_NOTE) || stands(n, RED_NOTE)),
+    });
+  }
+
+  // Then every clash with somebody just put on. `placed` is in the order the
+  // service is read, so `b` is always the later of the two roles.
+  placed.forEach((a, i) => {
+    for (const b of placed.slice(i + 1)) {
+      if (a.person.personId !== b.person.personId || a.index === b.index) continue;
+      if (!fresh.has(a.person) && !fresh.has(b.person)) continue;
+      const [holder, other] = b.person.pinned ? [a, b] : [b, a];
+      const says = plan.get(holder.person);
+      if (!says) continue;
+      const c = ctx.combinations.get(comboKey(holder.row.roleId, other.row.roleId));
+      const otherName = nameOf(other.row);
+      // The generator's own words, from ambersFor in generate.ts.
+      if (c?.verdict === 'amber') says.amber.push(`also ${otherName}${c.reason ? ` — ${c.reason}` : ''}`);
+      if (c?.verdict === 'red') says.notes.push(`${RED_NOTE}${otherName} at the same service`);
     }
   });
 
-  svc.rows.forEach((row, index) => {
-    for (const p of row.people) {
-      if (p.pinned) continue;
-      const before = p.amber;
-      const amber: string[] = [];
-      const notes = (p.notes ?? []).filter((n) => !n.startsWith(RED_NOTE));
-      for (const other of where.get(p.personId) ?? []) {
-        if (other.index === index) continue;
-        if (!other.person.pinned && other.index > index) continue;
-        const otherRow = svc.rows[other.index]!;
-        const otherName = ctx.roleNames?.get(otherRow.roleId) ?? otherRow.roleName;
-        const c = ctx.combinations.get(comboKey(row.roleId, otherRow.roleId));
-        // The generator's own words, from ambersFor in generate.ts.
-        if (c?.verdict === 'amber') amber.push(`also ${otherName}${c.reason ? ` — ${c.reason}` : ''}`);
-        if (c?.verdict === 'red') notes.push(`${RED_NOTE}${otherName} at the same service`);
-      }
-      // A generated reason quotes its ambers in brackets. Rewritten to match,
-      // so a reason never mentions a clash that a hand change has taken away.
-      const quoted = before.length ? ` (${before.join('; ')})` : '';
-      if (quoted && p.reason.includes(quoted)) {
-        p.reason = p.reason.replace(quoted, amber.length ? ` (${amber.join('; ')})` : '');
-      }
-      p.amber = amber;
-      if (notes.length) p.notes = notes;
-      else delete p.notes;
-    }
-  });
+  for (const [p, { amber, notes }] of plan) {
+    if (JSON.stringify(amber) !== JSON.stringify(p.amber)) p.reason = requote(p.reason, p.amber, amber);
+    p.amber = amber;
+    if (notes.length) p.notes = notes;
+    else delete p.notes;
+  }
+}
+
+/**
+ * A reason, rewritten to quote the ambers its placement now carries.
+ *
+ * A generated reason names its ambers in brackets, so a reason never mentions a
+ * clash a hand change has taken away — and one that has just been given an
+ * amber says why, rather than showing a chip with nothing to explain it. The
+ * bracket goes where the generator puts it: before any "— placed ... because"
+ * and before the full stop.
+ */
+function requote(reason: string, before: string[], after: string[]): string {
+  const was = before.length ? ` (${before.join('; ')})` : '';
+  const now = after.length ? ` (${after.join('; ')})` : '';
+  // A function rather than a string, so a "$" in a role's name is not read as
+  // a replacement pattern.
+  if (was && reason.includes(was)) return reason.replace(was, () => now);
+  if (!now) return reason;
+  const at = reason.indexOf(' — placed ');
+  if (at >= 0) return `${reason.slice(0, at)}${now}${reason.slice(at)}`;
+  return reason.endsWith('.') ? `${reason.slice(0, -1)}${now}.` : `${reason}${now}`;
 }
