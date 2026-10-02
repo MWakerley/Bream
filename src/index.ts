@@ -428,7 +428,15 @@ app.use('/app/rota/requests', requireAdmin);
 app.use('/app/rota/requests/*', requireAdmin);
 app.use('/app/rota/service/:id/role/*', requireAdmin);
 
-app.get('/app/settings', (c) => c.html(settingsHomePage(viewCtx(c))));
+app.get('/app/settings', async (c) => {
+  // The same two addresses the Booking form card shows, built the same way.
+  const origin = new URL(c.req.url).origin;
+  const diary = await loadDiarySettings(c.env.DB);
+  return c.html(settingsHomePage(viewCtx(c), {
+    calendarLink: `${origin}/rooms/calendar`, listLink: `${origin}/rooms/list`,
+    showing: !!diary.is_public,
+  }));
+});
 
 app.get('/app/settings/people', async (c) =>
   c.html(peoplePage(await listPeople(c.env.DB), viewCtx(c))));

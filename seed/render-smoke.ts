@@ -257,7 +257,19 @@ await check('services', () => servicesPage({
 }), ['Create the Sundays', 'Add this service', '5 added']);
 
 await check('settings has its own overview', () => settingsHomePage(CTX),
-  ['/app/settings/people', '/app/settings/keyholders', 'Keyholders', 'Roles and numbers']);
+  ['/app/settings/people', '/app/settings/keyholders', 'Keyholders', 'Roles and numbers'],
+  ['Room diary links']);
+// The two website links, kept on Settings too, so they are found again later.
+const DIARY_LINKS = { calendarLink: 'https://x.test/rooms/calendar', listLink: 'https://x.test/rooms/list' };
+await check('settings keeps the two room diary links in a box', () => settingsHomePage(CTX, { ...DIARY_LINKS, showing: true }),
+  ['Room diary links for the website', 'href="https://x.test/rooms/calendar"', 'href="https://x.test/rooms/list"',
+   'data-link="https://x.test/rooms/calendar"', 'data-link="https://x.test/rooms/list"', 'Copy link',
+   'On the website', 'Showing now.', 'href="/app/rooms/booking-form#diary"']);
+await check('and says so when the diary is switched off', () => settingsHomePage(CTX, { ...DIARY_LINKS, showing: false }),
+  ['Not showing at the moment', 'href="https://x.test/rooms/list"'], ['Showing now.']);
+await check('the links are there for somebody who cannot change rooms, without the change link',
+  () => settingsHomePage({ ...CTX, areas: new Set(['settings']) }, { ...DIARY_LINKS, showing: true }),
+  ['href="https://x.test/rooms/calendar"'], ['/app/rooms/booking-form']);
 await check('the people page is just people', () => peoplePage(
   [{ id: 1, display_name: 'Sue', full_name: null, email: null, is_active: 1, is_admin: 0,
      needs_review: 0, review_note: null, happy_with_anyone: 1, is_keyholder: 1,

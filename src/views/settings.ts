@@ -3,6 +3,7 @@ import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
 import { searchBox } from './search.js';
 import { formatDate } from './rota.js';
 import { parseKeys, keyLabels } from '../keyholders.js';
+import { linkRow } from './roomRequests.js';
 import type { CombinationRow, PairingRow, PersonWithRoles, RoleRow } from '../db.js';
 
 const BACK = { href: '/app', label: 'All areas' };
@@ -24,7 +25,15 @@ const SECTIONS: { href: string; label: string; note: string }[] = [
   { href: '/app/settings/profiles', label: 'What people can see', note: 'Profiles, and which areas each one opens.' },
 ];
 
-export function settingsHomePage(ctx: ViewCtx) {
+export function settingsHomePage(
+  ctx: ViewCtx,
+  /** The room diary's two public addresses, kept here as well as on Rooms →
+   *  Booking form: Settings is where somebody looks for "that link we put on
+   *  the website" months later, not inside the request form's page. */
+  diary?: { calendarLink: string; listLink: string; showing: boolean },
+) {
+  // Only offered to somebody the page would let in.
+  const mayChange = !ctx.areas || ctx.areas.has('rooms.manage');
   return layout(
     { title: 'Settings', heading: 'Settings', back: BACK, ...ctx },
     html`
@@ -35,6 +44,32 @@ export function settingsHomePage(ctx: ViewCtx) {
             <p style="margin:0;color:var(--ink-2)">${x.note}</p>
           </a>`)}
       </div>
+
+      ${diary
+        ? html`<section class="card" id="website-links" aria-labelledby="links-h" style="margin-top:1.5rem">
+            <h2 id="links-h" style="margin-top:0;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center">
+              Room diary links for the website
+              ${diary.showing ? chip('green', 'On the website') : chip('neutral', 'Not showing')}
+            </h2>
+            <p style="color:var(--ink-2)">
+              What is booked in each room, for anybody to look at without signing in. Nothing can
+              be booked from them.
+            </p>
+            <h3 style="margin-bottom:.4rem">As a calendar</h3>
+            ${linkRow(diary.calendarLink)}
+            <h3 style="margin-bottom:.4rem">As a list</h3>
+            ${linkRow(diary.listLink)}
+            <p style="margin-bottom:0;color:var(--ink-2)">
+              ${diary.showing
+                ? 'Showing now.'
+                : html`<strong>Not showing at the moment</strong> — anyone following these links is told the room diary is not available.`}
+              ${mayChange
+                ? html` Whether it shows, and whether it says what each booking is for, is set on
+                    <a href="/app/rooms/booking-form#diary">Rooms → Booking form</a>.`
+                : ''}
+            </p>
+          </section>`
+        : ''}
     `,
   );
 }

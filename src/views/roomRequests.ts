@@ -404,8 +404,9 @@ export function requestsDashboard(requests: RequestRow[], canDecide: boolean) {
     </section>`;
 }
 
-/** A shareable address with a button that copies it. */
-function linkRow(link: string) {
+/** A shareable address with a button that copies it. Also used by the
+ *  Settings page's box of links, so the two always look and work alike. */
+export function linkRow(link: string) {
   return html`<p class="link-row">
     <a class="btn-secondary" href="${link}" target="_blank" rel="noopener">${link}</a>
     <button type="button" class="btn-quiet" data-link="${link}"
