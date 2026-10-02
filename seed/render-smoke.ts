@@ -214,7 +214,9 @@ await check('the gaps page keeps the two apart', () => gapsPage(
   ['Nothing unfilled', 'Reader 1 of 2', 'Somebody is doing each of these']);
 await check('service detail', () => servicePage(detail, CTX),
   ['Remembrance', 'Bream Cenotaph', 'nobody yet', 'Not needed here', 'Put it back',
-   'Tea and coffee', 'Steve', 'Don', 'Christine'],
+   'Tea and coffee', 'Steve', 'Don', 'Christine',
+   // A card per role on a phone, so Status is not off the edge of the screen.
+   'class="grid stack"', 'data-label="Status"'],
   // A viewer who may not change the rota is not offered a picker that would
   // refuse them. Nothing to add, nothing to take off.
   ['Put somebody on', 'Take off']);
@@ -596,7 +598,9 @@ await check('my rota', () => myRotaPage({
     status: 'confirmed', request_status: null }],
   away: [{ id: 1, from_date: '2026-12-20', to_date: '2026-12-28', reason: 'Away' }],
   ctx: CTX,
-}), ['Reader', 'I cannot do this', 'When you are away', 'Sun 20 Dec 2026']);
+}), ['Reader', 'I cannot do this', 'When you are away', 'Sun 20 Dec 2026',
+  // A card per date on a phone, each fact with its name in front.
+  'class="grid stack"', 'data-label="Doing"', 'class="stack-actions"']);
 await check('my rota (nothing on)', () => myRotaPage({ duties: [], away: [], ctx: CTX }),
   ['not down for anything']);
 await check('change requests', () => requestsPage({

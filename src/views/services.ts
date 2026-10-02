@@ -92,18 +92,20 @@ export function servicesPage(opts: {
       ${services.length === 0
         ? html`<div class="card"><p style="margin:0">None yet.</p></div>`
         : html`<div class="table-scroll">
-            <table class="grid">
+            <!-- A card per service on a phone, its date the heading; the Past
+                 or Upcoming chip needs no name in front of it. -->
+            <table class="grid stack">
               <thead><tr><th>When</th><th>Service</th><th>Type</th><th>Where</th><th></th></tr></thead>
               <tbody>
                 ${services.map(
                   (s) => html`<tr>
-                    <td>
+                    <td class="stack-title">
                       <a href="/app/rota/service/${s.id}">${formatDate(s.service_date)}</a>
                       <div class="num" style="color:var(--ink-2);font-size:.9375rem">${s.service_time}</div>
                     </td>
-                    <td>${s.title ?? 'Worship'}</td>
-                    <td>${s.type_name ?? '—'}</td>
-                    <td style="color:var(--ink-2)">${s.location ?? 'Church'}</td>
+                    <td data-label="Service">${s.title ?? 'Worship'}</td>
+                    <td data-label="Type">${s.type_name ?? '—'}</td>
+                    <td data-label="Where" style="color:var(--ink-2)">${s.location ?? 'Church'}</td>
                     <td>${s.service_date < today ? chip('neutral', 'Past') : chip('green', 'Upcoming')}</td>
                   </tr>`,
                 )}
