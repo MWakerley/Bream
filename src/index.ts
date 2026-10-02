@@ -42,7 +42,10 @@ import { recentActivity } from './activity.js';
 import { listWorshipSundays, saveWorshipPlan, POSITIONS } from './worship.js';
 import { gapsPage, readingsPage, rotaDashboard, servicePage } from './views/rota.js';
 import { servicesPage, type ServiceListRow, type ServiceTypeOption } from './views/services.js';
-import { generateFormPage, previewPage, type PreviewService } from './views/generate.js';
+import { generateFormPage, previewPage, draftServiceEditPage } from './views/generate.js';
+import { buildDraftView, derive, editService, editableSlots, type DraftCandidate,
+         type DraftView } from './rota/draft.js';
+import { listDraftCandidates } from './db.js';
 import { personPage, mergePage } from './views/person.js';
 import { profilesPage, addPersonPage, changePasswordPage } from './views/profiles.js';
 import { peopleByRolePage } from './views/byrole.js';
@@ -2000,30 +2003,31 @@ app.post('/app/settings/generate', async (c) => {
   }
   const result = generateRota(input);
 
-  // Shape the result for display, grouped the way a rota is read.
-  const nameOf = new Map(input.people.map((p) => [p.id, p.name]));
-  const services: PreviewService[] = input.services
-    .slice()
-    .sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
-    .map((s) => ({
-      id: s.id, date: s.date, time: s.time, title: s.title,
-      // A negative id is one of the Sundays we have only imagined so far.
-      isNew: s.id < 0,
-      rows: s.roles.map((r) => {
-        const here = result.allocations.filter((a) => a.serviceId === s.id && a.roleId === r.roleId);
-        const gap = result.gaps.find((g) => g.serviceId === s.id && g.roleId === r.roleId);
-        return {
-          roleId: r.roleId,
-          roleName: input.roleNames.get(r.roleId) ?? 'Role',
-          people: here.map((a) => ({
-            name: nameOf.get(a.personId) ?? `#${a.personId}`,
-            reason: a.reason, amber: a.amber, pinned: a.pinned,
-          })),
-          missing: Math.max(0, r.min - here.length),
-          message: gap?.message ?? null,
-        };
-      }),
-    }));
+  // Names for the confirmed bookings of people the generator was not given —
+  // stopped serving, or waiting to be reviewed. It holds their places without
+  // allocating them, so they were missing from the preview altogether; now the
+  // draft can be changed by hand they must be SHOWN as taken, or the place
+  // looks free to whoever is changing it.
+  const known = new Set(input.people.map((p) => p.id));
+  const unseen = [...new Set(input.pinned.filter((p) => !known.has(p.personId)).map((p) => p.personId))];
+  const pinNames = new Map<number, string>();
+  if (unseen.length) {
+    const { results } = await c.env.DB.prepare(
+      'SELECT id, display_name FROM people WHERE id IN (SELECT value FROM json_each(?1))',
+    ).bind(JSON.stringify(unseen)).all<{ id: number; display_name: string }>();
+    for (const r of results) pinNames.set(r.id, r.display_name);
+  }
+
+  const dateOf = new Map(input.services.map((s) => [s.id, s.date]));
+  const view = buildDraftView(input, result, {
+    createdSundays: created,
+    released: (input.released ?? []).map((r) => ({
+      name: r.name, why: r.why, date: dateOf.get(r.serviceId) ?? '',
+      roleName: input.roleNames.get(r.roleId) ?? 'a role',
+    })),
+    pinNames,
+  });
+  const d = derive(view);
 
   // Park the draft so Apply writes exactly what was shown.
   //
@@ -2036,7 +2040,7 @@ app.post('/app/settings/generate', async (c) => {
     `INSERT INTO draft_rotas (token, person_id, from_date, to_date, payload)
      VALUES (?1, ?2, ?3, ?4, ?5)`,
   ).bind(token, c.get('person').id, from, to, JSON.stringify({
-    allocations: result.allocations.filter((a) => !a.pinned),
+    allocations: d.allocations,
     sundays: planned,
     // Which provisional id stood for which date, so Apply can map them back.
     provisional: input.services.filter((s) => s.id < 0).map((s) => ({ id: s.id, date: s.date })),
@@ -2046,30 +2050,187 @@ app.post('/app/settings/generate', async (c) => {
     // The whole grid as shown — kept and new places together, Sundays not in
     // the diary yet included — so the draft can be downloaded exactly as it
     // was previewed, without generating it again.
-    grid: services.map((s) => ({
-      id: s.id, date: s.date, time: s.time, title: s.title,
-      rows: s.rows.map((r) => ({ roleId: r.roleId, names: r.people.map((p) => p.name) })),
-    })),
+    grid: d.grid,
+    // The draft as the page shows it, which a hand change edits. allocations
+    // and grid above are worked out from it again on every save (derive), so
+    // Apply and the downloads always see the draft as it now stands.
+    view,
   })).run();
 
-  const dateOf = new Map(input.services.map((s) => [s.id, s.date]));
+  // Post, redirect, get: the draft is always shown from what was parked, so
+  // the page after generating and the page after a hand change are the same
+  // page, and reloading it does not generate a second draft.
+  return c.redirect(`/app/settings/generate/draft/${token}`, 303);
+});
+
+/** Parked drafts are addressed by a random token, never by a guessable id. */
+const DRAFT_TOKEN = /^[A-Za-z0-9_-]{20,64}$/;
+
+/** The parked draft, if it exists and belongs to whoever is asking. */
+async function loadDraft(c: Context<{ Bindings: Env; Variables: Vars }>) {
+  const token = c.req.param('token') ?? '';
+  if (!DRAFT_TOKEN.test(token)) return null;
+  const row = await c.env.DB.prepare(
+    'SELECT payload, from_date, to_date FROM draft_rotas WHERE token = ?1 AND person_id = ?2',
+  ).bind(token, c.get('person').id).first<{ payload: string; from_date: string; to_date: string }>();
+  if (!row) return null;
+  const payload = JSON.parse(row.payload) as Record<string, unknown> | unknown[];
+  // A draft parked before drafts could be changed has no view. It can still be
+  // applied from a page left open, but not shown or changed here.
+  const view = !Array.isArray(payload) && (payload.view as DraftView | undefined)?.v === 2
+    ? payload.view as DraftView : null;
+  return { token, from: row.from_date, to: row.to_date, payload, view };
+}
+
+const draftUnavailable = (c: Context<{ Bindings: Env; Variables: Vars }>, text: string, status: 200 | 404) =>
+  c.html(generateFormPage({
+    ctx: viewCtx(c),
+    defaultFrom: new Date().toISOString().slice(0, 10),
+    defaultTo: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10),
+    notice: { tone: 'bad', text },
+  }), status);
+
+const draftMissing = (c: Context<{ Bindings: Env; Variables: Vars }>) => draftUnavailable(c,
+  'That draft is no longer available — it has been applied, or it was made by somebody else. Generate it again.',
+  404);
+const draftTooOld = (c: Context<{ Bindings: Env; Variables: Vars }>) => draftUnavailable(c,
+  'That draft was made before drafts could be changed by hand. Generate it again to check and change it.',
+  200);
+
+app.get('/app/settings/generate/draft/:token', async (c) => {
+  const d = await loadDraft(c);
+  if (!d) return draftMissing(c);
+  if (!d.view) return draftTooOld(c);
+  // The notice from the save that sent the person here, shown once on that
+  // service. Matched on the service so a stale ?saved= in a bookmark says
+  // nothing rather than something untrue.
+  const asked = c.req.query('saved');
+  const saved = asked != null && d.view.lastSave?.serviceId === Number(asked) ? d.view.lastSave : undefined;
   return c.html(previewPage({
-    ctx: viewCtx(c), from, to, result, services, token, createdSundays: created,
-    released: (input.released ?? []).map((r) => ({
-      name: r.name, why: r.why, date: dateOf.get(r.serviceId) ?? '',
-      roleName: input.roleNames.get(r.roleId) ?? 'a role',
-    })),
+    ctx: viewCtx(c), from: d.from, to: d.to, token: d.token,
+    view: d.view, derived: derive(d.view), saved,
   }));
+});
+
+/** Who could be put on each role at one service of a draft, keyed by role. */
+async function draftCandidates(db: D1Database, date: string) {
+  const out = new Map<number, DraftCandidate[]>();
+  for (const r of await listDraftCandidates(db, date)) {
+    const list = out.get(r.role_id) ?? [];
+    list.push({ id: r.id, name: r.display_name, on_break: r.on_break, is_guest: r.is_guest, away: r.away });
+    out.set(r.role_id, list);
+  }
+  return out;
+}
+
+/** A service of the draft by the id in the address. Negative for a Sunday the
+ *  draft would add, which is still a service of the draft. */
+function draftService(view: DraftView, raw: string | undefined) {
+  const sid = Number(raw);
+  if (!Number.isInteger(sid)) return null;
+  return view.services.find((s) => s.id === sid) ?? null;
+}
+
+app.get('/app/settings/generate/draft/:token/service/:sid', async (c) => {
+  const d = await loadDraft(c);
+  if (!d) return draftMissing(c);
+  if (!d.view) return draftTooOld(c);
+  const service = draftService(d.view, c.req.param('sid'));
+  if (!service) return c.redirect(`/app/settings/generate/draft/${d.token}`, 303);
+  return c.html(draftServiceEditPage({
+    ctx: viewCtx(c), token: d.token, view: d.view, service,
+    candidates: await draftCandidates(c.env.DB, service.date),
+  }));
+});
+
+/**
+ * Save a hand change to one service of the draft.
+ *
+ * Only the draft changes. The rota itself is not touched until the draft is
+ * applied, which is the whole point: the person checking can put right what
+ * they know, download it and send it round, and still walk away.
+ */
+app.post('/app/settings/generate/draft/:token/service/:sid', async (c) => {
+  const d = await loadDraft(c);
+  if (!d) return draftMissing(c);
+  if (!d.view) return draftTooOld(c);
+  const service = draftService(d.view, c.req.param('sid'));
+  if (!service) return c.redirect(`/app/settings/generate/draft/${d.token}`, 303);
+  const view = d.view;
+
+  const form = await c.req.formData();
+  // Only the places this page offered are read, so a confirmed booking's place
+  // cannot be reached by posting a field the page never drew.
+  const choices = new Map<string, number | null>();
+  for (const r of service.rows) {
+    for (const slot of editableSlots(r)) {
+      const raw = form.get(`p_${r.roleId}_${slot}`);
+      if (raw === null) continue;
+      const v = String(raw).trim();
+      if (v === '') choices.set(`${r.roleId}:${slot}`, null);
+      else if (/^\d+$/.test(v)) choices.set(`${r.roleId}:${slot}`, Number(v));
+    }
+  }
+
+  const candidates = await draftCandidates(c.env.DB, service.date);
+  const editor = (error: string, status: 400 | 409, posted?: Map<string, number | null>) =>
+    c.html(draftServiceEditPage({
+      ctx: viewCtx(c), token: d.token, view, service, candidates, error, posted,
+    }), status);
+
+  // Saved from a page that no longer matches the draft — a second tab, or the
+  // back button. Applying these choices on top of changes the person cannot
+  // see would undo them without a word, so the draft as it stands is shown.
+  const stale = 'This draft was changed in another window — here it is as it stands now.';
+  const rev = form.get('rev');
+  if (rev === null || Number(rev) !== view.rev) return editor(stale, 409);
+
+  const combinations = new Map((await listCombinations(c.env.DB)).map((r) => [
+    `${Math.min(r.role_a_id, r.role_b_id)}:${Math.max(r.role_a_id, r.role_b_id)}`,
+    { verdict: r.verdict, reason: r.reason },
+  ]));
+  const out = editService(view, service.id, choices, {
+    by: c.get('person').display_name, candidates, combinations,
+  });
+  if ('error' in out) return editor(out.error, 400, choices);
+
+  const derived = derive(out.view);
+  const payload = Array.isArray(d.payload) ? {} : d.payload;
+  // Guarded on the revision as well as the token: two saves racing from two
+  // tabs both pass the check above, and only the first may land.
+  const res = await c.env.DB.prepare(
+    `UPDATE draft_rotas SET payload = ?1
+      WHERE token = ?2 AND person_id = ?3
+        AND json_extract(payload, '$.view.rev') = ?4`,
+  ).bind(JSON.stringify({
+    ...payload, allocations: derived.allocations, grid: derived.grid, view: out.view,
+  }), d.token, c.get('person').id, view.rev).run();
+  if ((res.meta?.changes ?? 0) === 0) {
+    const now = await loadDraft(c);
+    if (!now) return draftMissing(c);
+    if (!now.view) return draftTooOld(c);
+    const shown = draftService(now.view, c.req.param('sid'));
+    if (!shown) return c.redirect(`/app/settings/generate/draft/${d.token}`, 303);
+    return c.html(draftServiceEditPage({
+      ctx: viewCtx(c), token: d.token, view: now.view, service: shown, candidates, error: stale,
+    }), 409);
+  }
+
+  return c.redirect(
+    `/app/settings/generate/draft/${d.token}?saved=${service.id}#svc-${service.id}`, 303);
 });
 
 /**
  * A parked draft, laid out as the rota download is. Only the person who made
  * the draft can fetch it, as only they can apply it; once applied (or
  * replaced) it is gone, and the rota's own download takes over.
+ *
+ * Reads the grid, which every hand change rewrites from the draft (derive), so
+ * a download made after changing a service shows the change.
  */
 async function draftForExport(c: Context<{ Bindings: Env; Variables: Vars }>) {
   const token = c.req.param('token') ?? '';
-  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
+  if (!DRAFT_TOKEN.test(token)) return null;
   const row = await c.env.DB.prepare(
     'SELECT payload FROM draft_rotas WHERE token = ?1 AND person_id = ?2',
   ).bind(token, c.get('person').id).first<{ payload: string }>();
@@ -2105,13 +2266,9 @@ async function draftForExport(c: Context<{ Bindings: Env; Variables: Vars }>) {
   return { details, roles };
 }
 
-const draftGone = (c: Context<{ Bindings: Env; Variables: Vars }>) =>
-  c.html(generateFormPage({
-    ctx: viewCtx(c),
-    defaultFrom: new Date().toISOString().slice(0, 10),
-    defaultTo: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10),
-    notice: { tone: 'bad', text: 'That draft is no longer available to download — it has been applied or replaced. Generate it again, or download the rota itself.' },
-  }), 404);
+const draftGone = (c: Context<{ Bindings: Env; Variables: Vars }>) => draftUnavailable(c,
+  'That draft is no longer available to download — it has been applied or replaced. Generate it again, or download the rota itself.',
+  404);
 
 app.get('/app/settings/generate/draft/:token/rota.xlsx', async (c) => {
   const d = await draftForExport(c);
@@ -2158,6 +2315,9 @@ app.post('/app/settings/generate/apply', async (c) => {
   interface DraftAllocation {
     serviceId: number; roleId: number; slot: number; personId: number; reason: string;
   }
+  // A draft made since drafts could be changed by hand also carries its `view`.
+  // Apply does not read it: `allocations` is worked out from it on every save,
+  // so it already holds the hand changes in exactly the shape below.
   const parsed = JSON.parse(row.payload) as
     | DraftAllocation[]
     | { allocations: DraftAllocation[]; sundays: SundayPlan[]; provisional: { id: number; date: string }[];
@@ -2225,6 +2385,15 @@ app.post('/app/settings/generate/apply', async (c) => {
     ).bind(...chunk).run();
   }
 
+  // Places somebody changed by hand while checking the draft go in exactly as
+  // the generated ones do — draft, and generated = 1. They belong to this draft,
+  // and the next draft applied over these dates replaces them wholesale with the
+  // rest; a choice meant to outlast that is confirmed, which makes it a pin.
+  // Their reason starts "Put on by", so a guest chosen here and then confirmed
+  // is kept by the next generation rather than taken off (see load.ts).
+  //
+  // A hand change cannot aim OR REPLACE at a confirmed booking either: the
+  // editor never offers a place that was confirmed when the draft was made.
   const stmt = c.env.DB.prepare(
     `INSERT OR REPLACE INTO assignments
        (service_id, role_id, slot, person_id, status, generated, reason)

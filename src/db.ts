@@ -291,6 +291,49 @@ export async function listCandidatesForRole(
   return results;
 }
 
+export interface DraftCandidateRow {
+  role_id: number;
+  id: number;
+  display_name: string;
+  on_break: number;
+  is_guest: number;
+  /** They have said they are away on this date. */
+  away: number;
+}
+
+/**
+ * Who could be put on each role, by hand, at one service of a draft rota.
+ *
+ * The same people as listCandidatesForRole, for the same reasons — read its
+ * comment before narrowing this. Two differences. Every role comes back at
+ * once, because the draft's editor shows a whole service. And "away" is worked
+ * out from the DATE rather than by joining services: a Sunday the draft has only
+ * imagined so far has a negative id and no row to join to.
+ *
+ * "Already on this service" is not asked here either, since the answer is in
+ * the draft rather than in the database.
+ */
+export async function listDraftCandidates(
+  db: D1Database,
+  date: string,
+): Promise<DraftCandidateRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT pr.role_id, p.id, p.display_name, p.on_break, p.is_guest,
+              EXISTS (SELECT 1 FROM unavailability u
+                       WHERE u.person_id = p.id
+                         AND ?1 BETWEEN u.from_date AND u.to_date) AS away
+         FROM people p
+         JOIN person_roles pr ON pr.person_id = p.id
+        WHERE p.is_active = 1 AND p.needs_review = 0
+          AND pr.can_do = 1
+        ORDER BY p.display_name, pr.role_id`,
+    )
+    .bind(date)
+    .all<DraftCandidateRow>();
+  return results;
+}
+
 export interface CombinationRow {
   role_a_id: number;
   role_b_id: number;
