@@ -522,7 +522,10 @@ export function servicePage(
                     : ''}`
                     : ''}
                 </td>
-                <td data-label="Status">
+                <!-- stack-lead: on a phone the chip saying whether the role is
+                     covered comes straight under its name, before the names
+                     and the picker, since it is what the page is opened for. -->
+                <td data-label="Status" class="stack-lead">
                   ${nobody
                     ? chip('red', 'Nobody on it')
                     : short

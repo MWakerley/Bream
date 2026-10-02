@@ -1313,6 +1313,29 @@ table.grid.sg-grid thead th.sg-course { text-align: center; font-size: .6875rem;
   table.grid.stack > tbody > tr > :is(th[scope=row], .stack-title) a {
     display: inline-flex; align-items: center; min-height: 2.75rem;
   }
+  /* The card's title first, wherever its column sits on a computer (People by
+     role opens with its tick, Merge with its radio, the room bookings with the
+     room), then anything marked .stack-lead — the one fact to read before the
+     rest, such as a service role's Status — then the cells in column order.
+     The search filter's and the frequency table's hidden rows stay hidden:
+     the global [hidden] rule is !important. */
+  table.grid.stack > tbody > tr { display: flex; flex-direction: column; }
+  table.grid.stack > tbody > tr > :is(th[scope=row], .stack-title) { order: -2; }
+  table.grid.stack > tbody > tr > .stack-lead { order: -1; }
+  /* An empty cell is a blank strip in a card; on a computer it holds a column. */
+  table.grid.stack > tbody > tr > td:empty { display: none; }
+  /* With the headings row hidden, the first card's top rule is a stray hairline. */
+  table.grid.stack > tbody > tr:first-child { border-top: 0; }
+
+  /* Combination rules: the pinned role names wrap rather than take two thirds
+     of the screen, leaving room for the grid beside them. */
+  .table-scroll.matrix > .combo-grid > tbody > tr > th[scope="row"] {
+    white-space: normal; width: 9rem; min-width: 9rem;
+  }
+  /* Yes / No answers on the public forms: a fingertip high, not a word high. */
+  .key-option { min-height: 2.75rem; padding-inline-end: .5rem; }
+  /* The next service's roster: a narrower role column leaves the names room. */
+  .nu-role { flex-basis: 8rem; }
 }
 
 /* ---- Phones: GRIDS THAT MUST SCROLL — .table-scroll.matrix ------------------
