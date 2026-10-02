@@ -338,17 +338,18 @@ export function gapsPage(services: ServiceSummary[], ctx: ViewCtx) {
             Nothing unfilled. Every role on every upcoming service has somebody on it.
           </p></div>`
         : html`<div class="table-scroll">
-            <table class="grid">
+            <!-- On a phone each service is a card, its date the heading. -->
+            <table class="grid stack">
               <thead><tr><th>When</th><th>Service</th><th>Nobody assigned to</th></tr></thead>
               <tbody>
                 ${withGaps.map(
                   (s) => html`<tr class="row-gap">
-                    <td>
+                    <td class="stack-title">
                       <a href="/app/rota/service/${s.id}"><strong>${formatDate(s.service_date)}</strong></a>
                       <div class="num" style="color:var(--ink-2);font-size:.9375rem">${s.service_time}</div>
                     </td>
-                    <td>${s.title ?? 'Worship'}</td>
-                    <td><strong style="color:var(--bad)">${s.gaps.join(', ')}</strong></td>
+                    <td data-label="Service">${s.title ?? 'Worship'}</td>
+                    <td data-label="Nobody assigned to"><strong style="color:var(--bad)">${s.gaps.join(', ')}</strong></td>
                   </tr>`,
                 )}
               </tbody>
@@ -364,18 +365,20 @@ export function gapsPage(services: ServiceSummary[], ctx: ViewCtx) {
               Somebody is doing each of these. A second pair of hands would help, but nothing
               here is unfilled.
             </p>
+            <!-- On a phone the last name is the heading less its "on": whole,
+                 it took two lines of the card's narrow column of names. -->
             <div class="table-scroll">
-              <table class="grid">
+              <table class="grid stack">
                 <thead><tr><th>When</th><th>Service</th><th>Could do with more on</th></tr></thead>
                 <tbody>
                   ${underOnly.map(
                     (s) => html`<tr>
-                      <td>
+                      <td class="stack-title">
                         <a href="/app/rota/service/${s.id}"><strong>${formatDate(s.service_date)}</strong></a>
                         <div class="num" style="color:var(--ink-2);font-size:.9375rem">${s.service_time}</div>
                       </td>
-                      <td>${s.title ?? 'Worship'}</td>
-                      <td><strong style="color:var(--warn)">${describeUnder(s.under)}</strong></td>
+                      <td data-label="Service">${s.title ?? 'Worship'}</td>
+                      <td data-label="Could do with more"><strong style="color:var(--warn)">${describeUnder(s.under)}</strong></td>
                     </tr>`,
                   )}
                 </tbody>
@@ -455,8 +458,13 @@ export function servicePage(
         </p>
       </div>
 
+      <!-- On a phone each role is a card: its name, who is on it, how it
+           stands, then its button. The table was 680px wide there, with Status
+           and "Not needed here" off the right edge — on the page people check
+           on a Sunday morning. "Who" goes unlabelled: a list of names, or
+           "nobody yet", says what it is. -->
       <div class="table-scroll">
-        <table class="grid">
+        <table class="grid stack">
           <thead><tr><th>Role</th><th>Who</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${s.roles.map((r) => {
@@ -464,7 +472,7 @@ export function servicePage(
               const short = !nobody && r.people.length < r.min_needed;
               const belowIdeal = !nobody && !short && r.people.length < r.ideal_needed;
               return html`<tr class="${nobody ? 'row-gap' : ''}">
-                <td><strong>${r.role_name}</strong></td>
+                <td class="stack-title"><strong>${r.role_name}</strong></td>
                 <td>
                   ${r.people.length
                     ? html`<ul class="assignees">
@@ -514,7 +522,7 @@ export function servicePage(
                     : ''}`
                     : ''}
                 </td>
-                <td>
+                <td data-label="Status">
                   ${nobody
                     ? chip('red', 'Nobody on it')
                     : short
@@ -523,7 +531,7 @@ export function servicePage(
                         ? chip('amber', 'Below ideal')
                         : chip('green', 'OK')}
                 </td>
-                <td>
+                <td class="stack-actions">
                   <form method="post" action="/app/rota/service/${s.id}/role/${r.role_id}/off"
                         class="inline-form">
                     <button class="linkish" type="submit"
@@ -544,13 +552,16 @@ export function servicePage(
               <p style="margin-top:0;color:var(--ink-2)">
                 These roles are switched off here, so they are not counted as gaps.
               </p>
-              <table class="grid">
+              <!-- The button keeps to the right on a computer. On a phone it is
+                   a stack-actions row, a flex box, where text-align does not
+                   move it: it starts at the left like every other card's. -->
+              <table class="grid stack">
                 <tbody>
                   ${s.notApplicable.map(
                     (n) => html`<tr>
-                      <td><strong>${n.role_name}</strong></td>
+                      <td class="stack-title"><strong>${n.role_name}</strong></td>
                       <td style="color:var(--ink-2)">${n.note ?? '—'}</td>
-                      <td style="text-align:right">
+                      <td class="stack-actions" style="text-align:right">
                         <form method="post"
                               action="/app/rota/service/${s.id}/role/${n.role_id}/on"
                               class="inline-form">

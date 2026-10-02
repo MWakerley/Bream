@@ -256,8 +256,10 @@ export function previewPage(opts: {
                   : ''}
               </div>`
             : ''}
+          <!-- On a phone the role is a heading over its people, rather than a
+               column beside them that left the reasons a few words wide. -->
           <div class="table-scroll">
-            <table class="grid">
+            <table class="grid stack">
               <tbody>
                 ${s.rows.map((r) => {
                   const missing = Math.max(0, r.min - r.people.length);
@@ -411,8 +413,10 @@ export function draftServiceEditPage(opts: {
 
       <form method="post" action="${draftHref}/service/${s.id}">
         <input type="hidden" name="rev" value="${opts.view.rev}">
+        <!-- As on the draft itself: a card per role on a phone, its pickers
+             the full width of the screen under the role's name. -->
         <div class="table-scroll">
-          <table class="grid">
+          <table class="grid stack">
             <tbody>
               ${s.rows.map((r) => {
                 const slots = editableSlots(r);

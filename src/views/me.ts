@@ -73,14 +73,14 @@ export function myRotaPage(opts: {
               joined, bringing your dates across.</p>
           </div>
           <div class="table-scroll" style="margin-bottom:1.5rem">
-            <table class="grid">
+            <table class="grid stack">
               <thead><tr><th>Name on the rota</th><th class="num">Dates</th><th></th></tr></thead>
               <tbody>
                 ${candidates.map(
                   (m) => html`<tr>
-                    <td><strong>${m.display_name}</strong></td>
-                    <td class="num">${m.duties}</td>
-                    <td>
+                    <td class="stack-title"><strong>${m.display_name}</strong></td>
+                    <td class="num" data-label="Dates">${m.duties}</td>
+                    <td class="stack-actions">
                       <form method="post" action="/app/me/link" class="inline-form"
                             data-confirm="Join ${m.display_name} to your account? This cannot be undone."
                             onsubmit="return confirm(this.dataset.confirm)">
@@ -99,19 +99,23 @@ export function myRotaPage(opts: {
         ? html`<div class="card"><p style="margin:0">
             You are not down for anything coming up.</p></div>`
         : html`<div class="table-scroll">
-            <table class="grid">
+            <!-- The page volunteers open on their phones more than any other.
+                 There each date is a card — the day as its heading, what they
+                 are doing under it, and "I cannot do this" a full fingertip
+                 high — rather than four columns to swipe across. -->
+            <table class="grid stack">
               <thead><tr><th>When</th><th>Service</th><th>Doing</th><th></th></tr></thead>
               <tbody>
                 ${duties.map(
                   (d) => html`<tr>
-                    <td>
+                    <td class="stack-title">
                       <a href="/app/rota/service/${d.service_id}"><strong>${formatDate(d.service_date)}</strong></a>
                       <div class="num" style="font-size:.9375rem;color:var(--ink-2)">${d.service_time}</div>
                     </td>
-                    <td>${d.title ?? 'Worship'}</td>
-                    <td><strong>${d.role_name}</strong>
+                    <td data-label="Service">${d.title ?? 'Worship'}</td>
+                    <td data-label="Doing"><strong>${d.role_name}</strong>
                       ${d.status === 'draft' ? chip('neutral', 'draft') : ''}</td>
-                    <td>
+                    <td class="stack-actions">
                       ${d.request_status === 'open'
                         ? chip('amber', 'You have asked to change this')
                         : d.request_status === 'accepted'
@@ -155,15 +159,17 @@ export function myRotaPage(opts: {
 
       ${away.length
         ? html`<div class="table-scroll">
-            <table class="grid">
+            <!-- No heading cell on a phone: "From" and "Until" both keep their
+                 names, so neither date can be taken for the other. -->
+            <table class="grid stack">
               <thead><tr><th>From</th><th>Until</th><th>Why</th><th></th></tr></thead>
               <tbody>
                 ${away.map(
                   (a) => html`<tr>
-                    <td>${formatDate(a.from_date)}</td>
-                    <td>${formatDate(a.to_date)}</td>
-                    <td style="color:var(--ink-2)">${a.reason ?? '—'}</td>
-                    <td>
+                    <td data-label="From">${formatDate(a.from_date)}</td>
+                    <td data-label="Until">${formatDate(a.to_date)}</td>
+                    <td data-label="Why" style="color:var(--ink-2)">${a.reason ?? '—'}</td>
+                    <td class="stack-actions">
                       <form method="post" action="/app/me/away/${a.id}/delete" class="inline-form">
                         <button class="linkish" type="submit" style="color:var(--bad)">Remove</button>
                       </form>
@@ -203,17 +209,17 @@ export function requestsPage(opts: {
       ${open.length === 0
         ? html`<div class="notice notice-ok"><p style="margin:0">Nothing outstanding.</p></div>`
         : html`<div class="table-scroll">
-            <table class="grid">
+            <table class="grid stack">
               <thead><tr><th>Who</th><th>Was down for</th><th>When</th><th>They said</th><th></th></tr></thead>
               <tbody>
                 ${open.map(
                   (r) => html`<tr class="row-gap">
-                    <td><strong>${r.person_name}</strong></td>
-                    <td>${r.role_name}</td>
-                    <td>${formatDate(r.service_date)}
+                    <td class="stack-title"><strong>${r.person_name}</strong></td>
+                    <td data-label="Was down for">${r.role_name}</td>
+                    <td data-label="When">${formatDate(r.service_date)}
                       <div class="num" style="font-size:.9375rem;color:var(--ink-2)">${r.service_time}</div></td>
-                    <td style="color:var(--ink-2)">${r.message ?? 'Cannot do this date'}</td>
-                    <td>
+                    <td data-label="They said" style="color:var(--ink-2)">${r.message ?? 'Cannot do this date'}</td>
+                    <td class="stack-actions">
                       <div class="btn-row" style="gap:.4rem">
                         <form method="post" action="/app/rota/requests/${r.id}/accept" class="inline-form">
                           <button class="btn-quiet" type="submit">Take them off</button>
@@ -232,14 +238,14 @@ export function requestsPage(opts: {
       ${done.length
         ? html`<h2 class="section-h2">Already dealt with</h2>
             <div class="table-scroll">
-              <table class="grid">
+              <table class="grid stack">
                 <thead><tr><th>Who</th><th>Was down for</th><th>When</th><th>Outcome</th></tr></thead>
                 <tbody>
                   ${done.map(
                     (r) => html`<tr>
-                      <td>${r.person_name}</td>
-                      <td>${r.role_name}</td>
-                      <td>${formatDate(r.service_date)}</td>
+                      <td class="stack-title">${r.person_name}</td>
+                      <td data-label="Was down for">${r.role_name}</td>
+                      <td data-label="When">${formatDate(r.service_date)}</td>
                       <td>${r.status === 'accepted'
                         ? chip('green', 'Taken off')
                         : chip('neutral', 'Left as is')}</td>
