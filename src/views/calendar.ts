@@ -10,6 +10,14 @@ import { html } from 'hono/html';
  * Built from ISO date strings rather than Date objects throughout. The church is
  * in one timezone and every date here is a wall-clock day, so converting to a
  * Date only creates opportunities for a booking to slide onto the previous day.
+ *
+ * On a phone the same markup is laid out as a list, one day to a line (see
+ * "Phones: the month calendar" in app.css). Seven columns 44rem wide in a box
+ * under half that was a strip you had to drag about to read anything. So each
+ * day carries its own weekday name, which only a phone shows — on a computer
+ * the column heading says it — and an empty day is marked, so a phone can
+ * keep it to one short line. One copy of the month rather than two, so a
+ * screen reader never hears it twice and a "+" is never in the page twice.
  */
 
 export interface CalendarEntry {
@@ -173,10 +181,11 @@ export function monthCalendar(opts: {
         </div>
         ${Array.from({ length: days.length / 7 }, (_, w) => html`
           <div class="cal-row" role="row">
-            ${days.slice(w * 7, w * 7 + 7).map((d) => {
+            ${days.slice(w * 7, w * 7 + 7).map((d, i) => {
               const list = byDay.get(d.date) ?? [];
-              return html`<div class="cal-day ${d.inMonth ? '' : 'cal-out'} ${d.date === today ? 'cal-today' : ''}"
+              return html`<div class="cal-day ${d.inMonth ? '' : 'cal-out'} ${list.length ? '' : 'cal-empty'} ${d.date === today ? 'cal-today' : ''}"
                                 role="cell">
+                <span class="cal-dow">${dayNames[i]}</span>
                 <span class="cal-n">${Number(d.date.slice(8, 10))}</span>
                 ${opts.addDay && d.inMonth
                     && (!opts.addDay.from || d.date >= opts.addDay.from)

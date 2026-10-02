@@ -66,6 +66,10 @@ body {
   /* 17px floor. The readers are volunteers, several of them in their seventies,
      often on an iPad. */
   font: 400 1.0625rem/1.6 var(--body);
+  /* A web address or an email with nowhere to break pushed whole pages
+     sideways on a phone. break-word only steps in when a word would
+     otherwise stick out of its box, so nothing that fits today moves. */
+  overflow-wrap: break-word;
 }
 
 img { max-width: 100%; height: auto; }
@@ -151,6 +155,10 @@ a:hover { color: var(--navy-deep); }
 .btn-quiet:hover { border-color: var(--navy); color: var(--navy); }
 
 .topbar-bare { position: static; box-shadow: 0 2px 0 0 var(--gold); }
+
+/* The folded menu for a phone (layout.ts draws the menu twice). Never shown
+   wider than a phone; "Phones: the header", near the end, does the rest. */
+.phone-menu { display: none; }
 
 /* ---- Page head ----------------------------------------------------------- */
 
@@ -266,6 +274,12 @@ a:hover { color: var(--navy-deep); }
 .card h2, .card h3 { color: var(--navy); text-transform: uppercase; font-size: 1.05rem; letter-spacing: .06em; }
 
 .table-scroll { overflow-x: auto; border-radius: var(--radius); box-shadow: var(--shadow); background: var(--paper); }
+/* A scroll box clips only what it positions. Without this, the .sr-only labels
+   inside a table (which are position:absolute) hung out past the box's right
+   edge wherever the table scrolled, and dragged the whole page sideways with
+   them — that was the Combination rules page's extra 70px on a phone. No
+   offsets, so nothing moves. */
+.table-scroll, .cal-scroll { position: relative; }
 table.grid { width: 100%; border-collapse: collapse; font-size: 1rem; }
 table.grid th, table.grid td { text-align: left; padding: .8rem .9rem; vertical-align: top; }
 table.grid thead th {
@@ -512,7 +526,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
   text-transform: uppercase; color: var(--navy);
 }
 
-/* The grid is the one thing allowed to scroll sideways, and only on a phone. */
+/* Sideways scrolling is only a safety net for a narrow tablet now: on a phone
+   the grid becomes a list of days instead ("Phones: the month calendar",
+   near the end). */
 .cal-scroll { overflow-x: auto; }
 .cal { min-width: 44rem; background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
 .cal-row { display: grid; grid-template-columns: repeat(7, 1fr); }
@@ -536,6 +552,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
   width: 1.6rem; height: 1.6rem; display: grid; place-items: center;
 }
 .cal-n { font-weight: 700; font-size: .875rem; color: var(--ink-2); }
+/* Each day's own weekday, for the one-day-a-line list a phone shows. Here the
+   column heading says it, so it is not drawn (nor read out) at all. */
+.cal-dow { display: none; }
 
 .cal-item {
   display: block; padding: .25rem .4rem; border-radius: 6px;
@@ -550,10 +569,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
 .cal-green { border-left-color: var(--ok); background: var(--ok-wash); }
 .cal-red   { border-left-color: var(--bad); background: var(--bad-wash); }
 .cal-red strong { color: var(--bad); }
-
-@media (max-width: 40rem) {
-  .cal-day { min-height: 5.5rem; }
-}
 
 /* How-often controls: a number, a word, a number, a unit. They wrap as a unit on
    a narrow screen rather than breaking mid-sentence. */
@@ -1085,3 +1100,318 @@ table.grid.sg-grid thead th.sg-course { text-align: center; font-size: .6875rem;
    website's room diary reaches from this month to a year on. */
 .cal-head .is-off,
 .cal-head .is-off:hover { opacity: .35; cursor: default; background: var(--paper); }
+
+/* ===========================================================================
+   PHONES
+
+   Everything from here to the end applies only at 40rem (640px) wide or less
+   — the width this file already treats as a phone — so a computer or an iPad
+   sees exactly what it always has. It comes last so that, at equal weight, it
+   wins over the rules above.
+
+   Two patterns here are for the views to use, and say how at their heads:
+     table.grid.stack       a table whose rows become cards on a phone
+     .table-scroll.matrix   a true grid that must still scroll sideways
+   Everything else applies by itself.
+   =========================================================================== */
+
+/* ---- Phones: the header ----------------------------------------------------
+   One short row: the logo, and a Menu button that opens the areas, this
+   area's own pages and Sign out as a list over the page. It is not sticky: with
+   the in-section strip under it the header is still about 100px, too much to
+   hold on a phone screen all the time. */
+@media (max-width: 40rem) {
+  .topbar { position: static; }
+  .topbar-inner {
+    position: relative; flex-wrap: nowrap; justify-content: space-between;
+    gap: .75rem; padding-block: .3rem;
+  }
+  .brand img { width: 6.25rem; }
+  /* The public pages have no menu, and the logo is all the header there is. */
+  .topbar-bare .topbar-inner { padding-block: .5rem; }
+  .topbar-bare .brand img { width: 7.5rem; }
+  .topbar-inner > .mainnav,
+  .topbar-inner > .topbar-end { display: none; }
+  .phone-menu { display: block; }
+
+  .phone-menu > summary {
+    list-style: none; cursor: pointer;
+    display: inline-flex; align-items: center; gap: .45rem;
+    min-height: 2.75rem; padding: .4rem .85rem;
+    border: 2px solid var(--navy); border-radius: var(--radius);
+    background: var(--paper); color: var(--navy);
+    font-family: var(--display); font-weight: 700; font-size: .8125rem;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  .phone-menu > summary::-webkit-details-marker { display: none; }
+  .phone-menu > summary:hover { background: var(--navy-wash); }
+  .phone-menu > summary:focus-visible { outline: 3px solid var(--gold-warm); outline-offset: 2px; }
+  .phone-menu[open] > summary { background: var(--navy); color: #fff; }
+  .phone-menu-icon { display: block; flex: none; }
+  .phone-menu-icon.is-open,
+  .phone-menu[open] .phone-menu-icon.is-shut { display: none; }
+  .phone-menu[open] .phone-menu-icon.is-open { display: block; }
+
+  /* Lies over the page, full width, straight under the logo and button. Not
+     given a height of its own: with Settings open it can be taller than the
+     screen, and the page then simply scrolls to the rest of it. */
+  .phone-menu-panel {
+    position: absolute; z-index: 30; left: 0; right: 0; top: 100%;
+    padding: .5rem clamp(1rem, 4vw, 2.5rem) 1rem;
+    background: var(--paper); box-shadow: var(--shadow-lg);
+    border-top: 1px solid var(--rule); border-bottom: 4px solid var(--gold);
+  }
+  .phone-menu-list,
+  .phone-menu-sub { list-style: none; margin: 0; padding: 0; }
+  .phone-menu-list > li + li { border-top: 1px solid var(--rule); }
+  .phone-menu-list a {
+    display: flex; align-items: center; min-height: 3rem; padding: .35rem .75rem;
+    border-radius: var(--radius); text-decoration: none; color: var(--navy);
+    font-family: var(--display); font-weight: 700; font-size: .875rem;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  .phone-menu-list a:hover { background: var(--navy-wash); }
+  /* As on the bar: a navy ground AND aria-current, never colour alone. */
+  .phone-menu-list a.is-active { background: var(--navy); color: #fff; }
+  /* The area you are in lists its pages under it, in ordinary words rather
+     than capitals, on a gold rule that ties them to it. */
+  .phone-menu-sub { margin: .3rem 0 .5rem .75rem; padding-left: .6rem; border-left: 3px solid var(--gold); }
+  .phone-menu-sub a {
+    min-height: 2.75rem; color: var(--ink);
+    font-family: var(--body); font-size: 1rem; letter-spacing: 0; text-transform: none;
+  }
+  .phone-menu-sub a.is-active { background: var(--gold); color: var(--navy-deep); }
+  .phone-menu-end {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: .5rem 1rem; margin-top: .5rem; padding: .75rem .75rem 0;
+    border-top: 2px solid var(--rule);
+  }
+
+  /* The in-section strip stays one row that scrolls sideways — a row is the
+     quickest way between "The rota" and "Calendar", and for most people it
+     fits without scrolling at all. Where it does not, the tabs fade away
+     into the navy at either edge, so one cut off there reads as "more this
+     way" rather than as a mistake. The fades are no wider than the strip's
+     own padding plus a tab's, so a strip that fits loses nothing to them.
+     The script in layout.ts brings the page you are on into view; the full
+     list is always in the Menu as well. */
+  .subnav {
+    gap: .25rem; padding-inline: 1rem; scroll-padding-inline: 2.5rem;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 2.25rem), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 2.25rem), transparent);
+  }
+  .subnav a { display: inline-flex; align-items: center; flex: none; min-height: 2.75rem; }
+}
+
+/* ---- Phones: the head of a page, and things too wide for one -------------- */
+@media (max-width: 40rem) {
+  .back { display: inline-flex; align-items: center; gap: .3em; min-height: 2.75rem; margin-bottom: .25rem; }
+  /* "Book your place" and the like may wrap rather than run off the edge. */
+  .page-h1-aside { white-space: normal; max-width: 100%; text-wrap: balance; }
+  /* A button holding a web address — the event page's own public link was
+     557px of unbreakable text. */
+  .btn-primary, .btn-secondary, .btn-danger { overflow-wrap: anywhere; max-width: 100%; }
+}
+
+/* ---- Phones: things to tap, and boxes to type in ---------------------------
+   44px is the height a fingertip can hit without a second try. Small links
+   and buttons are given that much room around their words, rather than
+   bigger words, so a row of them still reads as it did. */
+@media (max-width: 40rem) {
+  a.btn-quiet, button.btn-quiet, summary.btn-quiet,
+  .linkish, .recent-go, .search-clear, .tab {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 2.75rem;
+  }
+  .linkish { padding-inline: .2rem; }
+  .cal-head .btn-secondary { justify-content: center; min-width: 2.75rem; min-height: 2.75rem; }
+  /* A bare details, like "What each one means". Classed ones size themselves. */
+  summary:not([class]) { padding-block: .55rem; }
+
+  /* iPhones zoom the whole page in when a box under 16px is tapped, and do not
+     zoom back out. max() keeps a box that already inherits more at its size. */
+  input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=hidden]),
+  select, textarea {
+    font-size: 16px;
+    font-size: max(16px, 1em);
+  }
+  input[type=file] { width: 100%; font-family: inherit; }
+  input[type=file]::file-selector-button {
+    min-height: 2.75rem; margin-right: .75rem; padding: .4rem .9rem; cursor: pointer;
+    border: 2px solid var(--navy); border-radius: var(--radius);
+    background: var(--paper); color: var(--navy);
+    font: 700 .8125rem var(--display); letter-spacing: .06em; text-transform: uppercase;
+  }
+}
+
+/* ---- Phones: TABLES THAT STACK — table.grid.stack ---------------------------
+   For a list of things with a few facts each (people, bookings, rooms): on a
+   phone each row becomes a card and each cell a line of it, with the column's
+   name in front. Wider than a phone, the class does nothing at all.
+
+   HOW TO USE IT
+     <div class="table-scroll">
+       <table class="grid stack">
+         <thead><tr><th>Name</th><th>Roles</th><th>Email</th><th></th></tr></thead>
+         <tbody>
+           <tr>
+             <th scope="row"><a href="…">Sue Baker</a></th>   the card's heading
+             <td data-label="Roles">Reader, Preacher</td>      "ROLES  Reader, Preacher"
+             <td data-label="Email">sue@example.org</td>
+             <td class="stack-actions">…buttons, forms…</td>  a row of buttons
+           </tr>
+         </tbody>
+       </table>
+     </div>
+
+   - Add "stack" to the table's class, and data-label="…" to every td that
+     needs its column's name in front of it. Use the heading's own words in
+     ordinary case — the CSS does the capitals.
+   - The row's heading cell is th scope="row"; if the first cell is a td, give
+     it class="stack-title" instead. Either becomes the card's title.
+   - A td with no data-label spans the card with no name in front: for a cell
+     that explains itself (a sentence, a chip, a button). Give the cell of
+     actions class="stack-actions" too, and its buttons sit in a row that
+     wraps, each a full fingertip high.
+   - Leave out data-label on an empty cell as well, or the name shows with
+     nothing after it.
+   - A short value sits beside its name, and a long one wraps on under it. A
+     full-width box or picker, or a list, drops onto its own line by itself,
+     so a table of form fields (Roles) stacks too, with no other change.
+   - The headings row is hidden from view only: screen readers still have it,
+     and read each name out with its value.
+   - A tinted row (.row-gap, .row-cancelled) and the search filter's hidden
+     rows behave as before.
+   - Not for a grid where the column matters as much as the row (people by
+     course, role against role): that is .table-scroll.matrix, below.
+   --------------------------------------------------------------------------- */
+@media (max-width: 40rem) {
+  table.grid.stack { position: relative; } /* keeps the hidden headings inside the box */
+  table.grid.stack,
+  table.grid.stack > tbody,
+  table.grid.stack > tbody > tr,
+  table.grid.stack > tbody > tr > :is(td, th) { display: block; width: auto; }
+  table.grid.stack > thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+  table.grid.stack > tbody > tr { padding: .6rem 0; }
+  table.grid.stack > tbody > tr > :is(td, th) { padding: .3rem .9rem; text-align: left; }
+  table.grid.stack > tbody > tr > :is(th[scope=row], .stack-title) {
+    padding-bottom: .4rem; font-size: 1.0625rem; font-weight: 800; color: var(--navy);
+  }
+  table.grid.stack > tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    display: inline-block; min-width: 7rem; max-width: 50%; margin-right: .75rem;
+    font-family: var(--display); font-weight: 700; font-size: .6875rem;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2);
+  }
+  table.grid.stack > tbody > tr > td.stack-actions {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1.25rem;
+  }
+  /* A name in the card's heading that opens the record is a target too. */
+  table.grid.stack > tbody > tr > :is(th[scope=row], .stack-title) a {
+    display: inline-flex; align-items: center; min-height: 2.75rem;
+  }
+}
+
+/* ---- Phones: GRIDS THAT MUST SCROLL — .table-scroll.matrix ------------------
+   For a true two-way grid, where a cell means "this row AGAINST that column"
+   and a card per row would lose the comparison: the safeguarding courses each
+   role needs, the combination rules, the worship roster. On a phone it still
+   scrolls sideways, but the first column — each row's name — stays put while
+   the rest slides under it, and a line above says it scrolls.
+
+   HOW TO USE IT
+     <div class="table-scroll matrix">
+       <table class="grid">
+         <thead><tr><th>Role</th><th>Course A</th>…</tr></thead>
+         <tbody><tr><th scope="row">Churchwarden</th><td>…</td>…</tr></tbody>
+       </table>
+     </div>
+
+   - Add "matrix" to the .table-scroll around it. Nothing else.
+   - The first cell of every row is the one that stays: make it the row's
+     name, ideally th scope="row".
+   - The pinned cell has its own ground, plain or striped as its row is. A row
+     tinted from its tr (.row-gap) would show plain there: tint that cell too.
+   - Wider than a phone, the class does nothing at all.
+   --------------------------------------------------------------------------- */
+@media (max-width: 40rem) {
+  .table-scroll.matrix::before {
+    content: "Swipe sideways to see every column \2192";
+    /* Said to the eye only: a screen reader moves through the cells anyway. */
+    content: "Swipe sideways to see every column \2192" / "";
+    display: block; position: sticky; left: 0;
+    padding: .55rem .9rem; border-bottom: 1px solid var(--rule);
+    background: var(--gold-wash); color: var(--ink);
+    font-size: .875rem; font-weight: 700;
+  }
+  .table-scroll.matrix > table > * > tr > :first-child {
+    position: sticky; left: 0; z-index: 1;
+    background-color: var(--paper);
+    /* A hairline at its right edge, drawn in the background so as not to
+       displace any edge a row already draws with box-shadow. */
+    background-image: linear-gradient(to left, var(--rule-strong) 1px, transparent 1px);
+  }
+  .table-scroll.matrix > table > thead > tr > :first-child { background-color: var(--navy); background-image: none; }
+  .table-scroll.matrix > table > tbody > tr:nth-child(even) > :first-child { background-color: #fbfcfd; }
+  /* A row's name that opens it (a person, a role) is a target too. */
+  .table-scroll.matrix > table > tbody > tr > :first-child a {
+    display: inline-flex; align-items: center; min-height: 2.75rem;
+  }
+}
+
+/* ---- Phones: the month calendar --------------------------------------------
+   Seven columns do not fit a phone: the grid was 704px in a 328px box. The
+   same markup becomes a list instead, one day to a line — the weekday and
+   date on the left, everything on that day in full beside it, and the "+" at
+   the right, a full fingertip wide. Days from the months either side are left
+   out (they are in their own month), and a day with nothing on is one short
+   line: kept, so its "+" can still be reached, and so a free Thursday can be
+   seen to be free. Mondays draw a heavier line, so the weeks still read. */
+@media (max-width: 40rem) {
+  .cal-scroll { overflow-x: visible; }
+  .cal { min-width: 0; }
+  .cal-row { display: block; }
+  .cal-row.cal-names, .cal-day.cal-out { display: none; }
+  .cal-day {
+    display: grid; grid-template-columns: 2.5rem 1.9rem minmax(0, 1fr) auto;
+    align-items: center; gap: .35rem .45rem;
+    min-height: 0; padding: .45rem .6rem .45rem .9rem; border-left: 0;
+  }
+  .cal-row > .cal-day:first-child { border-top: 3px solid var(--rule-strong); }
+  .cal-dow {
+    display: block; grid-column: 1; grid-row: 1;
+    font-family: var(--display); font-weight: 700; font-size: .6875rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2);
+  }
+  .cal-day .cal-n { grid-column: 2; grid-row: 1; padding-right: 0; font-size: 1rem; color: var(--ink); }
+  .cal-empty { padding-block: .2rem; }
+  .cal-empty .cal-n { color: var(--ink-2); }
+  .cal-day.cal-today .cal-n { width: 1.75rem; height: 1.75rem; color: #fff; }
+  .cal-add {
+    position: static; grid-column: 4; grid-row: 1;
+    width: 2.75rem; height: 2.75rem; font-size: 1.35rem;
+  }
+  /* Each booking or service in full, rather than cut to fit a column. */
+  .cal-item {
+    grid-column: 3;
+    display: flex; align-items: center; gap: .45rem;
+    padding: .45rem .65rem; font-size: .9375rem; line-height: 1.35;
+  }
+  .cal-item strong { flex: none; }
+  a.cal-item { min-height: 2.75rem; }
+
+  /* The month's name over its arrows, so neither has to squeeze. */
+  .cal-head { gap: .5rem; }
+  .cal-month { flex-basis: 100%; order: -1; font-size: 1.2rem; }
+}
+
+@media (max-width: 40rem) and (forced-colors: active) {
+  /* Grounds are dropped in this mode, so the current item and today keep an
+     outline where they had only a tint. */
+  .phone-menu-list a.is-active, .subnav a.is-active { outline: 2px solid; outline-offset: -2px; }
+  .cal-today .cal-n { outline: 2px solid; }
+  .table-scroll.matrix::before { border: 1px solid; }
+}
