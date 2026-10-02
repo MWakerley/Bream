@@ -1416,7 +1416,7 @@ await check('and nothing at all on a quiet week', () => homePage({
   // pressed by mistake. It must now be the last thing, after every service.
   await check('Apply is at the bottom of the draft, not beside Start again', () => {
     const out = String(page());
-    const top = out.indexOf('Nothing has been saved yet.');
+    const top = out.indexOf('Nothing is on the rota yet.');
     const topEnd = out.indexOf('<h2 class="section-h2"', top);
     const apply = out.indexOf('action="/app/settings/generate/apply"');
     const load = out.indexOf('How the load falls');
@@ -1429,6 +1429,65 @@ await check('and nothing at all on a quiet week', () => homePage({
     ].filter(Boolean);
     return where.length ? where.join('; ') : 'apply is last';
   }, ['apply is last']);
+
+  // "Nothing has been saved yet" sat above "Saved your changes to ..." on the
+  // same page once hand changes were saved into the draft, and read as though
+  // they had been lost. What has not happened is anything reaching the rota.
+  await check('the top card does not say a saved change was not saved', page,
+    ['Nothing is on the rota yet.', 'Your changes are kept in this draft until you apply it.'],
+    ['Nothing has been saved yet']);
+  await check('an untouched draft does not talk about changes', () => previewPage({
+    ctx: CTX, from: '2026-10-01', to: '2026-12-31', token: TOKEN, view: { ...DRAFT, edits: 0 },
+    derived: derive({ ...DRAFT, edits: 0 }),
+  }), ['Nothing is on the rota yet.'], ['Your changes are kept']);
+
+  // There is no step that confirms a draft place, so a hand change is replaced
+  // by the next draft over the same dates like everything else from this one.
+  // The Apply card says so, and how to keep somebody for certain.
+  await check('applying says what becomes of the places changed by hand', page,
+    ['The place you changed by hand goes on as draft like the rest.',
+     'If a later draft for the same dates is applied, it is',
+     'To keep somebody for certain,', 'own page once this is applied',
+     'Anything somebody has booked by hand on a service', 'is left as it is.'],
+    ['until someone confirms them']);
+
+  // "Tell me about every empty place" in Draft rota rules. The generator reports
+  // a place between a role's minimum and its ideal only when that is ticked; the
+  // draft has to count it and say it, or the setting does nothing at all.
+  const EVERY = { ...DRAFT, edits: 0, listEveryEmptyPlace: true, services: [
+    { id: 2, date: '2026-10-18', time: '10:30', title: 'Worship', isNew: false, rows: [
+      { roleId: 4, roleName: 'Prayer ministry', min: 1, ideal: 4,
+        message: 'Nobody available: 2 too soon after their last time in this role.', people: [
+          { personId: 30, name: 'Don', slot: 1, reason: 'Don has not done this in the period looked at.',
+            amber: [], pinned: false },
+        ] },
+    ] },
+  ] };
+  await check('every empty place is counted and said, when the church asked for that', () => previewPage({
+    ctx: CTX, from: '2026-10-01', to: '2026-12-31', token: TOKEN, view: EVERY, derived: derive(EVERY),
+  }), ['<strong>3</strong> places still empty', '3 short of the ideal of 4',
+       '2 too soon after their last time in this role'],
+    ['still needed', 'row-gap']);
+  await check('but only then: a service with its minimum is not short otherwise', () => previewPage({
+    ctx: CTX, from: '2026-10-01', to: '2026-12-31', token: TOKEN,
+    view: { ...EVERY, listEveryEmptyPlace: undefined }, derived: derive({ ...EVERY, listEveryEmptyPlace: undefined }),
+  }), ['<strong>0</strong> places still empty'], ['short of the ideal', 'still needed']);
+
+  // A draft left by the back link or the menu could not be found again: its only
+  // address is a random token. The generate form offers the way back.
+  const { generateFormPage } = await import('../src/views/generate.js');
+  const RESUME = { href: `/app/settings/generate/draft/${TOKEN}`, from: '2026-10-01', to: '2026-12-31', edits: 2 };
+  await check('the generate form offers a way back to a draft not yet applied', () => generateFormPage({
+    ctx: CTX, defaultFrom: '2026-10-02', defaultTo: '2026-12-31', resume: RESUME,
+  }), ['You have a draft for Thu 1 Oct 2026 to Thu 31 Dec 2026 that has not been applied yet, with 2 changes by hand.',
+       'starts again from scratch, without your changes', `href="/app/settings/generate/draft/${TOKEN}"`, 'Carry on checking it',
+       'Generate a draft']);
+  await check('and says nothing of changes when none were made', () => generateFormPage({
+    ctx: CTX, defaultFrom: '2026-10-02', defaultTo: '2026-12-31', resume: { ...RESUME, edits: 0 },
+  }), ['that has not been applied yet.', 'Carry on checking it'], ['by hand.', 'without your changes']);
+  await check('with no draft open, the form is just the form', () => generateFormPage({
+    ctx: CTX, defaultFrom: '2026-10-02', defaultTo: '2026-12-31',
+  }), ['Generate a draft'], ['Carry on checking it', 'You have a draft']);
 
   const EDIT_CANDIDATES = new Map([[1, CANDIDATES.get(1).map((c) => ({
     id: c.id, name: c.display_name, on_break: c.on_break, is_guest: c.is_guest, away: c.away,

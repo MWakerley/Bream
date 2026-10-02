@@ -11,7 +11,13 @@ export function generateFormPage(opts: {
   defaultFrom: string;
   defaultTo: string;
   notice?: { tone: 'ok' | 'bad'; text: string };
+  /** A draft this person has not applied yet. Its only address is a random
+   *  token, so without this a draft left by the back link or the menu could
+   *  not be found again — and generating afresh would quietly start without
+   *  the changes made to it by hand. */
+  resume?: { href: string; from: string; to: string; edits: number };
 }) {
+  const r = opts.resume;
   return layout(
     { title: 'Generate a draft rota', back: BACK, ...opts.ctx },
     html`
@@ -22,6 +28,20 @@ export function generateFormPage(opts: {
 
       ${opts.notice
         ? html`<div class="notice notice-${opts.notice.tone}"><p style="margin:0">${opts.notice.text}</p></div>`
+        : ''}
+
+      ${r
+        ? html`<div class="notice notice-warn" role="status">
+            <p style="margin-top:0">${`You have a draft for ${formatDate(r.from)} to ${formatDate(r.to)} `
+              + 'that has not been applied yet'
+              + (r.edits > 0 ? `, with ${r.edits} ${plural(r.edits, 'change', 'changes')} by hand` : '')
+              + '.'}
+              ${r.edits > 0
+                ? 'Making a new one below starts again from scratch, without your changes.'
+                : 'You can carry on with it, or make a new one below.'}
+            </p>
+            <p style="margin:0"><a class="btn-secondary" href="${r.href}">Carry on checking it</a></p>
+          </div>`
         : ''}
 
       <form method="post" action="/app/settings/generate" class="card">
@@ -131,6 +151,8 @@ export function previewPage(opts: {
       : []),
   ];
   const confirmText = `Apply this draft? ${joinAnd(facts)}. This cannot be undone from this page. Are you sure?`;
+  const byHand = view.services.reduce(
+    (n, s) => n + s.rows.reduce((m, r) => m + r.people.filter((p) => p.byHand).length, 0), 0);
 
   return layout(
     { title: 'Draft rota', back: { href: '/app/settings/generate', label: 'Generate' }, ...opts.ctx },
@@ -168,7 +190,12 @@ export function previewPage(opts: {
            it was far too easy to press by mistake on the way to checking the
            draft. It is now the last thing on the page, after every service. -->
       <div class="card" style="border-top:3px solid var(--brass)">
-        <p style="margin-top:0"><strong>Nothing has been saved yet.</strong></p>
+        <!-- Not "nothing has been saved": a hand change IS saved, into the draft,
+             and the same page then says "Saved your changes to ..." on that
+             service. What has not happened is anything reaching the rota. -->
+        <p style="margin-top:0"><strong>Nothing is on the rota yet.</strong>${view.edits > 0
+          ? ' Your changes are kept in this draft until you apply it.'
+          : ''}</p>
         <p>
           Check each service below. Press <strong>Change</strong> on any of them to put somebody
           else on, and apply the draft at the bottom of this page when it is right.
@@ -234,6 +261,10 @@ export function previewPage(opts: {
               <tbody>
                 ${s.rows.map((r) => {
                   const missing = Math.max(0, r.min - r.people.length);
+                  // Only when the church asked to hear about every empty place
+                  // (Draft rota rules), and quietly: the service has what it needs.
+                  const belowIdeal = missing === 0 && view.listEveryEmptyPlace
+                    ? Math.max(0, r.ideal - r.people.length) : 0;
                   return html`<tr class="${missing > 0 ? 'row-gap' : ''}">
                     <th scope="row" style="${ROLE_TH}">${r.roleName}</th>
                     <td>
@@ -241,6 +272,11 @@ export function previewPage(opts: {
                       ${missing > 0
                         ? html`<div style="color:var(--bad);font-weight:600">
                             ${missing} still needed${r.message ? html` — <span style="font-weight:400">${r.message}</span>` : ''}
+                          </div>`
+                        : ''}
+                      ${belowIdeal > 0
+                        ? html`<div style="color:var(--warn)">
+                            ${belowIdeal} short of the ideal of ${r.ideal}${r.message ? html` — ${r.message}` : ''}
                           </div>`
                         : ''}
                     </td>
@@ -273,7 +309,19 @@ export function previewPage(opts: {
         <ul style="padding-left:1.2rem;color:var(--ink-2)">
           <li><strong>${d.fresh}</strong> ${plural(d.fresh, 'placement goes', 'placements go')} on
               the rota, marked as <em>draft</em> so they are visibly different from the confirmed
-              rota until someone confirms them.</li>
+              rota.</li>
+          <!-- Said plainly, because nothing on the page would tell them: a place
+               changed by hand is not kept any more surely than the rest. There
+               is no step that confirms a draft place, so the next draft applied
+               over these dates replaces it. -->
+          ${byHand > 0
+            ? html`<li>${byHand === 1
+                ? 'The place you changed by hand goes on as draft like the rest.'
+                : `The ${byHand} places you changed by hand go on as draft like the rest.`}
+                If a later draft for the same dates is applied, ${byHand === 1 ? 'it is' : 'they are'}
+                replaced along with everything else from this one. To keep somebody for certain,
+                put them on from the service's own page once this is applied.</li>`
+            : ''}
           ${made > 0
             ? html`<li><strong>${made}</strong> Sunday ${plural(made, 'service is', 'services are')}
                 added to the diary.</li>`
@@ -285,6 +333,8 @@ export function previewPage(opts: {
             : ''}
           <li>Anything still marked draft from an earlier generated rota between
               ${formatDate(opts.from)} and ${formatDate(opts.to)} is replaced by this one.</li>
+          <li>Anything somebody has booked by hand on a service's own page since this draft was
+              made is left as it is.</li>
           <li>It cannot be undone from this page.</li>
         </ul>
         <form method="post" action="/app/settings/generate/apply" style="margin:0"
