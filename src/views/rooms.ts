@@ -123,6 +123,9 @@ export function roomsPage(opts: {
   const canDecide = !ctx.areas || ctx.areas.has('rooms.manage');
   const f = opts.form ?? {};
   const days = byDay(bookings, weekFrom);
+  // On a phone each booking in the list becomes a card ("stack" in app.css),
+  // headed by its room: the room is the first cell, and putting the title
+  // first instead would reorder the columns on a computer as well.
 
   return layout(
     {
@@ -230,7 +233,7 @@ export function roomsPage(opts: {
       ${series.length
         ? html`<h2 class="section-h2">Repeating bookings</h2>
             <div class="table-scroll">
-              <table class="grid">
+              <table class="grid stack">
                 <thead>
                   <tr><th>What</th><th>Room</th><th>Pattern</th><th>Time</th>
                       <th class="num">Still to come</th><th></th></tr>
@@ -238,13 +241,13 @@ export function roomsPage(opts: {
                 <tbody>
                   ${series.map(
                     (s) => html`<tr>
-                      <td><a href="/app/rooms/series/${s.id}"><strong>${s.title}</strong></a>
+                      <td class="stack-title"><a href="/app/rooms/series/${s.id}"><strong>${s.title}</strong></a>
                         ${s.is_private ? PRIVATE_CHIP : ''}</td>
-                      <td>${s.room_name}</td>
-                      <td>${describeSeries(s.from_date, s.freq, s.until_date)}</td>
-                      <td class="num">${s.from_time}–${s.to_time}</td>
-                      <td class="num">${s.upcoming} <span style="color:var(--ink-2)">of ${s.total}</span></td>
-                      <td>
+                      <td data-label="Room">${s.room_name}</td>
+                      <td data-label="Pattern">${describeSeries(s.from_date, s.freq, s.until_date)}</td>
+                      <td class="num" data-label="Time">${s.from_time}–${s.to_time}</td>
+                      <td class="num" data-label="Still to come">${s.upcoming} <span style="color:var(--ink-2)">of ${s.total}</span></td>
+                      <td class="stack-actions">
                         <a class="linkish" href="/app/rooms/series/${s.id}">Change or cancel</a>
                       </td>
                     </tr>`,
@@ -277,28 +280,25 @@ export function roomsPage(opts: {
             ([d, list]) => html`<div class="card">
               <h3 style="margin-top:0">${formatDate(d)}</h3>
               <div class="table-scroll">
-                <table class="grid">
+                <table class="grid stack">
                   <thead><tr><th>Room</th><th>Time</th><th>What for</th><th>Contact</th><th></th></tr></thead>
                   <tbody>
                     ${list
                       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
                       .map(
                         (b) => html`<tr>
-                          <td><strong>${b.room_name}</strong>
+                          <td class="stack-title"><strong>${b.room_name}</strong>
                             ${b.is_tentative ? html`<div>${chip('amber', 'Tentative')}</div>` : ''}</td>
-                          <td class="num">${timeOnDay(b, d)}</td>
-                          <td>
-                            ${b.title} ${b.is_private ? PRIVATE_CHIP : ''}
+                          <td class="num" data-label="Time">${timeOnDay(b, d)}</td>
+                          <td data-label="What for">${b.title} ${b.is_private ? PRIVATE_CHIP : ''}
                             ${b.series_id ? html`<div style="font-size:.8125rem;color:var(--ink-2)">part of a repeating booking</div>` : ''}
                             ${daysCovered(b).length > 1
                               ? html`<div style="font-size:.8125rem;color:var(--ink-2)">${formatSpan(b.starts_at, b.ends_at)}</div>`
                               : ''}
                             ${b.notes ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${b.notes}</div>` : ''}
                           </td>
-                          <td style="color:var(--ink-2)">
-                            ${b.contact ?? b.booked_by_name ?? '—'}
-                          </td>
-                          <td>
+                          <td data-label="Contact" style="color:var(--ink-2)">${b.contact ?? b.booked_by_name ?? '—'}</td>
+                          <td class="stack-actions">
                             ${b.is_tentative && b.request_id
                               // A request still being decided: approve or decline it
                               // above, not by editing or cancelling the hold.

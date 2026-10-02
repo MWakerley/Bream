@@ -1453,6 +1453,8 @@ await check('and nothing at all on a quiet week', () => homePage({
     [...NOT_BOOKABLE, '<a class="cal-item', 'href="/rooms/calendar?month=2026-09']);
   await check('the diary list is by day, with the same tabs, the month, and the calendar', () => publicDiaryListPage(diary()),
     ['Tue 6 Oct 2026', 'Thu 8 Oct 2026', 'Fri 9 Oct 2026', '<th>Room</th><th>Time</th><th>What for</th>', '19:00–21:00',
+     // A card per booking on a phone, each fact named.
+     '<table class="grid stack">', 'data-label="Time"', 'data-label="What for"',
      'Home group', 'chip-amber">Held — not yet confirmed', 'href="/rooms/list?month=2026-10&amp;room=2"', 'href="/rooms/list?month=2026-11"',
      'See this as a calendar', 'href="/rooms/calendar?month=2026-10"'],
     [...NOT_BOOKABLE, 'href="/rooms/list?month=2026-09']);
@@ -1493,8 +1495,8 @@ await check('and nothing at all on a quiet week', () => homePage({
     const on = showTitles ? 'titles on' : 'titles off';
     await check(`a private booking is just "Private booking" on the list, with its room and time (${on})`, async () => {
       const out = String(await publicDiaryListPage(diary({ bookings: PRIV, showTitles })));
-      return (out.match(/<td>\s*Private booking\s*</g) ?? []).length === 2 ? out : 'not two plain "Private booking"';
-    }, ['Wed 7 Oct 2026', '10:00–11:00', '14:00–15:00', 'Church Centre</strong>', 'Main church</strong>'],
+      return (out.match(/<td data-label="What for">\s*Private booking\s*</g) ?? []).length === 2 ? out : 'not two plain "Private booking"';
+    }, ['Wed 7 Oct 2026', '10:00–11:00', '14:00–15:00', '<th scope="row">Church Centre</th>', '<th scope="row">Main church</th>'],
       [...NOT_BOOKABLE, 'Counselling', 'SECRET']);
     await check(`and on the calendar (${on})`, () => publicDiaryCalendarPage(diary({ bookings: PRIV, showTitles })),
       ['Church Centre: Private booking', 'Main church: Private booking'], [...NOT_BOOKABLE, 'Counselling', 'SECRET']);

@@ -143,6 +143,10 @@ export function publicDiaryListPage(o: DiaryPageOpts) {
   const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   // This month is listed from today, so "nothing booked" means the rest of it.
   const rest = o.from > `${o.month}-01`;
+  // Most people read this on a phone, where each booking becomes a card under
+  // its day ("stack" in app.css): the room as its heading, then the time and
+  // what it is for, each named. The room is a row heading, so a screen reader
+  // says it with both; on a computer it looks as the bold room always did.
 
   return diaryPage(html`
     ${roomTabs('/rooms/list', o)}
@@ -158,7 +162,7 @@ export function publicDiaryListPage(o: DiaryPageOpts) {
       : days.map(([d, list]) => html`<div class="card">
           <h3 style="margin-top:0">${formatDate(d)}</h3>
           <div class="table-scroll">
-            <table class="grid">
+            <table class="grid stack">
               <thead><tr><th>Room</th><th>Time</th><th>What for</th></tr></thead>
               <tbody>
                 ${list
@@ -167,10 +171,9 @@ export function publicDiaryListPage(o: DiaryPageOpts) {
                   // query's order — the rooms in their own order, not A to Z.
                   .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
                   .map((b) => html`<tr>
-                    <td><strong>${b.room_name}</strong></td>
-                    <td class="num">${timeOnDay(b, d)}</td>
-                    <td>
-                      ${b.is_tentative ? chip('amber', HELD) : diaryLabel(b, o.showTitles)}
+                    <th scope="row">${b.room_name}</th>
+                    <td class="num" data-label="Time">${timeOnDay(b, d)}</td>
+                    <td data-label="What for">${b.is_tentative ? chip('amber', HELD) : diaryLabel(b, o.showTitles)}
                       ${daysCovered(b).length > 1
                         ? html`<div style="font-size:.8125rem;color:var(--ink-2)">${formatSpan(b.starts_at, b.ends_at)}</div>`
                         : ''}
