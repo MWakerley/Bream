@@ -21,6 +21,22 @@ export const UNITS: { value: Unit; label: string; days: number }[] = [
 
 const DAYS: Record<Unit, number> = { weeks: 7, months: 30, quarters: 91 };
 
+/**
+ * The unit a blank row starts on.
+ *
+ * Months, not weeks, because that is how people talk about a rota job — "twice
+ * a month", "once a quarter" — and weeks being merely the first option in the
+ * list meant somebody typing "2" without looking got a fortnight, not two
+ * months. Only blank rows use it: a saved value always comes back in its own
+ * unit, through toUnits().
+ */
+export const DEFAULT_UNIT: Unit = 'months';
+
+/** The unit a select should show for a stored number of days, blank or not. */
+export function unitFor(days: number | null | undefined): Unit {
+  return toUnits(days ?? null)?.unit ?? DEFAULT_UNIT;
+}
+
 export function toDays(n: number, unit: Unit): number {
   return Math.max(1, Math.round(n * (DAYS[unit] ?? 30)));
 }
@@ -51,10 +67,10 @@ export function readUnitPair(
 ): number | null {
   const n = Number(form.get(numberKey));
   if (!Number.isInteger(n) || n < 1 || n > 24) return null;
-  const raw = String(form.get(unitKey) ?? 'months');
+  const raw = String(form.get(unitKey) ?? DEFAULT_UNIT);
   const unit = (['weeks', 'months', 'quarters'] as Unit[]).includes(raw as Unit)
     ? (raw as Unit)
-    : 'months';
+    : DEFAULT_UNIT;
   return toDays(n, unit);
 }
 

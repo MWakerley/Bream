@@ -1,39 +1,37 @@
 import { html } from 'hono/html';
 import { layout, type ViewCtx } from './layout.js';
-import { UNITS, toUnits } from '../frequency.js';
-import type { RoleRow, RotaRulesRow } from '../db.js';
+import type { RotaRulesRow } from '../db.js';
 
 /**
- * The rules the draft rota is built to.
+ * The rules the draft rota is built to — the ones that apply to the whole rota.
  *
- * Every figure on this page already existed — the generator worked it out from
- * the size of each team and refused people on the strength of it without ever
- * saying so. Nothing here is a new rule; it is the rule that was already
- * running, written down and handed over.
+ * How often one person does a given job used to be set here too, a figure per
+ * role. It is not any more: people differ too much for one figure to fit a whole
+ * team — one preacher is glad to preach twice a month, another would rather once
+ * a quarter — and a team-wide figure could quietly hold back somebody who had
+ * asked to do more. That is now said only on each person's own record, so this
+ * page just says where to find it, for anybody who comes looking here first.
  *
  * Deliberately no scoring weights. Every one of them is expressed relative to
  * the others, so one typed digit would invert the generator while every
- * sentence explaining a choice went on reading correctly. What a settings page
- * should move is the INTERVAL the fairness is measured against, which is what
- * the per-role figures do.
+ * sentence explaining a choice went on reading correctly. What should move the
+ * fairness is the INTERVAL it is measured against, and that is each person's
+ * own "how often they want to do it".
  */
 export function draftRulesPage(opts: {
-  roles: RoleRow[];
   rules: RotaRulesRow;
   ctx: ViewCtx;
   notice?: { tone: 'ok' | 'bad'; text: string };
-  /** People a newly tightened figure would push off, named back to be excused. */
-  affected?: { role_name: string; role_id: number; people: { id: number; name: string; every: number }[] }[];
 }) {
-  const { roles, rules, ctx, notice, affected } = opts;
+  const { rules, ctx, notice } = opts;
 
   return layout(
     {
       title: 'Rules for draft rotas',
       eyebrow: 'Settings',
       heading: 'Rules for draft rotas',
-      intro: 'Set once here instead of typing the same thing against every preacher one at a '
-        + 'time. Anything a person has said for themselves still wins.',
+      intro: 'The rules that apply to every draft rota, whoever is on it. How often each '
+        + 'person does a particular job is kept on their own record instead.',
       back: { href: '/app/settings', label: 'Settings' },
       ...ctx,
     },
@@ -43,99 +41,30 @@ export function draftRulesPage(opts: {
         : ''}
 
       <div class="notice notice-info">
-        <p style="margin-top:0">
-          <strong>These figures are not new.</strong> The draft has been working to them all
-          along — it worked each one out from the size of the team and never showed anybody.
-          Now you can see them and change them.
-        </p>
-        <p style="margin-bottom:0">
+        <p style="margin:0">
           If a rule turns out to be too tight the draft tells you: it leaves a place empty and
           says why, rather than quietly ignoring what you asked for.
         </p>
       </div>
 
-      ${affected?.length
-        ? html`<div class="notice notice-warn">
-            <p style="margin-top:0"><strong>Some people already do these jobs more often than
-              the figure you have just set.</strong> They will now be pushed off the draft
-              unless you say otherwise — which is usually right for a rota, and usually wrong
-              for the vicar.</p>
-            ${affected.map((a) => html`
-              <p style="margin-bottom:.35rem"><strong>${a.role_name}</strong></p>
-              <div class="checks" style="margin-bottom:1rem">
-                ${a.people.map((pp) => html`<label class="check">
-                  <input type="checkbox" name="exempt" value="${a.role_id}:${pp.id}" form="exempt-form">
-                  <span><span class="check-label">Ask ${pp.name} as often as needed</span>
-                    <span class="check-note">Does it about every ${pp.every} days at the moment.</span></span>
-                </label>`)}
-              </div>`)}
-            <form method="post" action="/app/settings/draft-rules/exempt" id="exempt-form">
-              <button class="btn-primary" type="submit">Save these exceptions</button>
-            </form>
-          </div>`
-        : ''}
+      <h2 class="section-h2">How often one person does the same job</h2>
+      <div class="card">
+        <p style="margin-top:0">
+          <strong>This is set for each person now, not here.</strong> People differ — one
+          preacher is glad to preach twice a month, another would rather once a quarter — so
+          the draft goes by what each of them has said. Open somebody under
+          <a href="/app/settings/people">People</a> and fill in <strong>How often they want to
+          do it</strong>, or set a whole team at once with
+          <a href="/app/settings/people/by-role">Edit by role</a>. The
+          <strong>As often as needed</strong> tick is there too.
+        </p>
+        <p style="margin-bottom:0;color:var(--ink-2)">
+          Anybody who has not said gets a fair share of whatever is left, once everybody who
+          has said is counted.
+        </p>
+      </div>
 
       <form method="post" action="/app/settings/draft-rules">
-        <h2 class="section-h2">How often one person does the same job</h2>
-        <div class="card">
-          <p style="margin-top:0;color:var(--ink-2)">
-            The draft will not put the same person on the same job again inside this gap.
-            Clear a box and the draft goes back to working it out from the size of the team.
-          </p>
-
-          <div class="table-scroll">
-            <table class="grid">
-              <thead>
-                <tr>
-                  <th>Job</th>
-                  <th>Not more often than</th>
-                  <th>Aim for about</th>
-                  <th class="num">People who can do it</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${roles.map((r) => {
-                  const floor = toUnits(r.default_min_gap_days);
-                  const target = toUnits(r.default_target_days);
-                  return html`<tr>
-                    <td><strong>${r.name}</strong></td>
-                    <td>
-                      <span class="freq">
-                        <span>once every</span>
-                        <input type="number" min="1" max="24" style="width:4.5rem"
-                               name="gapn_${r.id}" value="${floor?.n ?? ''}"
-                               aria-label="Minimum gap for ${r.name}">
-                        <select name="gapu_${r.id}" aria-label="Gap unit for ${r.name}">
-                          ${UNITS.map((u) => html`<option value="${u.value}"
-                            ${floor?.unit === u.value ? 'selected' : ''}>${u.label}</option>`)}
-                        </select>
-                      </span>
-                    </td>
-                    <td>
-                      <span class="freq">
-                        <span>once every</span>
-                        <input type="number" min="1" max="24" style="width:4.5rem"
-                               name="targetn_${r.id}" value="${target?.n ?? ''}"
-                               aria-label="Target rhythm for ${r.name}">
-                        <select name="targetu_${r.id}" aria-label="Target unit for ${r.name}">
-                          ${UNITS.map((u) => html`<option value="${u.value}"
-                            ${target?.unit === u.value ? 'selected' : ''}>${u.label}</option>`)}
-                        </select>
-                      </span>
-                    </td>
-                    <td class="num">${r.min_needed}${r.ideal_needed !== r.min_needed ? `–${r.ideal_needed}` : ''} needed</td>
-                  </tr>`;
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p style="color:var(--ink-2);font-size:.9375rem;margin-bottom:0">
-            <strong>Not more often than</strong> is a firm rule — the draft leaves a place empty
-            rather than break it. <strong>Aim for about</strong> is what it works towards when it
-            has a free choice; leave it blank to share the work out evenly.
-          </p>
-        </div>
-
         <h2 class="section-h2">Rules for the whole rota</h2>
         <div class="card">
           <div class="field">
