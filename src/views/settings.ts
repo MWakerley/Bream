@@ -122,17 +122,19 @@ export function keyholdersPage(rows: KeyholderRow[], ctx: ViewCtx) {
         : ''}
       ${rows.length
         ? html`<div class="table-scroll">
-            <table class="grid">
+            <!-- A card per keyholder on a phone (.stack in app.css). The last
+                 cell is empty for anyone still serving, so it has no label. -->
+            <table class="grid stack">
               <thead><tr><th>Name</th><th>Which keys</th><th>Contact</th><th>Since</th><th></th></tr></thead>
               <tbody>
                 ${rows.map((r) => html`<tr class="${r.is_active ? '' : 'row-gap'}">
-                  <td>${raw(KEY_ICON)} <a href="/app/settings/people/${r.id}"><strong>${r.display_name}</strong></a>
+                  <td class="stack-title">${raw(KEY_ICON)} <a href="/app/settings/people/${r.id}"><strong>${r.display_name}</strong></a>
                     ${r.full_name && r.full_name !== r.display_name
                       ? html`<div style="font-size:.9375rem;color:var(--ink-2)">${r.full_name}</div>` : ''}</td>
-                  <td>${keysCell(r)}</td>
-                  <td style="color:var(--ink-2)">${r.email ?? r.phone ?? '—'}
+                  <td data-label="Which keys">${keysCell(r)}</td>
+                  <td data-label="Contact" style="color:var(--ink-2)">${r.email ?? r.phone ?? '—'}
                     ${r.email && r.phone ? html`<div>${r.phone}</div>` : ''}</td>
-                  <td>${r.keyholder_since ? formatDate(r.keyholder_since.slice(0, 10)) : '—'}</td>
+                  <td data-label="Since">${r.keyholder_since ? formatDate(r.keyholder_since.slice(0, 10)) : '—'}</td>
                   <td>${r.is_active ? '' : chip('amber', 'No longer serving')}</td>
                 </tr>`)}
               </tbody>
@@ -196,7 +198,9 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
       })}
 
       <div class="table-scroll">
-        <table class="grid">
+        <!-- A card per person on a phone (.stack in app.css), the name as its
+             title; the search box still hides whole rows, and so whole cards. -->
+        <table class="grid stack">
           <thead>
             <tr><th>Name</th><th>What they can do</th><th class="num">Roles</th><th>Status</th></tr>
           </thead>
@@ -211,13 +215,13 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
                       p.is_keyholder ? 'keyholder' : '']
                       .filter(Boolean)
                       .join(' ')}">
-                <td>
+                <td class="stack-title">
                   <a href="/app/settings/people/${p.id}"><strong>${p.display_name}</strong></a>
                   ${p.is_keyholder ? html`<span title="Keyholder" aria-label="Keyholder">${raw(KEY_ICON)}</span>` : ''}
                 </td>
-                <td>${p.role_names ?? html`<span style="color:var(--ink-2)">nothing ticked yet</span>`}</td>
-                <td class="num">${p.role_count}</td>
-                <td>
+                <td data-label="What they can do">${p.role_names ?? html`<span style="color:var(--ink-2)">nothing ticked yet</span>`}</td>
+                <td class="num" data-label="Roles">${p.role_count}</td>
+                <td data-label="Status">
                   <!-- More than one of these can be true at once, so they are
                        listed rather than reduced to a single status. Somebody
                        flagged as a duplicate who is also on a break has two
@@ -263,7 +267,10 @@ export function rolesPage(
 
       <form method="post" action="/app/settings/roles">
         <div class="table-scroll">
-          <table class="grid">
+          <!-- On a phone (.stack in app.css) each role is a card of its own
+               boxes, its name box at the top: seven columns of boxes were
+               949px in a 343px screen. -->
+          <table class="grid stack">
             <thead>
               <tr>
                 <th>Role</th><th class="num">Minimum</th><th class="num">Ideal</th>
@@ -274,37 +281,37 @@ export function rolesPage(
             <tbody>
               ${roles.map(
                 (r) => html`<tr>
-                  <td>
+                  <td class="stack-title">
                     <input type="hidden" name="id" value="${r.id}">
                     <input type="text" name="name_${r.id}" value="${r.name}"
                            aria-label="Name of role ${r.name}" required>
                   </td>
-                  <td>
+                  <td data-label="Minimum">
                     <input type="number" name="min_${r.id}" value="${r.min_needed}" min="0" max="20"
                            style="width:5rem" aria-label="Minimum needed for ${r.name}">
                   </td>
-                  <td>
+                  <td data-label="Ideal">
                     <input type="number" name="ideal_${r.id}" value="${r.ideal_needed}" min="0" max="20"
                            style="width:5rem" aria-label="Ideal number for ${r.name}">
                   </td>
-                  <td>
+                  <td data-label="When">
                     <select name="communion_${r.id}" aria-label="When ${r.name} applies">
                       <option value="0" ${r.communion_only ? '' : 'selected'}>Every service</option>
                       <option value="1" ${r.communion_only ? 'selected' : ''}>Communion only</option>
                     </select>
                   </td>
-                  <td>
+                  <td data-label="Called this on the spreadsheet">
                     <input type="text" name="sheet_${r.id}" value="${r.sheet_heading ?? ''}"
                            aria-label="Spreadsheet heading for ${r.name}" placeholder="—">
                   </td>
-                  <td>
+                  <td data-label="In use">
                     <label class="check" style="padding:.4rem .6rem">
                       <input type="checkbox" name="active_${r.id}" value="1" ${r.is_active ? 'checked' : ''}
                              aria-label="${r.name} is in use">
                       <span class="check-label" style="font-size:.9375rem">Yes</span>
                     </label>
                   </td>
-                  <td>
+                  <td data-label="Critical to service">
                     <label class="check" style="padding:.4rem .6rem">
                       <input type="checkbox" name="critical_${r.id}" value="1" ${r.is_critical ? 'checked' : ''}
                              aria-label="${r.name} is critical to the service">
@@ -426,7 +433,9 @@ export function combinationsPage(
         Click any role name below to set what that role may also do at the same service.
       </p>
 
-      <div class="table-scroll">
+      <!-- Role against role, so it stays a grid on a phone: it scrolls sideways
+           under the role names, which stay put (.matrix in app.css). -->
+      <div class="table-scroll matrix">
         <table class="grid combo-grid">
           <thead>
             <tr>
@@ -497,15 +506,17 @@ export function pairsPage(
 
       <form method="post" action="/app/settings/pairs">
         <div class="table-scroll">
-          <table class="grid">
+          <!-- A card per pair on a phone (.stack in app.css). The Remove box
+               says "Remove" itself, so it needs no name in front. -->
+          <table class="grid stack">
             <thead>
               <tr><th>Together</th><th>In role</th><th>Strength</th><th>Why it is here</th><th>Remove</th></tr>
             </thead>
             <tbody>
               ${pairs.map(
                 (p) => html`<tr>
-                  <td><strong>${p.a_name}</strong> and <strong>${p.b_name}</strong></td>
-                  <td>
+                  <td class="stack-title"><strong>${p.a_name}</strong> and <strong>${p.b_name}</strong></td>
+                  <td data-label="In role">
                     <select name="role_${p.id}" aria-label="Role for ${p.a_name} and ${p.b_name}">
                       <option value="">Any role</option>
                       ${roles.map(
@@ -513,14 +524,14 @@ export function pairsPage(
                       )}
                     </select>
                   </td>
-                  <td>
+                  <td data-label="Strength">
                     <select name="strength_${p.id}" aria-label="Strength for ${p.a_name} and ${p.b_name}">
                       <option value="prefer" ${p.strength === 'must' ? '' : 'selected'}>Prefer together</option>
                       <option value="must" ${p.strength === 'must' ? 'selected' : ''}>Must be together</option>
                       <option value="avoid" ${p.mode === 'avoid' ? 'selected' : ''}>Keep apart</option>
                     </select>
                   </td>
-                  <td style="color:var(--ink-2);font-size:.9375rem">${p.note ?? '—'}</td>
+                  <td data-label="Why it is here" style="color:var(--ink-2);font-size:.9375rem">${p.note ?? '—'}</td>
                   <td>
                     <label class="check" style="padding:.4rem .6rem">
                       <input type="checkbox" name="remove" value="${p.id}"

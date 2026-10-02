@@ -356,7 +356,9 @@ await check('person edit', () => personPage({
 }), ['Andy', 'What they can do', 'How often', 'Has done this 4 times',
      'Not recorded doing this yet', 'Save this person', 'Not a duplicate',
      // The card is now the only thing the draft goes by, so it has to say so.
-     'what the draft rota goes by', 'whatever is left once everybody who has said is counted']);
+     'what the draft rota goes by', 'whatever is left once everybody who has said is counted',
+     // The how-often rows are cards on a phone, each control under its name.
+     'class="grid stack" id="freq-table"', 'data-label="At most"']);
 
 /**
  * Which unit each named <select> has selected, followed by the whole page with
@@ -638,6 +640,8 @@ await check('people by role', () => peopleByRolePage(BY_ROLE), [
   // actually pick, and says why the two numbers differ.
   'taking a break', 'the rota can use now', 'are ticked, but',
   'The draft rota goes by these figures',
+  // A card per person on a phone, each box under its column's name.
+  'class="grid stack"', 'class="stack-title"', 'data-label="Not more often than"',
 ]);
 
 // The same months default and "as often as needed" box as a person's own page,

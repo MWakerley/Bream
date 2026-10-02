@@ -108,7 +108,12 @@ export function peopleByRolePage(opts: {
         })}
 
         <div class="table-scroll">
-          <table class="grid">
+          <!-- A card per person on a phone (.stack in app.css), their name as
+               its title and each box under its own column's name: six columns
+               of boxes were 902px in a 343px screen. Done is blank for somebody
+               who never has, and a bare "Done" with nothing after it would read
+               as a tick, so it is only labelled when there is a number. -->
+          <table class="grid stack">
             <thead>
               <tr>
                 <th>Can do it</th><th>Name</th><th class="num">Done</th>
@@ -121,7 +126,7 @@ export function peopleByRolePage(opts: {
             <tbody id="byrole-list">
               ${people.map(
                 (p) => html`<tr data-search="${p.display_name}">
-                  <td>
+                  <td data-label="Can do it">
                     <!-- Every person shown is listed here whether ticked or not.
                          An unticked box is not submitted, so without this the
                          save could not tell "unticked" from "not on the page"
@@ -133,14 +138,14 @@ export function peopleByRolePage(opts: {
                       <span class="check-label" style="font-size:.9375rem">Yes</span>
                     </label>
                   </td>
-                  <td>
+                  <td class="stack-title">
                     <a href="/app/settings/people/${p.id}"><strong>${p.display_name}</strong></a>
                     ${p.needs_review ? html`<div>${chip('amber', 'possible duplicate')}</div>` : ''}
                     ${p.on_break ? html`<div>${chip('amber', 'taking a break')}</div>` : ''}
                     ${p.is_guest ? html`<div>${chip('navy', 'guest')}</div>` : ''}
                   </td>
-                  <td class="num">${p.done || ''}</td>
-                  <td>
+                  <td class="num" ${p.done ? html`data-label="Done"` : ''}>${p.done || ''}</td>
+                  <td data-label="At most">
                     <span class="freq">
                       <input type="number" min="1" max="30" style="width:4rem"
                              name="max_${p.id}" value="${p.max_per_period ?? ''}"
@@ -155,7 +160,7 @@ export function peopleByRolePage(opts: {
                       </select>
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Not more often than">
                     <span class="freq">
                       <span>once every</span>
                       <input type="number" min="1" max="24" style="width:4rem"
@@ -167,7 +172,7 @@ export function peopleByRolePage(opts: {
                       </select>
                     </span>
                   </td>
-                  <td>
+                  <td data-label="As often as needed">
                     <!-- Covered by the same "shown" list as the Yes box: an
                          unticked box sends nothing, and the save reads that as
                          unticked only for the people this page listed. -->
