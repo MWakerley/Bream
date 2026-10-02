@@ -11,4 +11,5 @@ dist/
 .sun.mjs
 .acc.mjs
 .exp.mjs
+.draft.mjs
 .export-test/

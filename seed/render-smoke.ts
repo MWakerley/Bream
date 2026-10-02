@@ -1269,15 +1269,90 @@ await check('and nothing at all on a quiet week', () => homePage({
   ].join(' | '), ['Confirmed: the Church Centre', 'no longer held', 'being painted']);
 }
 
-// ---- a draft rota can be downloaded before it is applied ----------------------
-await check('the draft offers the rota downloads, for this draft only', () => previewPage({
-  ctx: CTX, from: '2026-10-01', to: '2026-12-31', token: 'tok_ABC-123xyz_tok_ABC-123',
-  result: { allocations: [], gaps: [], warnings: [], load: [] },
-  services: [{ id: 1, date: '2026-10-04', time: '10:30', title: 'Worship', rows: [
-    { roleId: 1, roleName: 'Preacher', people: [{ name: 'Steve', reason: 'x', amber: [], pinned: false }], missing: 0, message: null },
-  ] }],
-}), ['/app/settings/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.xlsx',
-     '/app/settings/generate/draft/tok_ABC-123xyz_tok_ABC-123/rota.pdf', 'Download for Excel', 'Apply this draft']);
+// ---- a draft rota can be checked, changed by hand, downloaded and applied -----
+{
+  // Imported here rather than at the top so this block stands on its own.
+  const { derive } = await import('../src/rota/draft.js');
+  const { draftServiceEditPage } = await import('../src/views/generate.js');
+  const TOKEN = 'tok_ABC-123xyz_tok_ABC-123';
+  const DRAFT = {
+    v: 2, rev: 3, edits: 1, createdSundays: 1, released: [],
+    warnings: ['Reader: nobody is marked as able to do this, so all 2 places will be left empty.'],
+    services: [
+      { id: 1, date: '2026-10-04', time: '10:30', title: 'Worship', isNew: false, rows: [
+        { roleId: 1, roleName: 'Preacher', min: 1, ideal: 1, message: null, people: [
+          { personId: 11, name: 'Sue Baker', slot: 1, reason: 'Put on by Matt while checking the draft.',
+            amber: [], pinned: false, byHand: true, notes: ['away that day'] },
+        ] },
+        { roleId: 4, roleName: 'Prayer ministry', min: 2, ideal: 2, message: null, people: [
+          { personId: 30, name: 'Don', slot: 1, reason: 'Already set — left exactly as it was.', amber: [], pinned: true },
+        ] },
+        { roleId: 2, roleName: 'Service leader', min: 1, ideal: 1, people: [],
+          message: 'Nobody available: 3 unavailable that day.' },
+      ] },
+      { id: -1, date: '2026-10-11', time: '10:30', title: 'Worship', isNew: true, rows: [
+        { roleId: 1, roleName: 'Preacher', min: 1, ideal: 1, message: null, people: [
+          { personId: 12, name: 'Roger Vane', slot: 1, reason: 'Roger Vane has not done this in the period looked at.',
+            amber: ['also Service leader — allowed but not ideal'], pinned: false, notes: ['guest'] },
+        ] },
+      ] },
+    ],
+  };
+  const page = () => previewPage({
+    ctx: CTX, from: '2026-10-01', to: '2026-12-31', token: TOKEN, view: DRAFT, derived: derive(DRAFT),
+    saved: { serviceId: 1, notes: ['Sue Baker is away that day.'], changed: 1 },
+  });
+  await check('the draft offers the rota downloads, for this draft only', page,
+    [`/app/settings/generate/draft/${TOKEN}/rota.xlsx`, `/app/settings/generate/draft/${TOKEN}/rota.pdf`,
+     'Download for Excel', 'Apply this draft']);
+  await check('every service of the draft can be changed by hand', page,
+    [`/app/settings/generate/draft/${TOKEN}/service/1`, `/app/settings/generate/draft/${TOKEN}/service/-1`,
+     'id="svc-1"', 'id="svc--1"', 'Change', 'changed by hand', 'chip-amber">away that day', 'chip-navy">guest',
+     'already set', 'new service', '1 still needed', '3 unavailable that day', 'Saved your changes to Sun 4 Oct 2026',
+     'Sue Baker is away that day.', 'Settled for an amber combination 1 time', 'worked out when the draft was made',
+     'nobody is marked as able to do this']);
+  await check('applying asks "are you sure", saying what it will do', page,
+    ['data-confirm="Apply this draft? 2 placements go on the rota as draft and 1 Sunday is added to the diary.',
+     'Are you sure?"', 'onsubmit="return confirm(this.dataset.confirm)"', 'cannot be undone from this page',
+     'name="token" value="tok_ABC-123xyz_tok_ABC-123"', 'name="from" value="2026-10-01"']);
+  // Apply used to sit in the card at the top, next to Start again, and was
+  // pressed by mistake. It must now be the last thing, after every service.
+  await check('Apply is at the bottom of the draft, not beside Start again', () => {
+    const out = String(page());
+    const top = out.indexOf('Nothing has been saved yet.');
+    const topEnd = out.indexOf('<h2 class="section-h2"', top);
+    const apply = out.indexOf('action="/app/settings/generate/apply"');
+    const load = out.indexOf('How the load falls');
+    const where = [
+      top > 0 && topEnd > top ? '' : 'no top card',
+      apply > load && load > 0 ? '' : 'apply before the load',
+      apply > top && apply < topEnd ? 'apply in the top card' : '',
+      out.slice(top, topEnd).includes('Apply this draft') ? 'apply named in the top card' : '',
+      out.indexOf('action="/app/settings/generate/apply"', apply + 1) === -1 ? '' : 'two apply forms',
+    ].filter(Boolean);
+    return where.length ? where.join('; ') : 'apply is last';
+  }, ['apply is last']);
+
+  const EDIT_CANDIDATES = new Map([[1, CANDIDATES.get(1).map((c) => ({
+    id: c.id, name: c.display_name, on_break: c.on_break, is_guest: c.is_guest, away: c.away,
+  }))], [4, [{ id: 31, name: 'Christine', on_break: 0, is_guest: 0, away: 0 }]]]);
+  await check('a service of the draft, to change by hand', () => draftServiceEditPage({
+    ctx: CTX, token: TOKEN, view: DRAFT, service: DRAFT.services[0], candidates: EDIT_CANDIDATES,
+  }), ['Change Sun 4 Oct 2026', `/app/settings/generate/draft/${TOKEN}#svc-1`,
+       `action="/app/settings/generate/draft/${TOKEN}/service/1"`, 'name="rev" value="3"',
+       'select id="p_1_1" name="p_1_1"', '— nobody —', '<option value="11" selected>Sue Baker</option>',
+       'Pat Doyle — on a break, away that day', 'Roger Vane — guest',
+       // The confirmed booking is shown, and only the free place beside it offered.
+       '<strong>Don</strong>', 'changed on the service', 'name="p_4_2"',
+       'Nobody is ticked for Service leader', 'Save changes to this service', 'Cancel',
+       'Nothing reaches the rota until the draft is applied'],
+    ['name="p_4_1"']);
+  await check('a refused change keeps what was chosen, and says why', () => draftServiceEditPage({
+    ctx: CTX, token: TOKEN, view: DRAFT, service: DRAFT.services[0], candidates: EDIT_CANDIDATES,
+    error: 'Sue Baker is down for Preacher twice.', posted: new Map([['1:1', 13]]),
+  }), ['role="alert"', 'Sue Baker is down for Preacher twice.', '<option value="13" selected>'],
+    ['<option value="11" selected>']);
+}
 
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

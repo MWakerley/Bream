@@ -1,7 +1,8 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import { formatDate } from './rota.js';
-import type { GeneratorResult } from '../rota/types.js';
+import { editableSlots, type DraftCandidate, type DraftDerived, type DraftPerson, type DraftService,
+         type DraftView } from '../rota/draft.js';
 
 const BACK = { href: '/app/settings', label: 'Settings' };
 
@@ -15,8 +16,8 @@ export function generateFormPage(opts: {
     { title: 'Generate a draft rota', back: BACK, ...opts.ctx },
     html`
       <p class="page-intro">
-        Produces a <strong>draft</strong> and shows it to you before anything is saved.
-        Nothing is written until you press Apply.
+        Produces a <strong>draft</strong> and shows it to you before anything is saved. You
+        can change any service in it by hand first. Nothing is written until you press Apply.
       </p>
 
       ${opts.notice
@@ -69,42 +70,69 @@ export function generateFormPage(opts: {
               off and fills the place — and names each one before anything is saved. The only
               exception is a guest somebody put on a service by hand, who stays.</li>
           <li>Every choice comes with a sentence saying why.</li>
+          <li><strong>You can change any service before applying.</strong> Press Change on it,
+              pick somebody else, and the draft — and its downloads — show your choice.</li>
         </ul>
       </div>
     `,
   );
 }
 
-export interface PreviewService {
-  id: number;
-  date: string;
-  time: string;
-  title: string;
-  /** Not in the diary yet — it appears only if this draft is accepted. */
-  isNew?: boolean;
-  rows: { roleId?: number; roleName: string;
-          people: { name: string; reason: string; amber: string[]; pinned: boolean }[];
-          missing: number; message: string | null }[];
+const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
+/** "a, b and c". */
+const joinAnd = (parts: string[]) =>
+  parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+
+/** The chip for a short fact about somebody, in the colours the service page
+ *  uses for the same facts. */
+function noteChip(note: string) {
+  if (note.startsWith('cannot also be ')) return chip('red', note);
+  if (note === 'away that day' || note === 'on a break') return chip('amber', note);
+  if (note === 'guest') return chip('navy', note);
+  return chip('neutral', note);
 }
+
+function personLine(p: DraftPerson) {
+  return html`<div style="margin-bottom:.35rem">
+    <strong>${p.name}</strong>
+    ${p.pinned ? chip('neutral', 'already set') : ''}
+    ${p.byHand ? chip('neutral', 'changed by hand') : ''}
+    ${p.amber.length ? chip('amber', 'amber') : ''}
+    ${(p.notes ?? []).map(noteChip)}
+    <div style="font-size:.9375rem;color:var(--ink-2)">${p.reason}</div>
+  </div>`;
+}
+
+const ROLE_TH = 'white-space:nowrap;text-transform:none;letter-spacing:0;font-size:1rem;border-bottom:1px solid var(--rule)';
 
 export function previewPage(opts: {
   ctx: ViewCtx;
   from: string;
   to: string;
-  result: GeneratorResult;
-  services: PreviewService[];
   token: string;
-  /** Sundays that WILL be created if this draft is accepted. Nothing has been
-   *  written yet — a draft that is rejected must leave no trace. */
-  createdSundays?: number;
-  /** Existing bookings this draft takes off, with the service they were on. */
-  released?: { name: string; why: 'break' | 'guest'; date: string; roleName: string }[];
+  view: DraftView;
+  /** derive(view) — passed in rather than worked out here, so the page shows
+   *  exactly what was written back to the parked draft. */
+  derived: DraftDerived;
+  /** The save that brought the person back here, shown on that service. */
+  saved?: DraftView['lastSave'];
 }) {
-  const { result, services } = opts;
-  const released = opts.released ?? [];
-  const fresh = result.allocations.filter((a) => !a.pinned).length;
-  const kept = result.allocations.length - fresh;
-  const made = opts.createdSundays ?? 0;
+  const { view, derived: d, token } = opts;
+  const released = view.released;
+  const made = view.createdSundays;
+  const base = `/app/settings/generate/draft/${token}`;
+
+  // What Apply will do, in one place: the card at the bottom says it, and the
+  // "are you sure" box says it again in the same words.
+  const facts = [
+    `${d.fresh} ${plural(d.fresh, 'placement goes', 'placements go')} on the rota as draft`,
+    ...(made > 0 ? [`${made} ${plural(made, 'Sunday is', 'Sundays are')} added to the diary`] : []),
+    ...(released.length
+      ? [`${released.length} ${plural(released.length, 'booking is', 'bookings are')} taken off`]
+      : []),
+  ];
+  const confirmText = `Apply this draft? ${joinAnd(facts)}. This cannot be undone from this page. Are you sure?`;
 
   return layout(
     { title: 'Draft rota', back: { href: '/app/settings/generate', label: 'Generate' }, ...opts.ctx },
@@ -133,94 +161,275 @@ export function previewPage(opts: {
 
       <p class="page-intro">
         ${formatDate(opts.from)} to ${formatDate(opts.to)} —
-        <strong>${fresh}</strong> new placement${fresh === 1 ? '' : 's'},
-        ${kept} left exactly as ${kept === 1 ? 'it was' : 'they were'},
-        <strong>${result.gaps.length}</strong> place${result.gaps.length === 1 ? '' : 's'} still empty.
+        <strong>${d.fresh}</strong> new placement${d.fresh === 1 ? '' : 's'},
+        ${d.kept} left exactly as ${d.kept === 1 ? 'it was' : 'they were'},
+        <strong>${d.empty}</strong> place${d.empty === 1 ? '' : 's'} still empty.
       </p>
 
+      <!-- Deliberately no Apply here. It used to sit beside Start again, where
+           it was far too easy to press by mistake on the way to checking the
+           draft. It is now the last thing on the page, after every service. -->
       <div class="card" style="border-top:3px solid var(--brass)">
         <p style="margin-top:0"><strong>Nothing has been saved yet.</strong></p>
-        <form method="post" action="/app/settings/generate/apply" class="inline-form">
-          <input type="hidden" name="token" value="${opts.token}">
-          <input type="hidden" name="from" value="${opts.from}">
-          <input type="hidden" name="to" value="${opts.to}">
-          <button class="btn-primary" type="submit">Apply this draft</button>
-        </form>
-        <a class="btn-secondary" href="/app/settings/generate" style="margin-left:.75rem">Start again</a>
+        <p>
+          Check each service below. Press <strong>Change</strong> on any of them to put somebody
+          else on, and apply the draft at the bottom of this page when it is right.
+        </p>
+        <p class="btn-row" style="margin:1rem 0 0">
+          ${view.edits > 0
+            ? html`<a class="btn-secondary" href="/app/settings/generate"
+                  data-confirm="Start again? The changes you have made to this draft by hand will not be kept."
+                  onclick="return confirm(this.dataset.confirm)">Start again</a>`
+            : html`<a class="btn-secondary" href="/app/settings/generate">Start again</a>`}
+        </p>
         <!-- The draft as it stands, in the same layout as the rota's own
              download, so it can be sent round for comments before it is
-             applied. Marked DRAFT throughout so nobody mistakes it. -->
+             applied. Marked DRAFT throughout so nobody mistakes it. Hand
+             changes are in it: it is built from the same saved draft. -->
         <p class="btn-row" style="margin:1rem 0 0">
           <span style="color:var(--ink-2);align-self:center">This draft, to send round before applying:</span>
-          <a class="btn-quiet" href="/app/settings/generate/draft/${opts.token}/rota.xlsx">Download for Excel</a>
-          <a class="btn-quiet" href="/app/settings/generate/draft/${opts.token}/rota.pdf">Download PDF</a>
-        </p>
-        <p style="margin-bottom:0;margin-top:.9rem;color:var(--ink-2);font-size:.9375rem">
-          Applying saves the new placements as <em>draft</em>, so they are visibly different
-          from the confirmed rota until someone confirms them.
+          <a class="btn-quiet" href="${base}/rota.xlsx">Download for Excel</a>
+          <a class="btn-quiet" href="${base}/rota.pdf">Download PDF</a>
         </p>
       </div>
 
-      ${result.warnings.length
+      ${d.worthKnowing.length
         ? html`<h2 class="section-h2">Worth knowing</h2>
             <div class="notice notice-warn">
+              ${view.edits > 0
+                ? html`<p style="font-size:.9375rem">
+                    These were worked out when the draft was made. Anything you change by hand
+                    is checked as you save it, and shown on that service.
+                  </p>`
+                : ''}
               <ul style="margin:0;padding-left:1.2rem">
-                ${result.warnings.map((w) => html`<li>${w}</li>`)}
+                ${d.worthKnowing.map((w) => html`<li>${w}</li>`)}
               </ul>
             </div>`
         : ''}
 
       <h2 class="section-h2">The draft</h2>
-      ${services.map(
-        (s) => html`<div class="card">
-          <h3 style="margin:0 0 .75rem;font-family:var(--serif);font-weight:500;font-size:1.25rem">
-            ${formatDate(s.date)}, ${s.time} — ${s.title}
-            ${s.isNew ? chip('amber', 'new service') : ''}
-          </h3>
+      ${view.services.map((s) => {
+        const saved = opts.saved && opts.saved.serviceId === s.id ? opts.saved : null;
+        return html`<div class="card" id="svc-${s.id}">
+          <div style="display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline;justify-content:space-between;margin-bottom:.75rem">
+            <h3 style="margin:0;font-family:var(--serif);font-weight:500;font-size:1.25rem">
+              ${formatDate(s.date)}, ${s.time} — ${s.title}
+              ${s.isNew ? chip('amber', 'new service') : ''}
+            </h3>
+            <a class="btn-quiet" href="${base}/service/${s.id}">Change<span class="sr-only"> ${formatDate(s.date)}</span></a>
+          </div>
+          ${saved
+            ? html`<div class="notice notice-ok" role="status">
+                <p style="margin:0">${saved.changed > 0
+                  ? html`Saved your changes to ${formatDate(s.date)}.`
+                  : html`Nothing was changed on ${formatDate(s.date)}.`}</p>
+                ${saved.notes.length
+                  ? html`<ul style="margin:.5rem 0 0;padding-left:1.2rem">
+                      ${saved.notes.map((n) => html`<li>${n}</li>`)}
+                    </ul>`
+                  : ''}
+              </div>`
+            : ''}
           <div class="table-scroll">
             <table class="grid">
               <tbody>
-                ${s.rows.map(
-                  (r) => html`<tr class="${r.missing > 0 ? 'row-gap' : ''}">
-                    <th scope="row" style="white-space:nowrap;text-transform:none;letter-spacing:0;font-size:1rem;border-bottom:1px solid var(--rule)">
-                      ${r.roleName}
-                    </th>
+                ${s.rows.map((r) => {
+                  const missing = Math.max(0, r.min - r.people.length);
+                  return html`<tr class="${missing > 0 ? 'row-gap' : ''}">
+                    <th scope="row" style="${ROLE_TH}">${r.roleName}</th>
                     <td>
-                      ${r.people.length
-                        ? r.people.map(
-                            (p) => html`<div style="margin-bottom:.35rem">
-                              <strong>${p.name}</strong>
-                              ${p.pinned ? chip('neutral', 'already set') : ''}
-                              ${p.amber.length ? chip('amber', 'amber') : ''}
-                              <div style="font-size:.9375rem;color:var(--ink-2)">${p.reason}</div>
-                            </div>`,
-                          )
-                        : ''}
-                      ${r.missing > 0
+                      ${r.people.map(personLine)}
+                      ${missing > 0
                         ? html`<div style="color:var(--bad);font-weight:600">
-                            ${r.missing} still needed${r.message ? html` — <span style="font-weight:400">${r.message}</span>` : ''}
+                            ${missing} still needed${r.message ? html` — <span style="font-weight:400">${r.message}</span>` : ''}
                           </div>`
                         : ''}
                     </td>
-                  </tr>`,
-                )}
+                  </tr>`;
+                })}
               </tbody>
             </table>
           </div>
-        </div>`,
-      )}
+        </div>`;
+      })}
 
       <h2 class="section-h2">How the load falls</h2>
       <div class="table-scroll">
         <table class="grid">
           <thead><tr><th>Person</th><th class="num">Times on</th></tr></thead>
           <tbody>
-            ${result.load.map(
+            ${d.load.map(
               (l) => html`<tr><td>${l.name}</td><td class="num">${l.total}</td></tr>`,
             )}
           </tbody>
         </table>
       </div>
+
+      <!-- Last on the page, and well apart from everything above it, so it is
+           reached only by somebody who has scrolled past every service — and
+           then it asks once more. -->
+      <h2 class="section-h2" style="margin-top:3.5rem">When the draft is right</h2>
+      <div class="card" style="border-top:3px solid var(--brass)">
+        <p style="margin-top:0"><strong>Applying puts this draft on the rota.</strong></p>
+        <ul style="padding-left:1.2rem;color:var(--ink-2)">
+          <li><strong>${d.fresh}</strong> ${plural(d.fresh, 'placement goes', 'placements go')} on
+              the rota, marked as <em>draft</em> so they are visibly different from the confirmed
+              rota until someone confirms them.</li>
+          ${made > 0
+            ? html`<li><strong>${made}</strong> Sunday ${plural(made, 'service is', 'services are')}
+                added to the diary.</li>`
+            : ''}
+          ${released.length
+            ? html`<li><strong>${released.length}</strong>
+                ${plural(released.length, 'booking is', 'bookings are')} taken off, as listed at the
+                top of this page.</li>`
+            : ''}
+          <li>Anything still marked draft from an earlier generated rota between
+              ${formatDate(opts.from)} and ${formatDate(opts.to)} is replaced by this one.</li>
+          <li>It cannot be undone from this page.</li>
+        </ul>
+        <form method="post" action="/app/settings/generate/apply" style="margin:0"
+              data-confirm="${confirmText}"
+              onsubmit="return confirm(this.dataset.confirm)">
+          <input type="hidden" name="token" value="${token}">
+          <input type="hidden" name="from" value="${opts.from}">
+          <input type="hidden" name="to" value="${opts.to}">
+          <button class="btn-primary" type="submit">Apply this draft</button>
+        </form>
+      </div>
+    `,
+  );
+}
+
+/**
+ * One service of a draft, to change by hand.
+ *
+ * Laid out like the service page's own picker, and offering the same people:
+ * everybody ticked for the role, with anything the person choosing might not
+ * know said beside the name. Nobody is hidden for being away or on a break —
+ * the person choosing may well have rung them — but a confirmed booking is
+ * shown and not offered, because the draft never rewrites one.
+ */
+export function draftServiceEditPage(opts: {
+  ctx: ViewCtx;
+  token: string;
+  view: DraftView;
+  service: DraftService;
+  /** roleId -> everybody ticked for it. */
+  candidates: Map<number, DraftCandidate[]>;
+  error?: string;
+  /** What was sent, so a refused save does not throw away the other choices. */
+  posted?: Map<string, number | null>;
+}) {
+  const s = opts.service;
+  const draftHref = `/app/settings/generate/draft/${opts.token}`;
+
+  /** Every role a person holds at this service, bar one place. */
+  const elsewhere = (personId: number, roleId: number, slot: number) =>
+    s.rows
+      .filter((r) => r.people.some((p) => p.personId === personId && !(r.roleId === roleId && p.slot === slot)))
+      .map((r) => r.roleName);
+
+  const label = (c: DraftCandidate, roleId: number, slot: number) => {
+    const other = elsewhere(c.id, roleId, slot);
+    const notes = [
+      c.on_break ? 'on a break' : '',
+      c.is_guest ? 'guest' : '',
+      c.away ? 'away that day' : '',
+      other.length ? `already on ${joinAnd(other)} here` : '',
+    ].filter(Boolean);
+    return notes.length ? `${c.name} — ${notes.join(', ')}` : c.name;
+  };
+
+  return layout(
+    {
+      title: `Change ${formatDate(s.date)}`,
+      back: { href: `${draftHref}#svc-${s.id}`, label: 'The draft' },
+      ...opts.ctx,
+    },
+    html`
+      <p class="page-intro">
+        ${s.time} — ${s.title} ${s.isNew ? chip('amber', 'new service') : ''}
+      </p>
+
+      ${opts.error
+        ? html`<div class="notice notice-bad" role="alert"><p style="margin:0">${opts.error}</p></div>`
+        : ''}
+
+      <p style="color:var(--ink-2)">
+        Changes are saved into the draft only. Nothing reaches the rota until the draft is applied.
+      </p>
+
+      <form method="post" action="${draftHref}/service/${s.id}">
+        <input type="hidden" name="rev" value="${opts.view.rev}">
+        <div class="table-scroll">
+          <table class="grid">
+            <tbody>
+              ${s.rows.map((r) => {
+                const slots = editableSlots(r);
+                const pool = opts.candidates.get(r.roleId) ?? [];
+                return html`<tr>
+                  <th scope="row" style="${ROLE_TH}">${r.roleName}</th>
+                  <td>
+                    ${r.people.filter((p) => p.pinned).map((p) => html`<div style="margin-bottom:.6rem">
+                      <strong>${p.name}</strong> ${chip('neutral', 'already set')}
+                      <div style="font-size:.9375rem;color:var(--ink-2)">
+                        A confirmed booking, so the draft leaves it alone. Once the draft is
+                        applied it can be changed on the service's own page.
+                      </div>
+                    </div>`)}
+
+                    ${slots.map((slot) => {
+                      const id = `p_${r.roleId}_${slot}`;
+                      const key = `${r.roleId}:${slot}`;
+                      const current = r.people.find((p) => !p.pinned && p.slot === slot) ?? null;
+                      // Somebody the draft has here who is no longer ticked for the
+                      // role (or no longer active) is still listed, so saving the
+                      // rest of the service does not quietly take them off.
+                      const stray = current && !pool.some((c) => c.id === current.personId) ? current : null;
+                      const offered = new Set<number | null>([null, ...pool.map((c) => c.id), stray?.personId ?? null]);
+                      const wanted = opts.posted?.has(key) ? opts.posted.get(key) ?? null : undefined;
+                      const selected = wanted !== undefined && offered.has(wanted)
+                        ? wanted : current?.personId ?? null;
+                      // The role is already the row's heading, so a one-place role's
+                      // label is for screen readers only. Places are numbered as the
+                      // rota numbers them, so a confirmed booking in place 1 leaves
+                      // the free one called place 2.
+                      return html`<div class="field" style="margin-bottom:.75rem">
+                        ${slots.length > 1
+                          ? html`<label for="${id}"><span class="sr-only">${r.roleName}, </span>Place ${slot}</label>`
+                          : html`<label class="sr-only" for="${id}">${r.roleName}</label>`}
+                        ${current ? html`<span class="hint">${current.reason}</span>` : ''}
+                        <select id="${id}" name="${id}" style="max-width:100%">
+                          <option value="" ${selected === null ? 'selected' : ''}>— nobody —</option>
+                          ${stray
+                            ? html`<option value="${stray.personId}" ${selected === stray.personId ? 'selected' : ''}>${stray.name} — as in the draft</option>`
+                            : ''}
+                          ${pool.map((c) => html`<option value="${c.id}" ${selected === c.id ? 'selected' : ''}>${label(c, r.roleId, slot)}</option>`)}
+                        </select>
+                      </div>`;
+                    })}
+
+                    ${slots.length && !pool.length
+                      ? html`<p class="hint" style="margin:.35rem 0 0">
+                          Nobody is ticked for ${r.roleName}.
+                          <a href="/app/settings/people/by-role?role=${r.roleId}">Tick somebody</a>
+                          and they will appear here.
+                        </p>`
+                      : ''}
+                  </td>
+                </tr>`;
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="btn-row" style="margin:1.25rem 0 0">
+          <button class="btn-primary" type="submit">Save changes to this service</button>
+          <a class="btn-secondary" href="${draftHref}#svc-${s.id}">Cancel</a>
+        </p>
+      </form>
     `,
   );
 }
