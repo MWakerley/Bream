@@ -9,6 +9,7 @@
  *   npm run test:gen
  */
 import { generateRota, epochDay } from '../src/rota/generate.js';
+import { capabilityFromRow } from '../src/rota/load.js';
 import { DEFAULT_RULES } from '../src/rota/types.js';
 import type { GeneratorInput, GenService } from '../src/rota/types.js';
 
@@ -459,8 +460,11 @@ console.log('generator:');
     return inp;
   };
 
-  // A role-level floor reaches the generator as each person's minGapDays, so
-  // the observable effect is the gap between one person's turns widening.
+  // A floor each person set on their own record in People ("not more often
+  // than once every 8 weeks") reaches the generator as their minGapDays, so the
+  // observable effect is the gap between one person's turns widening. There is
+  // no floor for a whole role any more — see case 21 — so this is every
+  // preacher having said the same thing for themselves.
   {
     const inp = base();
     inp.capabilities = inp.capabilities.map((c) =>
@@ -476,8 +480,8 @@ console.log('generator:');
       days.sort((x, y) => x - y);
       for (let n = 1; n < days.length; n++) if (days[n]! - days[n - 1]! < 56) tooSoon++;
     }
-    ok('a gap set for the whole role is obeyed', tooSoon === 0,
-      `${tooSoon} turns came round sooner than the role allows`);
+    ok('a gap each person set for themselves is obeyed', tooSoon === 0,
+      `${tooSoon} turns came round sooner than they asked`);
   }
 
   // "Ask them as often as needed" — the vicar. It removes the DERIVED floor,
@@ -591,6 +595,202 @@ console.log('generator:');
     const withDefaults = generateRota(withRules({}));
     ok('the default rules reproduce the old behaviour exactly',
       JSON.stringify(without.allocations) === JSON.stringify(withDefaults.allocations));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Case 21: each person's own rhythm drives the draft.
+//
+// The generator reads only what somebody said on their own record in People.
+// The per-role "how often one person does the same job" figures that used to
+// sit on Settings > Draft rota rules are not read at all, because a floor set
+// for every preacher at once also bound the vicar who had asked to preach far
+// more often than the rest. And the rhythms people DID state now really decide
+// the draft: those who gave one are expected to take the turns it implies, and
+// those who said nothing share what is left — rather than everybody being aimed
+// at the same even share, with the fairness brake pulling the vicar back to it.
+//
+// Most checks below are written to fail on the code before this change; the
+// numbers it gave are in the failure messages.
+// ---------------------------------------------------------------------------
+{
+  const fnv = (s: string) => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return (h >>> 0).toString(16).padStart(8, '0');
+  };
+  // Who goes where, plus the gaps, warnings and totals — everything except the
+  // one-sentence reasons, which now deliberately say where a rhythm came from.
+  const fingerprint = (r: ReturnType<typeof generateRota>) => {
+    const s = JSON.stringify({
+      placed: r.allocations.map((a) => [a.serviceId, a.roleId, a.slot, a.personId, a.pinned, a.amber]),
+      gaps: r.gaps, warnings: r.warnings, load: r.load,
+    });
+    return `${fnv(s)}/${s.length}`;
+  };
+  const setCap = (inp: GeneratorInput, personId: number, roleId: number, over: object) => {
+    inp.capabilities = inp.capabilities.map((c) =>
+      c.personId === personId && c.roleId === roleId ? { ...c, ...over } : c);
+  };
+  // A year of Sundays before the quarter, the eight preachers taking it in
+  // turns — the shape the imported spreadsheet gives a real church. Without any
+  // history every preacher counts as never having served, and the generator
+  // deliberately gives each of those a first turn before anybody's rhythm can
+  // tell, which would hide what these checks are about.
+  const yearOfPreaching = () => {
+    const d0 = base().services[0]!.day;
+    return Array.from({ length: 52 }, (_, i) => (
+      { personId: 100 + ((i + 1) % 8), roleId: R.preacher, day: d0 - 7 * (i + 1) }));
+  };
+  const preachDays = (inp: GeneratorInput, r: ReturnType<typeof generateRota>, personId: number) =>
+    r.allocations
+      .filter((a) => a.personId === personId && a.roleId === R.preacher)
+      .map((a) => inp.services.find((s) => s.id === a.serviceId)!.day)
+      .sort((x, y) => x - y);
+  const mostInAnyMonth = (days: number[]) => {
+    let most = 0;
+    for (let i = 0; i < days.length; i++) {
+      let n = 0;
+      for (let j = i; j < days.length && days[j]! - days[i]! < 30; j++) n++;
+      most = Math.max(most, n);
+    }
+    return most;
+  };
+  const preacherGaps = (r: ReturnType<typeof generateRota>) =>
+    r.gaps.filter((g) => g.roleId === R.preacher).length;
+
+  // a. A church where nobody has said anything gets the very rota it got before.
+  // The fingerprint was taken from the generator as it stood before per-person
+  // rhythms drove the draft (commit e1583fd).
+  {
+    const fp = fingerprint(generateRota(base()));
+    ok('with nobody stating a rhythm, the draft is exactly the one it always was',
+      fp === 'bd957c7d/6833', `fingerprint ${fp}, expected bd957c7d/6833`);
+  }
+
+  // b. Twice a month and once a quarter, side by side in one pool.
+  const twiceAndQuarterly = () => {
+    const inp = base();
+    inp.history = yearOfPreaching();
+    setCap(inp, 100, R.preacher, { desiredEveryDays: 15, maxPerWindow: { count: 2, windowDays: 30 } });
+    setCap(inp, 101, R.preacher, { desiredEveryDays: 91, minGapDays: 91 });
+    return inp;
+  };
+  const mixedIn = twiceAndQuarterly();
+  const mixed = generateRota(mixedIn);
+  {
+    const twice = preachDays(mixedIn, mixed, 100);
+    const quarterly = preachDays(mixedIn, mixed, 101);
+    const average = 13 / 8;
+    ok('somebody who asks for twice a month preaches clearly more than the average',
+      twice.length >= 2 * average, `${twice.length} against an average of ${average}`);
+    ok('but never more than twice in any 30 days', mostInAnyMonth(twice) <= 2,
+      `${mostInAnyMonth(twice)} in one month`);
+    // Thirteen Sundays hold at most six turns at two a month. The old even-share
+    // brake held this person to every third week: five.
+    ok('and as often as twice a month allows', twice.length >= 6,
+      `${twice.length} of 13 Sundays (the old code gave 5)`);
+    ok('somebody who asks for once a quarter preaches at most once in 13 Sundays',
+      quarterly.length <= 1, `${quarterly.length} times`);
+  }
+
+  // c. The fairness brake no longer holds back somebody who asked for more.
+  const vicarWeekly = () => {
+    const inp = base();
+    inp.history = yearOfPreaching();
+    setCap(inp, 100, R.preacher, { desiredEveryDays: 7 });
+    return inp;
+  };
+  {
+    const inp = vicarWeekly();
+    const n = preachDays(inp, generateRota(inp), 100).length;
+    ok('a vicar who asks for every week preaches on most Sundays', n >= 11,
+      `${n} of 13 Sundays (the old code gave 6)`);
+  }
+  // ...and when he is away, the people who said nothing still step in, even
+  // under "leave the place empty". Their share of what he leaves is close to
+  // nothing, so their TARGET is long — but the floor that target implies is a
+  // hard refusal that rule never bends, and it must not grow with it.
+  {
+    const inp = vicarWeekly();
+    const away = inp.services.slice(4, 7);
+    inp.unavailable = [{ personId: 100, fromDay: away[0]!.day, toDay: away[2]!.day }];
+    inp.rules = { ...DEFAULT_RULES, whenShort: 'leave_empty' };
+    const res = generateRota(inp);
+    const covered = away.filter((s) =>
+      res.allocations.some((a) => a.serviceId === s.id && a.roleId === R.preacher)).length;
+    ok('and when he is away the others still cover, even with nothing allowed to bend',
+      covered === 3 && preacherGaps(res) === 0,
+      `${covered} of the 3 Sundays covered, ${preacherGaps(res)} preacher gaps`);
+  }
+
+  // d. Those who said nothing share what is left, and are not squeezed for it.
+  {
+    const plain = generateRota(base());
+    ok('the rhythms people asked for leave no new empty pulpits',
+      preacherGaps(mixed) <= preacherGaps(plain),
+      `${preacherGaps(mixed)} preacher gaps against ${preacherGaps(plain)}`);
+    // Their implied floor, worked out by hand the way the generator does: half
+    // the shorter of their share of what is left and the even share. 13 Sundays
+    // span 85 days; the two who stated a rhythm take 85/15 + 85/91 places.
+    const leftover = 13 - (85 / 15 + 85 / 91);
+    const floor = Math.min((85 * 6) / leftover, (85 * 8) / 13) / 2;
+    let inside = 0;
+    for (const pid of [102, 103, 104, 105, 106, 107]) {
+      const days = preachDays(mixedIn, mixed, pid);
+      for (let i = 1; i < days.length; i++) if (days[i]! - days[i - 1]! < floor) inside++;
+    }
+    ok('and nobody who said nothing is asked again inside their implied floor', inside === 0,
+      `${inside} turns came round inside ${floor.toFixed(1)} days`);
+  }
+
+  // e. What somebody said on their record, turned into numbers.
+  {
+    const row = (over: object) => ({
+      person_id: 1, role_id: R.preacher, max_per_period: null, period_days: null,
+      min_gap_days: null, ask_any_time: 0, ...over,
+    });
+    const gapOnly = capabilityFromRow(row({ min_gap_days: 91 }));
+    ok('"not more often than once a quarter" is a rhythm and a floor',
+      gapOnly.desiredEveryDays === 91 && gapOnly.minGapDays === 91 && gapOnly.maxPerWindow === null,
+      JSON.stringify(gapOnly));
+    const capOnly = capabilityFromRow(row({ max_per_period: 2, period_days: 30 }));
+    ok('"at most twice a month" aims at every 15 days, as a cap and not a floor',
+      capOnly.desiredEveryDays === 15 && capOnly.minGapDays === null
+        && capOnly.maxPerWindow?.count === 2 && capOnly.maxPerWindow?.windowDays === 30,
+      JSON.stringify(capOnly));
+    // Four a quarter is about every 23 days; aiming at the fortnight instead
+    // would have them hit their own cap every month and then wait.
+    const both = capabilityFromRow(row({ max_per_period: 4, period_days: 91, min_gap_days: 14 }));
+    ok('given both, the slower of the two is the rhythm aimed at',
+      Math.abs((both.desiredEveryDays ?? 0) - 22.75) < 1e-9 && both.minGapDays === 14,
+      JSON.stringify(both));
+    const nothing = capabilityFromRow(row({}));
+    ok('saying nothing is no view at all',
+      nothing.desiredEveryDays === null && nothing.minGapDays === null
+        && nothing.maxPerWindow === null && nothing.askAnyTime === false,
+      JSON.stringify(nothing));
+    const roleFigures = { default_min_gap_days: 28, default_target_days: 56 };
+    ok('the old per-role figures from Settings are not read',
+      JSON.stringify(capabilityFromRow({ ...row({}), ...roleFigures })) === JSON.stringify(nothing)
+        && JSON.stringify(capabilityFromRow({ ...row({ min_gap_days: 91 }), ...roleFigures }))
+          === JSON.stringify(gapOnly),
+      JSON.stringify(capabilityFromRow({ ...row({}), ...roleFigures })));
+    ok('"ask them as often as needed" comes through',
+      capabilityFromRow(row({ ask_any_time: 1 })).askAnyTime === true);
+  }
+
+  // f. The explanation says whose rhythm it was.
+  {
+    const said = mixed.allocations.find((a) => a.personId === 100 && /last did this/.test(a.reason));
+    const share = mixed.allocations.find((a) =>
+      a.roleId === R.preacher && a.personId >= 102 && /last did this/.test(a.reason));
+    ok('a reason says when the rhythm is the one they asked for',
+      !!said && /they asked for/.test(said.reason), said?.reason ?? 'no allocation to check');
+    ok('and when it is a share of the work', !!share && /fair share/.test(share.reason),
+      share?.reason ?? 'no allocation to check');
+    if (said) console.log(`       e.g. "${said.reason}"`);
+    if (share) console.log(`       e.g. "${share.reason}"`);
   }
 }
 console.log(failures === 0 ? '\nGenerator OK.' : `\n${failures} FAILURES`);

@@ -35,6 +35,10 @@ const NEVER_SERVED_RATIO = 2.0;
 const DEBT_CAP = 2.5;
 /** A stated rhythm implies a floor even when nobody sets one. */
 const IMPLIED_FLOOR = 0.5;
+/** However many places the people with a stated rhythm would take, those with
+ *  none are reckoned to share at least this many between them — see the
+ *  fair-share section for why it cannot be allowed to reach nought. */
+const LEFTOVER_FLOOR = 1;
 /** Relaxation never goes below this, whatever the tier. */
 const RELAX_FLOOR_DAYS = 7;
 
@@ -112,22 +116,83 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
   // of that role: horizon * eligibleCount / totalSlots. One formula serves an
   // 8-person preaching pool (~56 days) and a 23-person welcome pool (~80 days)
   // with nobody configuring either.
+  //
+  // Unless somebody in the role HAS said. Then each of them is expected to take
+  // the turns their own rhythm implies — about six a quarter for the vicar who
+  // asked for twice a month, one for the preacher who asked for once a quarter —
+  // and the people who said nothing share what is LEFT, rather than an even
+  // split of the whole. The even split is what used to happen, and it meant the
+  // fairness brake below held the vicar back towards the same share as
+  // everybody else: exactly what he had asked not to have.
+  //
+  // Where NOBODY in a role has said anything, the arithmetic is the old
+  // arithmetic exactly — the same expressions in the same order, not merely the
+  // same algebra — so a church that has set no preferences gets the very rota
+  // it got before, down to the last tie-break. seed/generator-test.ts holds a
+  // fingerprint of that rota, taken from the code before this change.
   const slotsPerRole = new Map<number, number>();
   for (const s of sorted) {
     for (const r of s.roles) slotsPerRole.set(r.roleId, (slotsPerRole.get(r.roleId) ?? 0) + r.ideal);
   }
-  const fairShare = new Map<number, number>();
+
+  /** What this person asked for in this role, in days, or null if they said
+   *  nothing. load.ts has already folded a cap into desiredEveryDays; the cap is
+   *  read here as well so a caller that sets only the cap means the same thing. */
+  const statedEvery = (c: GenCapability | undefined): number | null => {
+    const every = c?.desiredEveryDays
+      || (c?.maxPerWindow ? c.maxPerWindow.windowDays / c.maxPerWindow.count : null);
+    // Only a real number of days counts as having said something. load.ts never
+    // hands over anything else, but the shares below divide by it, and one
+    // nonsense row must not turn a whole role's arithmetic into NaN.
+    return every != null && Number.isFinite(every) && every > 0 ? every : null;
+  };
+  /** How many of a role's places somebody's own rhythm would take. */
+  const statedTurns = (every: number, slots: number) => Math.min(slots, horizonDays / every);
+
+  const evenShare = new Map<number, number>(); // the old figure: everybody alike
+  const fairShare = new Map<number, number>(); // the target for those who said nothing
+  const unstatedTurns = new Map<number, number>(); // places each of them is expected to take
   for (const [roleId, slots] of slotsPerRole) {
-    const n = eligible.get(roleId)?.length ?? 0;
-    fairShare.set(roleId, n > 0 && slots > 0 ? (horizonDays * n) / slots : horizonDays);
+    const pool = eligible.get(roleId) ?? [];
+    const n = pool.length;
+    let unstated = 0;
+    let statedDemand = 0;
+    for (const pid of pool) {
+      const every = statedEvery(capBy.get(`${pid}:${roleId}`));
+      if (every == null) unstated++;
+      else statedDemand += statedTurns(every, slots);
+    }
+    const even = n > 0 && slots > 0 ? (horizonDays * n) / slots : horizonDays;
+    evenShare.set(roleId, even);
+    if (unstated === n || !(slots > 0)) {
+      fairShare.set(roleId, even);
+      if (n > 0 && slots > 0) unstatedTurns.set(roleId, slots / n);
+      continue;
+    }
+    if (unstated === 0) {
+      // Everybody has said; nobody is aimed at a share.
+      fairShare.set(roleId, even);
+      continue;
+    }
+    // When the people who stated a rhythm would between them fill every place —
+    // the vicar who asks for every week — what is left is nought, and their
+    // share of nought is "never": an infinite target, or a division by zero.
+    // Instead they are reckoned to share at least one place over the draft, so
+    // each is aimed at no less often than once in (horizon * unstated) days. In
+    // practice that makes them fill-ins, there for the Sundays the vicar is away
+    // or held back, and still ordered among themselves by who has gone longest.
+    //
+    // The figure is a TARGET, measured as debt; the floor it would imply is
+    // capped separately in floorGap, so a long target never makes a fill-in
+    // harder to reach on the day they are needed.
+    const leftover = Math.max(LEFTOVER_FLOOR, slots - Math.min(slots, statedDemand));
+    fairShare.set(roleId, (horizonDays * unstated) / leftover);
+    unstatedTurns.set(roleId, leftover / unstated);
   }
 
-  const targetInterval = (personId: number, roleId: number): number => {
-    const c = capBy.get(`${personId}:${roleId}`);
-    if (c?.desiredEveryDays) return c.desiredEveryDays;
-    if (c?.maxPerWindow) return c.maxPerWindow.windowDays / c.maxPerWindow.count;
-    return Math.max(1, fairShare.get(roleId) ?? horizonDays);
-  };
+  const targetInterval = (personId: number, roleId: number): number =>
+    statedEvery(capBy.get(`${personId}:${roleId}`))
+      ?? Math.max(1, fairShare.get(roleId) ?? horizonDays);
   const floorGap = (personId: number, roleId: number): number => {
     const c = capBy.get(`${personId}:${roleId}`);
     // What they asked for themselves always wins, exemption or not: the tick
@@ -138,7 +203,18 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     // the case the churchwarden meant by "unless someone is doing them
     // frequently", and it would have gone on happening invisibly.
     if (c?.askAnyTime) return 0;
-    return targetInterval(personId, roleId) * IMPLIED_FLOOR;
+    const every = statedEvery(c);
+    if (every != null) return every * IMPLIED_FLOOR;
+    // Somebody who said nothing, measured against what is left by those who
+    // did. That target can be long — years, when the vicar has asked for every
+    // week — and the floor it implies is a HARD refusal at the first attempt,
+    // which even "leave the place empty" never bends. So the floor is never
+    // stricter than the even share would have made it: other people asking for
+    // more must never be the reason a service goes short on the Sunday the
+    // vicar is away. With nobody stating anything the two figures are the same
+    // number, and this is the old floor exactly.
+    const share = Math.min(fairShare.get(roleId) ?? horizonDays, evenShare.get(roleId) ?? horizonDays);
+    return Math.max(1, share) * IMPLIED_FLOOR;
   };
 
   // ---- ledger, seeded from history ---------------------------------------
@@ -167,15 +243,24 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
   const runTotal = new Map<number, number>();
   const runInRole = new Map<string, number>();
 
-  // Expected load for a person: the sum over their roles of that role's slots
-  // divided by its eligible count. Measured against their OWN expectation, not
-  // the congregation mean — a preacher legitimately serves more than a reader.
+  // Expected load for a person: the sum over their roles of the places they are
+  // expected to take there — the turns their own rhythm implies where they gave
+  // one, their share of what is left where they did not, and plain slots
+  // divided by eligible count where nobody in the role said anything. Measured
+  // against their OWN expectation, not the congregation mean — a preacher
+  // legitimately serves more than a reader, and the vicar who asked for every
+  // other Sunday more than either. Holding him to an even share instead is the
+  // brake this used to apply, and it quietly undid what he had asked for.
   const expectedLoad = new Map<number, number>();
   for (const c of capabilities) {
     const n = eligible.get(c.roleId)?.length ?? 0;
     const slots = slotsPerRole.get(c.roleId) ?? 0;
     if (!n || !slots) continue;
-    expectedLoad.set(c.personId, (expectedLoad.get(c.personId) ?? 0) + slots / n);
+    const every = statedEvery(c);
+    const turns = every != null
+      ? statedTurns(every, slots)
+      : unstatedTurns.get(c.roleId) ?? slots / n;
+    expectedLoad.set(c.personId, (expectedLoad.get(c.personId) ?? 0) + turns);
   }
 
   const isUnavailable = (personId: number, day: number) =>
@@ -595,9 +680,16 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
         } else {
           const since = svc.day - last;
           const target = Math.round(targetInterval(chosen, role.roleId));
+          const every = `${target} day${target === 1 ? '' : 's'}`;
+          // Say where the rhythm came from. "Against a rhythm of about 15" left
+          // the reader to guess whether that was what the person asked for or
+          // something the system made up — and those deserve different answers
+          // when somebody asks why they are on again so soon.
           parts.push(
             `${name} last did this ${since} day${since === 1 ? '' : 's'} ago` +
-            `, against a rhythm of about ${target}`,
+            (statedEvery(capBy.get(k)) != null
+              ? `, against the once every ${every} or so they asked for`
+              : `, against a fair share of about once every ${every}`),
           );
         }
         for (const other of placedInRole.get(role.roleId) ?? []) {

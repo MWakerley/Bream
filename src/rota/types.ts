@@ -17,17 +17,20 @@ export interface GenPerson {
 }
 
 export interface GenCapability {
-  /** "Ask them as often as needed" — this person is exempt from the role's
-   *  default gap and from the gap between any two jobs. Their OWN stated
-   *  minimum, if they have one, still applies: the tick removes a rule set on
-   *  their behalf, not one they set themselves. */
+  /** "Ask them as often as needed" — this person is exempt from the gap the
+   *  generator would otherwise work out from their share of the role, and from
+   *  the gap between any two jobs. Their OWN stated minimum, if they have one,
+   *  still applies: the tick removes a rule set on their behalf, not one they
+   *  set themselves. */
   askAnyTime?: boolean;
   personId: number;
   roleId: number;
-  /** The rhythm this person wants in this role. Null means "no view", and the
-   *  generator substitutes their fair share of the role. */
+  /** The rhythm this person stated on their own record in People — the slower
+   *  of their "not more often than" and their "at most N times every P" (see
+   *  capabilityFromRow in load.ts). Null means "no view", and the generator
+   *  substitutes their share of whatever the people who did say leave over. */
   desiredEveryDays: number | null;
-  /** Hard floor. Null means "derive from the target". */
+  /** Hard floor, from their own record. Null means "derive from the target". */
   minGapDays: number | null;
   /** Hard cap over a rolling window: "twice a month" is {count:2, windowDays:30}. */
   maxPerWindow: { count: number; windowDays: number } | null;

@@ -85,13 +85,17 @@ export async function loadGeneratorInput(
       //
       // Both are only ever excluded from work the generator INVENTS. Neither
       // stops a human putting them on a service deliberately.
+      //
+      // Only the person's OWN figures are read. roles.default_min_gap_days and
+      // roles.default_target_days are deliberately left behind — see
+      // capabilityFromRow below for why — which is also why there is no JOIN on
+      // roles any more: those two columns were all it was there for, and
+      // person_roles.role_id cascades on delete, so it never pointed at nothing.
       db.prepare(
         `SELECT pr.person_id, pr.role_id, pr.max_per_period, pr.period_days,
-                pr.min_gap_days, pr.ask_any_time,
-                r.default_min_gap_days, r.default_target_days
+                pr.min_gap_days, pr.ask_any_time
            FROM person_roles pr
            JOIN people p ON p.id = pr.person_id
-           JOIN roles  r ON r.id = pr.role_id
           WHERE pr.can_do = 1 AND pr.willing = 1
             AND p.is_active = 1 AND p.needs_review = 0
             AND p.on_break = 0 AND p.is_guest = 0
@@ -129,7 +133,7 @@ export async function loadGeneratorInput(
   const rows = <T,>(i: number): T[] => (batched[i]?.results ?? []) as T[];
   const svcRows = rows<any>(0);
   const peopleRows = rows<any>(1);
-  const capRows = rows<any>(2);
+  const capRows = rows<CapabilityRow>(2);
   const comboRows = rows<any>(3);
   const pairRows = rows<any>(4);
   const unavailRows = rows<any>(5);
@@ -182,35 +186,7 @@ export async function loadGeneratorInput(
   }
 
   // ---- capabilities -------------------------------------------------------
-  // The schema stores a cap ("twice a month") and a floor ("every 3 months")
-  // rather than an explicit target, so the target is derived: an explicit floor
-  // IS the rhythm they asked for; a cap implies one of window/count. Where
-  // neither is set the generator falls back to their fair share of the role.
-  //
-  // THE ORDER OF PRECEDENCE, which is the whole point of the settings page:
-  //   1. what this person said for themselves
-  //   2. what the church set for this role
-  //   3. the fair share, worked out from the size of the team
-  //
-  // The role default is deliberately NOT routed into desiredEveryDays. Today a
-  // person's own min_gap_days does double duty as the rhythm the debt score is
-  // measured against; giving every preacher the role's floor as a target too
-  // would push most of the pool past DEBT_CAP, collapse the ordering onto the
-  // tie-break hash, and make the draft reach a newcomer later than it does now.
-  // The target has its own setting instead.
-  const capabilities: GenCapability[] = capRows.map((c) => ({
-    personId: c.person_id,
-    roleId: c.role_id,
-    desiredEveryDays: c.min_gap_days
-      ?? (c.max_per_period && c.period_days ? c.period_days / c.max_per_period : null)
-      ?? c.default_target_days
-      ?? null,
-    minGapDays: c.min_gap_days ?? c.default_min_gap_days ?? null,
-    askAnyTime: !!c.ask_any_time,
-    maxPerWindow: c.max_per_period && c.period_days
-      ? { count: c.max_per_period, windowDays: c.period_days }
-      : null,
-  }));
+  const capabilities: GenCapability[] = capRows.map(capabilityFromRow);
 
   const combinations = new Map<string, { verdict: Verdict; reason: string | null }>();
   for (const r of comboRows) {
@@ -275,5 +251,69 @@ export async function loadGeneratorInput(
     })),
     released,
     runSeed,
+  };
+}
+
+/** One person_roles row, as the capability query above reads it. */
+export interface CapabilityRow {
+  person_id: number;
+  role_id: number;
+  /** "At most N times ..." */
+  max_per_period: number | null;
+  /** "... every P days". Only means anything alongside max_per_period. */
+  period_days: number | null;
+  /** "Not more often than once every G days." */
+  min_gap_days: number | null;
+  /** "Ask them as often as needed", stored 0/1. */
+  ask_any_time: number | null;
+}
+
+/**
+ * What somebody said on their own record in People, turned into the numbers
+ * the generator works with.
+ *
+ * Pulled out of loadGeneratorInput and kept pure so it can be tested without a
+ * database: it is the one place where "how often they want to do it" becomes
+ * the rhythm a draft aims at, and getting it subtly wrong is invisible until a
+ * preacher notices they have been asked twice as often as they said.
+ *
+ * THE ORDER OF PRECEDENCE:
+ *   1. what this person said on their own record
+ *   2. their fair share of whatever the people who HAVE said leave over —
+ *      worked out in generate.ts, from everybody's figures at once, because
+ *      nobody's share can be known from their own row alone
+ *
+ * There used to be a step in between: a figure for the whole role, from
+ * Settings > Draft rota rules (roles.default_min_gap_days and
+ * default_target_days). Those are deliberately no longer read. A floor set for
+ * every preacher at once — "not more often than every 4 weeks" — also bound
+ * the vicar who had asked to preach twice a month, so the one thing the church
+ * most wanted the draft to honour, that people want very different amounts, was
+ * overruled by a setting made on their behalf. The columns stay in the table
+ * because roles carries CHECK constraints, and D1 refuses to drop a column from
+ * such a table (see the note at the top of migrations/0001); nothing reads them.
+ *
+ * The schema stores a cap ("twice a month") and a floor ("every 3 months")
+ * rather than a rhythm, so the rhythm is derived from whichever they gave: a
+ * floor IS a rhythm, and a cap implies one of window/count. Where they gave
+ * BOTH, the slower of the two is the one to aim at. "At most 4 times a quarter,
+ * and not more often than every 2 weeks" is about every 23 days; aiming at the
+ * fortnight would have them run into their own cap every month and then wait.
+ */
+export function capabilityFromRow(row: CapabilityRow): GenCapability {
+  const maxPerWindow = row.max_per_period && row.period_days
+    ? { count: row.max_per_period, windowDays: row.period_days }
+    : null;
+  // Only what they actually stated. A zero would read as "every day" here and
+  // as "no view" in the generator, so it is treated as no view in both.
+  const stated = [row.min_gap_days, maxPerWindow && maxPerWindow.windowDays / maxPerWindow.count]
+    .filter((d): d is number => d != null && d > 0);
+  return {
+    personId: row.person_id,
+    roleId: row.role_id,
+    desiredEveryDays: stated.length ? Math.max(...stated) : null,
+    minGapDays: row.min_gap_days ?? null,
+    askAnyTime: !!row.ask_any_time,
+    maxPerWindow,
   };
 }
