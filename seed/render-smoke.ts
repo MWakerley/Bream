@@ -261,7 +261,11 @@ await check('the keyholder register', () => keyholdersPage([
     keyholder_keys: '["church","office"]' },
   { id: 2, display_name: 'Ron', full_name: null, email: null, phone: '01594 000000',
     is_active: 0, keyholder_since: null, keyholder_note: null, keyholder_keys: '["unknown"]' },
-], CTX), ['Keyholder register', '2 people hold a key', 'Sue Baker', 'Church, Church Office', 'Not known',
+  // The safe key, listed with the buildings' keys in the same order as the boxes.
+  { id: 3, display_name: 'Ann', full_name: null, email: null, phone: null,
+    is_active: 1, keyholder_since: null, keyholder_note: null, keyholder_keys: '["safe","centre"]' },
+], CTX), ['Keyholder register', '3 people hold a key', 'Sue Baker', 'Church, Church Office', 'Not known',
+  'Church Centre, Safe',
   'Fri 25 Sep 2026', 'No longer serving', '1 keyholder has stopped serving']);
 await check('"Not known" never sits beside a real key', () => {
   const f = (vals: string[]) => { const d = new FormData(); vals.forEach((v) => d.append('keyholder_keys', v)); return d; };
@@ -270,8 +274,9 @@ await check('"Not known" never sits beside a real key', () => {
     readKeys(f([])).join(','),
     readKeys(f(['office', 'centre'])).join(','),
     readKeys(f(['bogus'])).join(','),
+    readKeys(f(['unknown', 'safe'])).join(','),
   ].join(' | ');
-}, ['church | unknown | centre,office | unknown']);
+}, ['church | unknown | centre,office | unknown | safe']);
 await check('an empty register says so', () => keyholdersPage([], CTX),
   ['Nobody is marked as a keyholder yet']);
 await check('a keyholder is ticked on their record', () => personPage({
@@ -284,7 +289,7 @@ await check('a keyholder is ticked on their record', () => personPage({
   },
   roles, ctx: CTX,
 }), ['name="is_keyholder" value="1" checked', 'icon-key', 'keyholder register', 'Which keys',
-     'value="centre" checked', 'Church Office', 'Not known'],
+     'value="centre" checked', 'Church Office', 'value="safe"', 'Safe', 'Not known'],
   ['id="keyholder-note" hidden']);
 // ---- safeguarding ----------------------------------------------------------
 const SG_GRID = {
@@ -605,7 +610,22 @@ await check('the event page lists cancelled bookings too', () => eventAdminPage(
   // Their own list, headed as such, with its own count — never mixed in.
   'bookings-h-cancelled', 'Kept as a record',
   'attendees.pdf', 'attendees.xlsx',
+  // A cancelled booking can be cleared off the page, one at a time or all at
+  // once, and the single one says it only means a booking that is still cancelled.
+  '/app/events/1/bookings/2/delete', 'name="only_cancelled"',
+  'Delete John Hale’s cancelled booking for good?',
+  '/app/events/1/cancelled/delete', 'Delete all 1 cancelled booking',
+], [
+  // A real booking is never one click from being deleted off the list.
+  '/app/events/1/bookings/1/delete',
 ]);
+
+// Somebody who may only look is not offered a delete they would be refused.
+await check('a viewer is not offered the cancelled-booking deletes', () => eventAdminPage({
+  event: EVENT, fields: FIELDS, ctx: { ...CTX, areas: VOLUNTEER_AREAS }, origin: 'https://x.test', ...EV_EXTRA,
+  bookings: [{ id: 2, name: 'John Hale', email: null, phone: null, party_size: 2,
+    status: 'cancelled', created_at: '2026-09-11 11:00:00', answers: {} }],
+}), ['John Hale', 'bookings-h-cancelled'], ['/bookings/2/delete', '/cancelled/delete']);
 
 // Three separate tables: the booked one must come first and must not contain
 // the cancelled row. Checked by position rather than by "contains".

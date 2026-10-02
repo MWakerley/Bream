@@ -373,8 +373,11 @@ function bookingTable(opts: {
   rows: BookingRow[];
   e: EventRow;
   fields: FieldRow[];
+  /** May change bookings. Without it the delete controls are not drawn, since
+   *  the post would only be refused. */
+  manage?: boolean;
 }) {
-  const { heading, note, rows, e, fields } = opts;
+  const { heading, note, rows, e, fields, manage } = opts;
   const people = rows.reduce((n, b) => n + b.party_size, 0);
   const tone = heading === 'Cancelled' ? 'cancelled' : heading === 'Waiting list' ? 'waiting' : 'booked';
   return html`
@@ -417,6 +420,17 @@ function bookingTable(opts: {
                                 class="inline-form">
                           <button class="linkish" type="submit">${b.status === 'waitlist' ? 'Give them a place' : 'Put back'}</button>
                         </form>`}
+                    ${b.status === 'cancelled' && manage
+                      ? html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/delete"
+                                class="inline-form"
+                                data-confirm="Delete ${b.name}’s cancelled booking for good? It goes from this page and cannot be got back."
+                                onsubmit="return confirm(this.dataset.confirm)">
+                          <!-- So a page left open cannot delete a booking that
+                               has been put back since it was drawn. -->
+                          <input type="hidden" name="only_cancelled" value="1">
+                          <button class="linkish" type="submit" style="color:var(--bad)">Delete</button>
+                        </form>`
+                      : ''}
                     ${b.status === 'waitlist'
                       ? html`<form method="post" action="/app/events/${e.id}/bookings/${b.id}/cancel"
                                 class="inline-form">
@@ -476,6 +490,7 @@ export function eventAdminPage(opts: {
   const left = placesLeft(e);
   const waiting = bookings.filter((b) => b.status === 'waitlist');
   const cancelled = bookings.filter((b) => b.status === 'cancelled');
+  const manage = !ctx.areas || ctx.areas.has('events.manage');
   const bookingUrl = `${origin}/events/${e.slug}`;
 
   return layout(
@@ -829,11 +844,20 @@ export function eventAdminPage(opts: {
                   })
                 : ''}
               ${cancelled.length
-                ? bookingTable({
+                ? html`${bookingTable({
                     heading: 'Cancelled',
-                    note: 'Kept as a record. None of these count towards the numbers.',
-                    rows: cancelled, e, fields,
-                  })
+                    note: 'Kept as a record until you delete them. None of these count towards '
+                      + 'the numbers, so deleting them changes nothing but this list.',
+                    rows: cancelled, e, fields, manage,
+                  })}
+                  ${manage
+                    ? html`<form method="post" action="/app/events/${e.id}/cancelled/delete"
+                          class="inline-form"
+                          data-confirm="Delete all ${cancelled.length} cancelled booking${cancelled.length === 1 ? '' : 's'} for good? ${cancelled.length === 1 ? 'It goes' : 'They go'} from this page and cannot be got back. Nobody booked or on the waiting list is touched."
+                          onsubmit="return confirm(this.dataset.confirm)">
+                        <button class="btn-danger" type="submit">Delete all ${cancelled.length} cancelled booking${cancelled.length === 1 ? '' : 's'}</button>
+                      </form>`
+                    : ''}`
                 : ''}
             </div>`}
     `,

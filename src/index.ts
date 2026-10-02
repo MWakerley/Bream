@@ -3490,12 +3490,46 @@ app.post('/app/events/:id/bookings/:bookingId/delete', async (c) => {
   const booking = await getEventBooking(c.env.DB, eventId, bookingId);
   if (!booking) return c.notFound();
 
+  // The Delete on the cancelled list says it only means a cancelled booking.
+  // Somebody may have put it back in another tab since that list was drawn, and
+  // deleting a real place from a stale page is the one mistake here nobody could
+  // undo. The booking's own page deletes whatever it shows, as before.
+  const form = await c.req.formData();
+  if (form.get('only_cancelled') && booking.status !== 'cancelled') {
+    return eventAdminView(c, eventId, {
+      tone: 'bad',
+      text: `${booking.name}'s booking is no longer cancelled, so it has not been deleted.`,
+    });
+  }
+
   // The answers go too, by ON DELETE CASCADE. This is the one irreversible thing
   // on the page, which is why cancelling is offered first and everywhere.
   await c.env.DB.prepare('DELETE FROM event_bookings WHERE id = ?1 AND event_id = ?2')
     .bind(bookingId, eventId).run();
   return eventAdminView(c, eventId, {
     tone: 'ok', text: `${booking.name}'s booking has been deleted.`,
+  });
+});
+
+/**
+ * Clears the cancelled list in one go, so it stops crowding the page.
+ *
+ * Only what is cancelled at the moment of the click goes — the status is in the
+ * WHERE rather than taken from the page — so a booking put back meanwhile is
+ * safe. Nothing counted in the numbers is cancelled, so the numbers cannot move.
+ */
+app.post('/app/events/:id/cancelled/delete', async (c) => {
+  const eventId = Number(c.req.param('id'));
+  if (!Number.isInteger(eventId)) return c.notFound();
+  const res = await c.env.DB.prepare(
+    `DELETE FROM event_bookings WHERE event_id = ?1 AND status = 'cancelled'`,
+  ).bind(eventId).run();
+  const n = res.meta?.changes ?? 0;
+  return eventAdminView(c, eventId, {
+    tone: 'ok',
+    text: n
+      ? `${n} cancelled booking${n === 1 ? '' : 's'} deleted.`
+      : 'There were no cancelled bookings left to delete.',
   });
 });
 

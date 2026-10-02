@@ -2,14 +2,20 @@
  * The keys a keyholder can hold.
  *
  * A fixed list, because the buildings are: the church, the Church Centre and
- * the office. "Not known" is its own answer rather than an empty one, and it
- * cannot sit alongside a real key — somebody either has the Church key or we
- * do not know what they have, not both.
+ * the office — and the safe, which is not a building but is a key somebody
+ * holds and has to give back all the same. "Not known" is its own answer rather
+ * than an empty one, and it cannot sit alongside a real key — somebody either
+ * has the Church key or we do not know what they have, not both.
+ *
+ * Adding a key is one line here and nothing else: what is stored is a JSON list
+ * of these names, parseKeys drops any it does not recognise, and every page
+ * draws its boxes and labels from this list. "Not known" stays last.
  */
 export const KEYS = [
   { key: 'church', label: 'Church' },
   { key: 'centre', label: 'Church Centre' },
   { key: 'office', label: 'Church Office' },
+  { key: 'safe', label: 'Safe' },
   { key: 'unknown', label: 'Not known' },
 ] as const;
 
