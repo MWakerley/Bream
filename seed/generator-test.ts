@@ -9,7 +9,7 @@
  *   npm run test:gen
  */
 import { generateRota, epochDay } from '../src/rota/generate.js';
-import { capabilityFromRow } from '../src/rota/load.js';
+import { capabilityFromRow, loadGeneratorInput } from '../src/rota/load.js';
 import { DEFAULT_RULES } from '../src/rota/types.js';
 import type { GeneratorInput, GenService } from '../src/rota/types.js';
 
@@ -484,18 +484,82 @@ console.log('generator:');
       `${tooSoon} turns came round sooner than they asked`);
   }
 
-  // "Ask them as often as needed" — the vicar. It removes the DERIVED floor,
-  // which is the one nobody ever chose, without touching anybody else.
-  {
-    const plain = generateRota(base());
-    const inp = base();
+  // "Ask them as often as needed". It is an EXEMPTION, not a rhythm: it lifts
+  // the spacing the draft works out for somebody (the floor nobody ever chose)
+  // and the church's gap between Sundays, and nothing else. Each check below is
+  // set where only the tick can let the person be asked again, under "leave
+  // the place empty" so that no bending can do it instead — the old check here
+  // compared 1 with 1 on a pool with room to spare, and passed with the tick
+  // doing nothing at all.
+  const withTick = (inp: GeneratorInput) => {
     inp.capabilities = inp.capabilities.map((c) =>
       c.personId === 100 && c.roleId === R.preacher ? { ...c, askAnyTime: true } : c);
-    const res = generateRota(inp);
-    const before = plain.allocations.filter((a) => a.personId === 100 && a.roleId === R.preacher).length;
-    const after = res.allocations.filter((a) => a.personId === 100 && a.roleId === R.preacher).length;
-    ok('"ask them as often as needed" lets somebody preach more', after >= before,
-      `${before} before, ${after} after`);
+    return inp;
+  };
+  const preaches = (r: ReturnType<typeof generateRota>, ids?: Set<number>) =>
+    r.allocations.filter((a) =>
+      a.personId === 100 && a.roleId === R.preacher && (!ids || ids.has(a.serviceId))).length;
+  {
+    // Everybody else away for the first four Sundays. Without the tick, the
+    // spacing worked out for him (half an even share, 26 days) refuses him the
+    // three Sundays after his first.
+    const awayMonth = () => {
+      const inp = withRules({ whenShort: 'leave_empty' });
+      const month = inp.services.slice(0, 4);
+      inp.unavailable = [101, 102, 103, 104, 105, 106, 107].map((personId) => (
+        { personId, fromDay: month[0]!.day, toDay: month[3]!.day }));
+      return { inp, month: new Set(month.map((s) => s.id)) };
+    };
+    const plain = awayMonth();
+    const ticked = awayMonth();
+    withTick(ticked.inp);
+    const before = preaches(generateRota(plain.inp), plain.month);
+    const after = preaches(generateRota(ticked.inp), ticked.month);
+    ok('"ask them as often as needed" lifts the spacing the draft would work out for them',
+      after === 4 && after > before, `${before} of 4 Sundays without the tick, ${after} with it`);
+  }
+  {
+    // Two preachers, and the church's rule of a clear fortnight between jobs.
+    // Every third Sunday neither may preach, unless one of them has the tick.
+    const twoPreachers = () => {
+      const inp = withRules({ anyRoleHardDays: 15, whenShort: 'leave_empty' });
+      inp.capabilities = inp.capabilities.filter((c) =>
+        c.roleId === R.preacher ? c.personId <= 101
+          : c.roleId === R.leader ? c.personId > 101 : true);
+      return inp;
+    };
+    const plain = generateRota(twoPreachers());
+    const ticked = generateRota(withTick(twoPreachers()));
+    const empty = (r: ReturnType<typeof generateRota>) => r.gaps.filter((g) => g.roleId === R.preacher).length;
+    ok('and lets them past the church\'s gap between Sundays',
+      preaches(ticked) > preaches(plain) && empty(ticked) < empty(plain),
+      `${preaches(plain)} turns and ${empty(plain)} empty pulpits without the tick, ` +
+      `${preaches(ticked)} and ${empty(ticked)} with it`);
+  }
+  {
+    // And it says nothing about how OFTEN: with enough people to go round, the
+    // ticked person preaches exactly as often as they would have without it.
+    // Somebody who should be on most Sundays needs a figure as well ("Not more
+    // often than 1 week"); with one, the same person preaches every Sunday.
+    // (Not the whole draft unchanged: a person the spacing no longer refuses
+    // can change which job the draft fills first at a service.)
+    const year = () => {
+      const inp = base();
+      const d0 = inp.services[0]!.day;
+      inp.history = Array.from({ length: 52 }, (_, i) => (
+        { personId: 100 + ((i + 1) % 8), roleId: R.preacher, day: d0 - 7 * (i + 1) }));
+      return inp;
+    };
+    const plain = preaches(generateRota(year()));
+    const ticked = preaches(generateRota(withTick(year())));
+    const weekly = year();
+    weekly.capabilities = weekly.capabilities.map((c) =>
+      c.personId === 100 && c.roleId === R.preacher
+        ? { ...c, askAnyTime: true, desiredEveryDays: 7, minGapDays: 7 } : c);
+    const withFigure = preaches(generateRota(weekly));
+    ok('but the tick is not a rhythm: on its own it does not make them preach more often',
+      ticked === plain && withFigure === 13,
+      `${plain} turns without the tick, ${ticked} with it, ${withFigure} with "every week" as well`);
   }
 
   // THE GUARD. record() sets lastAnyRole = svc.day as each allocation commits,
@@ -724,17 +788,107 @@ console.log('generator:');
       `${covered} of the 3 Sundays covered, ${preacherGaps(res)} preacher gaps`);
   }
 
+  // c2. ...however many Sundays are drafted at once. Measured from the first
+  // service to the last, a weekly rhythm came to a seventh of a place in a
+  // one-Sunday draft, and the one place set aside for everybody else was the
+  // whole of it, so the vicar lost Sundays he had asked for whenever a church
+  // drafted a month at a time. The history is the hard case: a year in which he
+  // preached three Sundays in four, the last of them the Sunday before, so on
+  // the day he is exactly on his rhythm while the others have waited weeks.
+  // His figure goes in the way People saves it, through capabilityFromRow.
+  const vicarHeavyYear = () => {
+    const d0 = base().services[0]!.day;
+    return Array.from({ length: 52 }, (_, i) => ({
+      personId: i % 4 === 3 ? 101 + (Math.floor(i / 4) % 7) : 100,
+      roleId: R.preacher, day: d0 - 7 * (i + 1),
+    }));
+  };
+  const fromRecord = (personId: number, over: object) => capabilityFromRow({
+    person_id: personId, role_id: R.preacher, max_per_period: null, period_days: null,
+    min_gap_days: null, ask_any_time: 0, ...over,
+  });
+  const draftOf = (n: number, personId: number, over: object, history: GeneratorInput['history']) => {
+    const inp = base();
+    inp.services = sundays(n);
+    inp.history = history;
+    const mine = fromRecord(personId, over);
+    inp.capabilities = inp.capabilities.map((c) =>
+      c.personId === personId && c.roleId === R.preacher ? mine : c);
+    return inp;
+  };
+  {
+    const short: string[] = [];
+    for (const n of [1, 2, 4, 13]) {
+      const inp = draftOf(n, 100, { min_gap_days: 7 }, vicarHeavyYear());
+      const got = preachDays(inp, generateRota(inp), 100).length;
+      if (got !== n) short.push(`${got} of ${n}`);
+    }
+    ok('a vicar who asks for every week preaches every Sunday in a draft of 1, 2, 4 or 13',
+      short.length === 0, `he preached ${short.join(', ')} (the old code gave 0 of 1, 0 of 2, 2 of 4)`);
+    // And a short draft still finds somebody on the Sunday he is away, with
+    // nothing allowed to bend: the fill-ins' long target must not turn into a
+    // spacing that refuses them.
+    const uncovered: string[] = [];
+    for (const n of [1, 4]) {
+      const inp = draftOf(n, 100, { min_gap_days: 7 }, vicarHeavyYear());
+      inp.unavailable = [{ personId: 100, fromDay: inp.services[0]!.day, toDay: inp.services[0]!.day }];
+      inp.rules = { ...DEFAULT_RULES, whenShort: 'leave_empty' };
+      const gaps = preacherGaps(generateRota(inp));
+      if (gaps) uncovered.push(`${gaps} empty in the ${n}-Sunday draft`);
+    }
+    ok('and when he is away the others still cover in a short draft too',
+      uncovered.length === 0, uncovered.join(', '));
+  }
+  {
+    // The other way round: counting a short draft properly must not let
+    // somebody go past a cap they set. Twice a month, with two turns already in
+    // the fortnight and the month before the draft, so the cap reaches across
+    // the start of it.
+    const d0 = base().services[0]!.day;
+    const history = yearOfPreaching().filter((h) => h.personId !== 100)
+      .concat([{ personId: 100, roleId: R.preacher, day: d0 - 14 }, { personId: 100, roleId: R.preacher, day: d0 - 28 }]);
+    const inp = draftOf(4, 100, { max_per_period: 2, period_days: 30 }, history);
+    const days = preachDays(inp, generateRota(inp), 100);
+    const all = [d0 - 28, d0 - 14, ...days];
+    ok('and somebody who asks for twice a month still keeps to it in a 4-Sunday draft',
+      days.length >= 1 && mostInAnyMonth(all) <= 2,
+      `${days.length} of 4 Sundays, ${mostInAnyMonth(all)} in one month counting the two before`);
+  }
+
   // d. Those who said nothing share what is left, and are not squeezed for it.
   {
-    const plain = generateRota(base());
+    // A church of three preachers, the same year of history either way, a
+    // weekly vicar away for four Sundays, and nothing allowed to bend. Behind
+    // him the other two are aimed at once in 182 days; were that allowed to set
+    // their spacing as well (91 days), neither could cover any of his four
+    // Sundays, having both preached within the last few weeks. The
+    // control is the same church with nobody having said anything, which
+    // covers all four. (The old check compared a run with a year of history
+    // against one with none, nought with nought, and could not fail.)
+    const threePreachers = (vicarSaid: boolean) => {
+      const inp = base();
+      const d0 = inp.services[0]!.day;
+      inp.history = Array.from({ length: 52 }, (_, i) => (
+        { personId: 100 + ((i + 1) % 3), roleId: R.preacher, day: d0 - 7 * (i + 1) }));
+      inp.capabilities = inp.capabilities.filter((c) => c.roleId !== R.preacher || c.personId <= 102);
+      if (vicarSaid) setCap(inp, 100, R.preacher, { desiredEveryDays: 7, minGapDays: 7 });
+      const away = inp.services.slice(4, 8);
+      inp.unavailable = [{ personId: 100, fromDay: away[0]!.day, toDay: away[3]!.day }];
+      inp.rules = { ...DEFAULT_RULES, whenShort: 'leave_empty' };
+      return inp;
+    };
+    const control = preacherGaps(generateRota(threePreachers(false)));
+    const said = preacherGaps(generateRota(threePreachers(true)));
     ok('the rhythms people asked for leave no new empty pulpits',
-      preacherGaps(mixed) <= preacherGaps(plain),
-      `${preacherGaps(mixed)} preacher gaps against ${preacherGaps(plain)}`);
+      control === 0 && said === 0,
+      `${said} empty pulpits with the vicar's rhythm, ${control} without it`);
     // Their implied floor, worked out by hand the way the generator does: half
     // the shorter of their share of what is left and the even share. 13 Sundays
-    // span 85 days; the two who stated a rhythm take 85/15 + 85/91 places.
-    const leftover = 13 - (85 / 15 + 85 / 91);
-    const floor = Math.min((85 * 6) / leftover, (85 * 8) / 13) / 2;
+    // cover 91 days of rota, though only 85 lie between the first and the last,
+    // and the even share is still worked out over the 85; the two who stated a
+    // rhythm take 91/15 + 91/91 places.
+    const leftover = 13 - (91 / 15 + 91 / 91);
+    const floor = Math.min((91 * 6) / leftover, (85 * 8) / 13) / 2;
     let inside = 0;
     for (const pid of [102, 103, 104, 105, 106, 107]) {
       const days = preachDays(mixedIn, mixed, pid);
@@ -770,14 +924,42 @@ console.log('generator:');
       nothing.desiredEveryDays === null && nothing.minGapDays === null
         && nothing.maxPerWindow === null && nothing.askAnyTime === false,
       JSON.stringify(nothing));
-    const roleFigures = { default_min_gap_days: 28, default_target_days: 56 };
-    ok('the old per-role figures from Settings are not read',
-      JSON.stringify(capabilityFromRow({ ...row({}), ...roleFigures })) === JSON.stringify(nothing)
-        && JSON.stringify(capabilityFromRow({ ...row({ min_gap_days: 91 }), ...roleFigures }))
-          === JSON.stringify(gapOnly),
-      JSON.stringify(capabilityFromRow({ ...row({}), ...roleFigures })));
     ok('"ask them as often as needed" comes through',
       capabilityFromRow(row({ ask_any_time: 1 })).askAnyTime === true);
+
+    // The old per-role figures from Settings. Handing them to capabilityFromRow
+    // proved nothing — it never looks at keys it does not know — so this goes
+    // through loadGeneratorInput itself, against a stand-in for the database
+    // that records every query and answers the capability one with a row
+    // carrying both figures, as it would if they were selected again. That
+    // catches them being put back into the SELECT, and being folded into a
+    // person's figures anywhere on the way out.
+    const queries: string[] = [];
+    const roleFigures = { ...row({}), default_min_gap_days: 28, default_target_days: 56 };
+    const isCapabilityQuery = (sql: string) => /FROM\s+person_roles/.test(sql);
+    const fakeDb = {
+      prepare(sql: string) {
+        queries.push(sql);
+        const stmt = {
+          sql,
+          bind: () => stmt,
+          first: async () => null,
+          all: async () => ({ results: [] }),
+        };
+        return stmt;
+      },
+      batch: async (stmts: { sql: string }[]) =>
+        stmts.map((s) => ({ results: isCapabilityQuery(s.sql) ? [roleFigures] : [] })),
+    };
+    const loaded = await loadGeneratorInput(
+      fakeDb as unknown as Parameters<typeof loadGeneratorInput>[0], '2026-09-06', '2026-11-29', 'test');
+    const capSql = queries.find(isCapabilityQuery) ?? '';
+    ok('the old per-role figures from Settings are not in the capability query',
+      capSql !== '' && !/default_min_gap_days|default_target_days/.test(capSql),
+      capSql || 'no capability query was made');
+    ok('and a row carrying them anyway leaves the person with no view',
+      JSON.stringify(loaded.capabilities) === JSON.stringify([nothing]),
+      JSON.stringify(loaded.capabilities));
   }
 
   // f. The explanation says whose rhythm it was.
@@ -791,6 +973,90 @@ console.log('generator:');
       share?.reason ?? 'no allocation to check');
     if (said) console.log(`       e.g. "${said.reason}"`);
     if (share) console.log(`       e.g. "${share.reason}"`);
+
+    // Somebody filling in behind a vicar who asked for every week. Their share
+    // is arithmetically once in about 637 days, which is true and no help to
+    // anybody reading why they are on; what the reason says instead is that
+    // they are standing in. One sentence, and no figure that means nothing.
+    const fillIns = (n: number) => {
+      const inp = vicarWeekly();
+      inp.services = sundays(n);
+      const away = inp.services.slice(Math.min(4, n - 1), Math.min(7, n));
+      inp.unavailable = [{ personId: 100, fromDay: away[0]!.day, toDay: away[away.length - 1]!.day }];
+      return generateRota(inp).allocations
+        .filter((a) => a.roleId === R.preacher && a.personId !== 100 && /last did this/.test(a.reason))
+        .map((a) => a.reason);
+    };
+    const oneSentence = (r: string) => r.indexOf('.') === r.length - 1;
+    for (const n of [13, 1]) {
+      const reasons = fillIns(n);
+      ok(`a fill-in is said to be standing in, with no share quoted (${n}-Sunday draft)`,
+        reasons.length > 0 && reasons.every((r) =>
+          /, and is standing in: most of these places go to people who asked to do it more often\.$/.test(r)
+            && !/once every/.test(r) && oneSentence(r)),
+        reasons[0] ?? 'nobody stood in');
+      if (n === 13 && reasons[0]) console.log(`       e.g. "${reasons[0]}"`);
+    }
+
+    // And where nobody has said anything, a one-Sunday draft quotes the share
+    // over the week it covers. From first service to last it is one day, and
+    // eight preachers came out at "once every 8 days".
+    const oneSunday = base();
+    oneSunday.services = sundays(1);
+    oneSunday.history = yearOfPreaching();
+    const quoted = generateRota(oneSunday).allocations
+      .find((a) => a.roleId === R.preacher && /last did this/.test(a.reason))?.reason ?? '';
+    ok('and a one-Sunday draft quotes a share that means something',
+      /against a fair share of about once every 56 days\.$/.test(quoted), quoted || 'no reason to check');
+  }
+
+  // g. When the figures people gave ask for every place a role has, those who
+  // left theirs blank are only fill-ins, and the draft says so before it is
+  // applied. Before, five blank preachers could get no Sunday in a quarter with
+  // nothing said anywhere: the draft's load list only names people who got a
+  // turn.
+  {
+    const fortnightly = base();
+    fortnightly.history = yearOfPreaching();
+    for (const pid of [100, 101, 102]) {
+      setCap(fortnightly, pid, R.preacher, { desiredEveryDays: 14, minGapDays: 14 });
+    }
+    const said = generateRota(fortnightly).warnings;
+    ok('the draft warns when the figures given ask for every place',
+      said.includes('Preacher: the 3 people who gave a figure have asked for about 20 of the 13 places, '
+        + 'so the 5 who left theirs blank will only be asked when those people cannot.'),
+      JSON.stringify(said));
+    const vicarSays = generateRota(vicarWeekly()).warnings;
+    ok('and says it plainly when it is one person',
+      vicarSays.includes('Preacher: the one person who gave a figure has asked for about 13 of the 13 places, '
+        + 'so the 7 who left theirs blank will only be asked when that person cannot.'),
+      JSON.stringify(vicarSays));
+
+    // Never where it is not so.
+    const about = (r: ReturnType<typeof generateRota>) =>
+      r.warnings.filter((w) => /who gave a figure/.test(w));
+    const everybody = base();
+    everybody.history = yearOfPreaching();
+    for (let pid = 100; pid < 108; pid++) {
+      setCap(everybody, pid, R.preacher, { desiredEveryDays: 56, minGapDays: 56 });
+    }
+    // A once-a-quarter preacher in a one-Sunday draft has asked for about a
+    // thirteenth of that Sunday, not the whole of it — which is what counting
+    // "the most turns that would fit" instead of the weeks covered would say.
+    const quarterlyOne = base();
+    quarterlyOne.services = sundays(1);
+    quarterlyOne.history = yearOfPreaching();
+    setCap(quarterlyOne, 101, R.preacher, { desiredEveryDays: 91, minGapDays: 91 });
+    const quiet = [
+      ['nobody gave a figure', about(generateRota(base()))],
+      ['the figures leave room', about(mixed)],
+      ['nobody left theirs blank', about(generateRota(everybody))],
+      ['a slow figure in a short draft', about(generateRota(quarterlyOne))],
+    ] as const;
+    const noisy = quiet.filter(([, w]) => w.length > 0);
+    ok('and does not warn where nobody gave a figure, the figures leave room, nobody left theirs blank, '
+      + 'or a slow figure meets a short draft',
+      noisy.length === 0, noisy.map(([why, w]) => `${why}: ${w.join(' ')}`).join('; '));
   }
 }
 console.log(failures === 0 ? '\nGenerator OK.' : `\n${failures} FAILURES`);
