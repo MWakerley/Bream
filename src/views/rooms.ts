@@ -26,9 +26,31 @@ export interface BookingRow {
   is_tentative?: number;
   /** The request a booking came from, if any. */
   request_id?: number | null;
+  /** 1 when the website's room diary shows it only as "Private booking". */
+  is_private?: number;
 }
 
 const BACK = { href: '/app', label: 'All areas' };
+
+/**
+ * Beside a private booking wherever the system lists or draws it. Inside, the
+ * booking is shown in full as always; the chip only tells staff that the
+ * website is not saying what it is.
+ */
+export const PRIVATE_CHIP = html`<span class="chip chip-neutral"
+  title="The room diary on the website shows just &quot;Private booking&quot; and the time">Private</span>`;
+
+/**
+ * The "Private booking" tick, the same on every form that makes or changes a
+ * booking. `more` is a sentence for where it reaches further or less far.
+ */
+function privateTick(on: boolean, more = '') {
+  return html`<label class="check" style="max-width:34rem;margin-bottom:1.25rem">
+    <input type="checkbox" name="is_private" value="1" ${on ? 'checked' : ''}>
+    <span><span class="check-label">Private booking</span>
+      <span class="check-note">The room diary on the website shows just "Private booking" and the time — not what it is for.${more ? ` ${more}` : ''}</span></span>
+  </label>`;
+}
 
 const time = (iso: string) => iso.slice(11, 16);
 const date = (iso: string) => iso.slice(0, 10);
@@ -157,6 +179,7 @@ export function roomsPage(opts: {
             <input id="notes" name="notes" type="text" value="${f.notes ?? ''}">
           </div>
         </div>
+        ${privateTick(!!f.is_private, 'For a repeating booking, every date it books.')}
 
         <h3 style="margin-bottom:.5rem">Does it repeat?</h3>
         <div class="grid-fields">
@@ -211,7 +234,8 @@ export function roomsPage(opts: {
                 <tbody>
                   ${series.map(
                     (s) => html`<tr>
-                      <td><a href="/app/rooms/series/${s.id}"><strong>${s.title}</strong></a></td>
+                      <td><a href="/app/rooms/series/${s.id}"><strong>${s.title}</strong></a>
+                        ${s.is_private ? PRIVATE_CHIP : ''}</td>
                       <td>${s.room_name}</td>
                       <td>${describeSeries(s.from_date, s.freq, s.until_date)}</td>
                       <td class="num">${s.from_time}–${s.to_time}</td>
@@ -260,7 +284,7 @@ export function roomsPage(opts: {
                             ${b.is_tentative ? html`<div>${chip('amber', 'Tentative')}</div>` : ''}</td>
                           <td class="num">${timeOnDay(b, d)}</td>
                           <td>
-                            ${b.title}
+                            ${b.title} ${b.is_private ? PRIVATE_CHIP : ''}
                             ${b.series_id ? html`<div style="font-size:.8125rem;color:var(--ink-2)">part of a repeating booking</div>` : ''}
                             ${daysCovered(b).length > 1
                               ? html`<div style="font-size:.8125rem;color:var(--ink-2)">${formatSpan(b.starts_at, b.ends_at)}</div>`
@@ -401,6 +425,10 @@ export function editBookingPage(opts: {
         ? html`<div class="notice notice-warn"><p style="margin:0">
             This booking is cancelled. Saving it again will put it back.</p></div>`
         : ''}
+      ${b.is_private
+        ? html`<p>${PRIVATE_CHIP} <span style="color:var(--ink-2)">The room diary on the website
+            shows this just as "Private booking", with the room and the time.</span></p>`
+        : ''}
 
       <form method="post" action="/app/rooms/${b.id}" class="card">
         <div class="grid-fields">
@@ -437,6 +465,11 @@ export function editBookingPage(opts: {
             <input id="notes" name="notes" type="text" value="${b.notes ?? ''}">
           </div>
         </div>
+        ${privateTick(!!b.is_private, b.series_id
+          // Saving here detaches this week from its series, as any change to
+          // one week does, so say how far the tick reaches.
+          ? 'This week only: the rest of the repeating booking keeps its own setting. A later change to the series leaves this week as you set it here — unless the series is saved with "Private booking" ticked, which makes every week private.'
+          : '')}
         <div class="btn-row">
           <button class="btn-primary" type="submit">Save changes</button>
           <a class="btn-secondary" href="/app/rooms">Back without saving</a>
@@ -471,6 +504,10 @@ export function editSeriesPage(opts: {
         <div class="stat"><span class="stat-n">${s.upcoming}</span><span class="stat-l">still to come</span></div>
         <div class="stat"><span class="stat-n">${s.total}</span><span class="stat-l">bookings in total</span></div>
       </div>
+      ${s.is_private
+        ? html`<p>${PRIVATE_CHIP} <span style="color:var(--ink-2)">The room diary on the website
+            shows these just as "Private booking", with the room and the time.</span></p>`
+        : ''}
 
       <div class="notice notice-info">
         <p style="margin-top:0"><strong>What a change here will and will not touch.</strong></p>
@@ -480,6 +517,9 @@ export function editSeriesPage(opts: {
               will not overwrite it.</li>
           <li>Any week you <strong>cancelled</strong> stays cancelled; it will not come back.</li>
           <li>Everything else still to come is rebuilt from the pattern below.</li>
+          <li>The <strong>Private booking</strong> tick reaches further, because the website shows the
+              whole of this month: ticked, it makes every booking in the series private, past ones and
+              weeks changed on their own included. Unticked, any week changed on its own keeps the tick it has.</li>
         </ul>
       </div>
 
@@ -518,6 +558,7 @@ export function editSeriesPage(opts: {
             <input id="notes" name="notes" type="text" value="${s.notes ?? ''}">
           </div>
         </div>
+        ${privateTick(!!s.is_private, 'Every booking in the series — see above.')}
 
         <div class="grid-fields">
           <div class="field">

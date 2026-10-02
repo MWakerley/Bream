@@ -442,7 +442,7 @@ function diaryCard(d: { settings: DiarySettings; calendarLink: string; listLink:
           <label class="check">
             <input type="checkbox" name="show_titles" value="1" ${d.settings.show_titles ? 'checked' : ''}>
             <span><span class="check-label">Show what each booking is for</span>
-              <span class="check-note">Untick and every booking just says "Booked". Anything asked for through the booking form, and events not yet published, never say.</span></span>
+              <span class="check-note">Untick and every booking just says "Booked". Either way, a booking ticked "Private booking", a time held for somebody still waiting to hear, and an event not yet published never say.</span></span>
           </label>
         </div>
         <button class="btn-primary" type="submit" style="margin-top:1rem">Save</button>

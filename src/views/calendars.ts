@@ -23,15 +23,18 @@ export function roomsCalendarPage(opts: {
 
   // One entry per day a booking covers, so a room held for a weekend shows as
   // taken on each of its days rather than only the first.
+  // A private booking is shown in full here, with "(private)" after it, so
+  // nobody is surprised that the website says only "Private booking".
   const entries: CalendarEntry[] = bookings.flatMap((b) => daysCovered(b).map((day) => ({
     date: day,
     href: `/app/rooms/${b.id}`,
     lead: timeOnDay(b, day),
-    label: b.is_tentative ? `Tentative: ${b.title}` : b.title,
+    label: `${b.is_tentative ? 'Tentative: ' : ''}${b.title}${b.is_private ? ' (private)' : ''}`,
     // With every room shown at once the colour is the only thing separating
     // them, so it follows the room rather than being decorative.
     tone: roomId ? 'navy' : (['navy', 'gold', 'green', 'red'] as const)[(b.room_id - 1) % 4],
-    title: `${b.room_name}: ${b.title}, ${formatSpan(b.starts_at, b.ends_at)}`,
+    title: `${b.room_name}: ${b.title}, ${formatSpan(b.starts_at, b.ends_at)}`
+      + (b.is_private ? ' — private: the website shows just "Private booking"' : ''),
   })));
 
   const q = (id: number | null) => (id ? `room=${id}` : '');
