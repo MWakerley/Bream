@@ -34,6 +34,7 @@ import { fillPlaceholders, DEFAULT_ACK_BODY } from '../src/email.js';
 import { readKeys } from '../src/keyholders.js';
 import { previewPage } from '../src/views/generate.js';
 import { readRequest, officeEmail, receivedEmail, decisionEmail } from '../src/roomRequests.js';
+import { appliedNotice } from '../src/rota/apply.js';
 import { publicRoomRequestPage, requestClosedPage, requestReceivedPage, bookingFormSettingsPage } from '../src/views/roomRequests.js';
 import type { ViewCtx } from '../src/views/layout.js';
 import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
@@ -185,6 +186,13 @@ await check('every service can open out to show its roster', () => rotaDashboard
   [service({ id: 1 }), service({ id: 2 })], CTX, null,
   new Map([[1, detail], [2, { ...detail, id: 2 }]])),
   ['<details class="svc-more">', 'Who is on what', 'Prayer ministry', 'Don, Christine']);
+// After Apply: what went on, and what was left alone because somebody had
+// booked it by hand while the draft was open. Said where the person lands.
+await check('applying a draft says what it left alone', () => rotaDashboard(
+  [service()], CTX, null, undefined,
+  { tone: 'warn', text: appliedNotice(12, 1, 0) }),
+  ['notice-warn', '12 places from the draft are now on the rota',
+   'somebody booked that place by hand while the draft was open']);
 await check('the next service shows red only for a critical role', () => rotaDashboard(
   [service()], CTX, critDetail),
   ['Key roles missing', 'is-critical'], ['Everyone is in place']);

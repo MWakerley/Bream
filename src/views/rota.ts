@@ -240,6 +240,8 @@ export function rotaDashboard(
   next?: ServiceDetail | null,
   /** Every listed service in full, so each can open out to show its roster. */
   details?: Map<number, ServiceDetail>,
+  /** What a draft just applied did, including anything it left alone. */
+  notice?: { tone: 'ok' | 'warn'; text: string },
 ) {
   const withCritical = services.filter((s) => (s.critical ?? []).length);
   const withGaps = services.filter((s) => s.gaps.length);
@@ -250,6 +252,10 @@ export function rotaDashboard(
     { title: 'The rota', back: BACK, ...ctx },
     html`
       ${viewTabs('list', '/app/rota', '/app/rota/calendar')}
+
+      ${notice
+        ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
+        : ''}
 
       ${next ? nextServiceCard(next) : ''}
 

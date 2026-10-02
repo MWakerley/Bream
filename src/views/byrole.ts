@@ -186,9 +186,10 @@ export function peopleByRolePage(opts: {
 
         <p style="color:var(--ink-2);font-size:.9375rem;margin-bottom:0">
           The draft rota goes by these figures. Leave somebody's blank for no strong view, and
-          they get a fair share of whatever is left. <strong>As often as needed</strong> lets the
-          draft ask them every week if need be — their own <strong>At most</strong> and
-          <strong>Not more often than</strong> still count.
+          they get a fair share of whatever is left; "most Sundays" is
+          <strong>4 times every 1 month</strong>. <strong>As often as needed</strong> means the
+          draft may ask them again sooner than usual when it needs somebody — on its own it does
+          not put them on more often. Their own <strong>Not more often than</strong> still counts.
         </p>
 
         <div class="btn-row" style="margin-top:1.25rem">

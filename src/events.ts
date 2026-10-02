@@ -56,9 +56,11 @@ export async function listFields(db: D1Database, eventId: number): Promise<Field
 /**
  * Every booking on an event, cancelled ones included.
  *
- * Cancellations are kept rather than deleted. Someone rings the office to pull
- * out, and a fortnight later rings back asking whether they were ever on the
- * list — a row that says "cancelled" answers that, and a deleted row cannot.
+ * Cancelling keeps the row rather than deleting it. Someone rings the office to
+ * pull out, and a fortnight later rings back asking whether they were ever on
+ * the list — a row that says "cancelled" answers that, and a deleted row cannot.
+ * It stays until somebody deletes it from the event's cancelled list, one at a
+ * time or all at once, once that record is no longer wanted.
  * Only 'booked' rows count towards capacity, which is what COUNTS already does.
  */
 export async function listBookings(db: D1Database, eventId: number): Promise<BookingRow[]> {

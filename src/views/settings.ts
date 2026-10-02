@@ -12,7 +12,7 @@ const SETTINGS = { href: '/app/settings', label: 'Settings' };
  *  them rather than the page every other setting hangs off. */
 const SECTIONS: { href: string; label: string; note: string }[] = [
   { href: '/app/settings/people', label: 'People', note: 'Everyone on the roster: what each can do, how often, and finding somebody.' },
-  { href: '/app/settings/keyholders', label: 'Keyholders', note: 'The register of who holds a key to the buildings.' },
+  { href: '/app/settings/keyholders', label: 'Keyholders', note: 'The register of who holds which keys — the buildings and the safe.' },
   { href: '/app/settings/safeguarding', label: 'Safeguarding', note: 'Which courses each safeguarding role needs.' },
   { href: '/app/settings/roles', label: 'Roles and numbers', note: 'Each role and how many it needs.' },
   { href: '/app/settings/combinations', label: 'Combination rules', note: 'Which roles one person can do together on the same day.' },

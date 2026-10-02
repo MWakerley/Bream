@@ -25,6 +25,8 @@ Three areas, reachable from the main screen once signed in:
 | Readings and sermon titles | **working** |
 | Switching a role off for one service | **working** |
 | Draft rota generation, with preview before saving | **working** |
+| Draft rota follows each person's own "how often" | **working** |
+| Changing any service of a draft by hand before applying | **working** |
 | My dates, saying you are away, asking to swap | **working** |
 | Change requests for whoever builds the rota | **working** |
 | Room booking, amending, cancelling, clash checks | **working** |

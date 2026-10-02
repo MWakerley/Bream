@@ -38,7 +38,7 @@ export interface PersonEditData {
   on_break_since: string | null;
   /** A visitor: assignable by hand, never drawn from the pool automatically. */
   is_guest: number;
-  /** Holds a key to the buildings. On the keyholder register when ticked. */
+  /** Holds a key — to a building or the safe. On the keyholder register when ticked. */
   is_keyholder?: number;
   keyholder_since?: string | null;
   /** Which keys, in the church's own words. No longer asked; kept for old rows. */
@@ -241,7 +241,7 @@ export function personPage(opts: {
             <label class="check">
               <input type="checkbox" id="is_keyholder" name="is_keyholder" value="1" ${p.is_keyholder ? 'checked' : ''}>
               <span><span class="check-label">${raw(KEY_ICON)} Keyholder</span>
-                <span class="check-note">Has a key to the buildings${p.is_keyholder && p.keyholder_since
+                <span class="check-note">Has a key to one of the buildings or the safe${p.is_keyholder && p.keyholder_since
                   ? ` — since ${formatDate(p.keyholder_since.slice(0, 10))}` : ''}. Listed on the
                   <a href="/app/settings/keyholders">keyholder register</a>.</span></span>
             </label>
@@ -398,13 +398,20 @@ export function personPage(opts: {
             </table>
           </div>
           <p style="color:var(--ink-2);font-size:.9375rem">
-            For example: "twice a month" is <strong>2 times every 1 month</strong>.
+            For example: "most Sundays" is <strong>4 times every 1 month</strong>.
+            "Twice a month" is <strong>2 times every 1 month</strong>.
             "Only every three months" is <strong>once every 1 quarter</strong>.
           </p>
+          <!-- Said plainly because the tick is easily read as "more often". It
+               is not: it only stops the usual spacing holding them back when
+               the draft needs somebody. How often they are aimed at comes from
+               the figures alone (src/rota/generate.ts), so a vicar ticked and
+               left blank gets an ordinary share. -->
           <p style="color:var(--ink-2);font-size:.9375rem;margin-bottom:0">
-            <strong>As often as needed</strong> lets the draft ask them every week if need be —
-            for a vicar who preaches most Sundays, say. Their own <strong>At most</strong> and
-            <strong>Not more often than</strong> still count.
+            <strong>As often as needed</strong> means the draft may ask them again sooner than
+            usual when it needs somebody. On its own it does not put them on more often — for
+            that, fill in <strong>At most</strong>. Their own <strong>Not more often than</strong>
+            still counts.
           </p>
         </div>
 

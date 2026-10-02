@@ -71,12 +71,13 @@ export interface RoleRow {
    *  still type-check; absent means not critical. */
   is_critical?: number;
   /**
-   * The hard floor between two turns at this role, for anybody who has not
-   * said otherwise. Null means "work it out from the size of the team", which
-   * is what the generator has always done — see migration 0017.
+   * No longer read by anything. These were the per-role "how often" figures on
+   * Draft rota rules (migration 0017); the draft now goes by each person's own
+   * figures instead (capabilityFromRow in src/rota/load.ts). The columns stay
+   * only because D1 will not drop a column from a table with CHECK constraints.
    */
   default_min_gap_days: number | null;
-  /** The rhythm the draft aims at. Null means an even share of the work. */
+  /** No longer read by anything — see default_min_gap_days. */
   default_target_days: number | null;
 }
 
@@ -236,6 +237,38 @@ export async function listPeopleForRole(
     .all<PersonForRole>();
   return results;
 }
+
+/**
+ * What the kept person can do, and how often, after a merge: the union of
+ * everything the duplicates could do.
+ *
+ * An upsert rather than INSERT OR IGNORE. The draft rota now goes by each
+ * person's own figures and nothing else, so a figure — or an "As often as
+ * needed" tick — lost in a merge is somebody preaching more or less than they
+ * asked, with nothing on any page to say why. Where the kept record already has
+ * the role, its own figures stand and the duplicate's fill any it left blank.
+ * A cap the kept record already has is kept whole, never half replaced, so
+ * its "4 times a month" cannot become "4 times a quarter".
+ *
+ * `ids` and `keepP` are numbered placeholders (see mergePeople in index.ts for
+ * why every one is numbered). The SELECT keeps its WHERE because SQLite needs
+ * one before ON CONFLICT in an INSERT ... SELECT. seed/apply-test.ts runs it.
+ */
+export const MERGE_PERSON_ROLES_SQL = (ids: string, keepP: string) => `
+  INSERT INTO person_roles (person_id, role_id, can_do, willing,
+                            max_per_period, period_days, min_gap_days, ask_any_time)
+  SELECT ${keepP}, role_id, MAX(can_do), MAX(willing),
+         MAX(max_per_period), MAX(period_days), MIN(min_gap_days), MAX(ask_any_time)
+    FROM person_roles WHERE person_id IN (${ids}) GROUP BY role_id
+  ON CONFLICT (person_id, role_id) DO UPDATE SET
+    can_do         = MAX(person_roles.can_do, excluded.can_do),
+    willing        = MAX(person_roles.willing, excluded.willing),
+    max_per_period = CASE WHEN person_roles.max_per_period IS NULL
+                          THEN excluded.max_per_period ELSE person_roles.max_per_period END,
+    period_days    = CASE WHEN person_roles.max_per_period IS NULL
+                          THEN excluded.period_days ELSE person_roles.period_days END,
+    min_gap_days   = COALESCE(person_roles.min_gap_days, excluded.min_gap_days),
+    ask_any_time   = MAX(person_roles.ask_any_time, excluded.ask_any_time)`;
 
 export interface Candidate {
   id: number;

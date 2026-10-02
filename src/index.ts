@@ -25,6 +25,7 @@ import {
   listPairings,
   listPeople,
   listPeopleForRole,
+  MERGE_PERSON_ROLES_SQL,
   listRoles,
   personForSession,
   type Env,
@@ -44,7 +45,7 @@ import { gapsPage, readingsPage, rotaDashboard, servicePage } from './views/rota
 import { servicesPage, type ServiceListRow, type ServiceTypeOption } from './views/services.js';
 import { generateFormPage, previewPage, draftServiceEditPage } from './views/generate.js';
 import { buildDraftView, derive, editService, editableSlots, type DraftCandidate,
-         type DraftView } from './rota/draft.js';
+         type DraftService, type DraftView } from './rota/draft.js';
 import { listDraftCandidates } from './db.js';
 import { personPage, mergePage } from './views/person.js';
 import { profilesPage, addPersonPage, changePasswordPage } from './views/profiles.js';
@@ -73,6 +74,7 @@ import { sendAcknowledgement, sendEmail, notifyOrganisers, DEFAULT_ACK_SUBJECT, 
 import { formatDate, lastDay } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
+import { CLEAR_DRAFT_PLACES_SQL, PLACE_SQL, appliedNotice } from './rota/apply.js';
 import { rotaXlsx, rotaPdf } from './export/rota.js';
 import { loadGrid as loadSgGrid, saveGrid as saveSgGrid, loadPerson as loadSgPerson,
          savePerson as saveSgPerson, loadReport as loadSgReport } from './safeguarding.js';
@@ -591,13 +593,7 @@ async function mergePeople(db: D1Database, keepId: number, mergeIds: number[]) {
     db.prepare(
       `UPDATE assignments SET person_id = ${keepP} WHERE person_id IN (${ids})`,
     ).bind(...params),
-    db.prepare(
-      `INSERT OR IGNORE INTO person_roles (person_id, role_id, can_do, willing,
-              max_per_period, period_days, min_gap_days)
-       SELECT ${keepP}, role_id, MAX(can_do), MAX(willing),
-              MAX(max_per_period), MAX(period_days), MIN(min_gap_days)
-         FROM person_roles WHERE person_id IN (${ids}) GROUP BY role_id`,
-    ).bind(...params),
+    db.prepare(MERGE_PERSON_ROLES_SQL(ids, keepP)).bind(...params),
     db.prepare(
       `UPDATE unavailability SET person_id = ${keepP} WHERE person_id IN (${ids})`,
     ).bind(...params),
@@ -668,13 +664,7 @@ app.post('/app/settings/people/merge', async (c) => {
     },
     {
       label: 'combining what they can do',
-      stmt: c.env.DB.prepare(
-        `INSERT OR IGNORE INTO person_roles (person_id, role_id, can_do, willing,
-                max_per_period, period_days, min_gap_days)
-         SELECT ${keepP}, role_id, MAX(can_do), MAX(willing),
-                MAX(max_per_period), MAX(period_days), MIN(min_gap_days)
-           FROM person_roles WHERE person_id IN (${ids}) GROUP BY role_id`,
-      ).bind(...params),
+      stmt: c.env.DB.prepare(MERGE_PERSON_ROLES_SQL(ids, keepP)).bind(...params),
     },
     {
       label: 'moving their away dates',
@@ -1623,7 +1613,19 @@ app.get('/app/rota', async (c) => {
   const full = await getServiceDetails(c.env.DB, services.map((s) => s.id));
   const details = new Map(full.map((d) => [d.id, d]));
   const next = services.length ? details.get(services[0]!.id) ?? null : null;
-  return c.html(rotaDashboard(services, viewCtx(c), next, details));
+  // Arriving from Apply, which redirects here with what it did, so a reload
+  // shows the same words rather than applying anything twice.
+  const count = (k: string) => {
+    const n = Number(c.req.query(k) ?? 0);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  };
+  const notice = c.req.query('applied') != null
+    ? {
+        tone: (count('kept') || count('dropped') ? 'warn' : 'ok') as 'ok' | 'warn',
+        text: appliedNotice(count('applied'), count('kept'), count('dropped')),
+      }
+    : undefined;
+  return c.html(rotaDashboard(services, viewCtx(c), next, details, notice));
 });
 
 /**
@@ -1938,11 +1940,29 @@ app.post('/app/settings/services/add', async (c) => {
 /** Nothing is written until the admin presses Apply, so the draft is held in a
  *  short-lived row rather than recomputed (which could drift if data changed
  *  between the preview and the press). */
-app.get('/app/settings/generate', (c) => {
+app.get('/app/settings/generate', async (c) => {
   const today = new Date().toISOString().slice(0, 10);
   const to = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  // A draft being checked can take days, and its only address is a random
+  // token: leave the page by the back link or the menu and there was no way
+  // back to it, hand changes and all. So the newest one this person has not
+  // applied — still covering dates to come — is offered here. Only drafts that
+  // can be shown (v 2, which can be changed by hand) count.
+  const open = await c.env.DB.prepare(
+    `SELECT token, from_date, to_date,
+            COALESCE(json_extract(payload, '$.view.edits'), 0) AS edits
+       FROM draft_rotas
+      WHERE person_id = ?1 AND to_date >= ?2
+        AND json_extract(payload, '$.view.v') = 2
+      ORDER BY created_at DESC LIMIT 1`,
+  ).bind(c.get('person').id, today)
+    .first<{ token: string; from_date: string; to_date: string; edits: number }>();
   return c.html(generateFormPage({
     ctx: viewCtx(c), defaultFrom: today, defaultTo: to,
+    resume: open
+      ? { href: `/app/settings/generate/draft/${open.token}`, from: open.from_date, to: open.to_date,
+          edits: Number(open.edits) || 0 }
+      : undefined,
   }));
 });
 
@@ -2036,6 +2056,13 @@ app.post('/app/settings/generate', async (c) => {
   // why the draft has to carry the plan rather than working it out again, since
   // "which Sundays were missing" can have changed in between.
   const token = newSessionId();
+  // Drafts are only ever removed by being applied, so every one generated and
+  // walked away from stayed for good, a quarter's rota at a time. A month on,
+  // nobody is coming back to one; this person's older ones go as a new one is
+  // parked. Never anybody else's, and never a recent one that is still open.
+  await c.env.DB.prepare(
+    `DELETE FROM draft_rotas WHERE person_id = ?1 AND created_at < datetime('now', '-30 days')`,
+  ).bind(c.get('person').id).run();
   await c.env.DB.prepare(
     `INSERT INTO draft_rotas (token, person_id, from_date, to_date, payload)
      VALUES (?1, ?2, ?3, ?4, ?5)`,
@@ -2182,8 +2209,16 @@ app.post('/app/settings/generate/draft/:token/service/:sid', async (c) => {
   // back button. Applying these choices on top of changes the person cannot
   // see would undo them without a word, so the draft as it stands is shown.
   const stale = 'This draft was changed in another window — here it is as it stands now.';
+  const savedPage = `/app/settings/generate/draft/${d.token}?saved=${service.id}#svc-${service.id}`;
   const rev = form.get('rev');
-  if (rev === null || Number(rev) !== view.rev) return editor(stale, 409);
+  if (rev === null || Number(rev) !== view.rev) {
+    // Save pressed twice: the first press landed and moved the revision on,
+    // and this one carries exactly what the draft now holds. That is a save
+    // that worked, not a clash, and saying otherwise sends somebody back to
+    // redo what they have already done.
+    if (alreadyHolds(service, choices)) return c.redirect(savedPage, 303);
+    return editor(stale, 409);
+  }
 
   const combinations = new Map((await listCombinations(c.env.DB)).map((r) => [
     `${Math.min(r.role_a_id, r.role_b_id)}:${Math.max(r.role_a_id, r.role_b_id)}`,
@@ -2211,14 +2246,25 @@ app.post('/app/settings/generate/draft/:token/service/:sid', async (c) => {
     if (!now.view) return draftTooOld(c);
     const shown = draftService(now.view, c.req.param('sid'));
     if (!shown) return c.redirect(`/app/settings/generate/draft/${d.token}`, 303);
+    if (alreadyHolds(shown, choices)) return c.redirect(savedPage, 303);
     return c.html(draftServiceEditPage({
       ctx: viewCtx(c), token: d.token, view: now.view, service: shown, candidates, error: stale,
     }), 409);
   }
 
-  return c.redirect(
-    `/app/settings/generate/draft/${d.token}?saved=${service.id}#svc-${service.id}`, 303);
+  return c.redirect(savedPage, 303);
 });
+
+/** Whether every place posted already holds the person chosen for it — which
+ *  is what a second press of Save looks like once the first has landed. */
+function alreadyHolds(service: DraftService, choices: Map<string, number | null>) {
+  return choices.size > 0 && [...choices].every(([key, personId]) => {
+    const [roleId, slot] = key.split(':').map(Number);
+    const here = service.rows.find((r) => r.roleId === roleId)
+      ?.people.find((p) => p.slot === slot && !p.pinned);
+    return (here?.personId ?? null) === personId;
+  });
+}
 
 /**
  * A parked draft, laid out as the rota download is. Only the person who made
@@ -2363,50 +2409,92 @@ app.post('/app/settings/generate/apply', async (c) => {
       }
     }
   }
-  const writable = allocations.filter((a) => a.serviceId > 0);
+  const placeable = allocations.filter((a) => a.serviceId > 0);
+
+  // Checked against the database as it is NOW, before anything is deleted.
+  //
+  // A draft can sit open for days while somebody rings round, and in that time
+  // a person can be merged into somebody else or stop serving, or a service be
+  // cancelled. Writing their place anyway used to fail on the foreign key half
+  // way through — after the earlier draft had already been deleted — leaving
+  // the rota with neither. A place that can no longer be written is dropped
+  // here, and counted, so the rest still go on.
+  const ids = (k: 'personId' | 'serviceId' | 'roleId') =>
+    JSON.stringify([...new Set(placeable.map((a) => a[k]))]);
+  const { results: alive } = await c.env.DB.prepare(
+    `SELECT 'p' AS kind, id FROM people   WHERE is_active = 1    AND id IN (SELECT value FROM json_each(?1))
+     UNION ALL
+     SELECT 's', id FROM services WHERE is_cancelled = 0 AND id IN (SELECT value FROM json_each(?2))
+     UNION ALL
+     SELECT 'r', id FROM roles    WHERE id IN (SELECT value FROM json_each(?3))`,
+  ).bind(ids('personId'), ids('serviceId'), ids('roleId')).all<{ kind: string; id: number }>();
+  const ok = new Set(alive.map((r) => `${r.kind}${r.id}`));
+  const writable = placeable.filter((a) =>
+    ok.has(`p${a.personId}`) && ok.has(`s${a.serviceId}`) && ok.has(`r${a.roleId}`));
+  const dropped = placeable.length - writable.length;
+
+  // Everything from here is ONE batch, which D1 runs as a transaction: if any
+  // statement fails, none of it happened and the draft is still there to try
+  // again. Before, each step ran on its own, so a failure part way left the
+  // earlier draft deleted and only some of the new one written.
+  const stmts: D1PreparedStatement[] = [];
 
   // Replace only previously GENERATED drafts in the window; confirmed rows were
   // pins and are never touched.
-  await c.env.DB.prepare(
+  stmts.push(c.env.DB.prepare(
     `DELETE FROM assignments
       WHERE generated = 1 AND status = 'draft'
         AND service_id IN (SELECT id FROM services WHERE service_date BETWEEN ?1 AND ?2)`,
-  ).bind(row.from_date, row.to_date).run();
+  ).bind(row.from_date, row.to_date));
 
   // The bookings the preview said would come off. Re-checked against the person
   // as they are NOW, so somebody who came back from their break between the
   // draft and the click is not taken off for a reason that no longer applies.
+  // (Their confirmed row then still holds the place, and the placement below
+  // for it is left out rather than written over them.)
   const released = legacy ? [] : (parsed.released ?? []);
   for (const chunk of chunked(released, 50)) {
-    await c.env.DB.prepare(
+    stmts.push(c.env.DB.prepare(
       `DELETE FROM assignments
         WHERE status = 'confirmed' AND id IN (${chunk.map(() => '?').join(',')})
           AND person_id IN (SELECT id FROM people WHERE on_break = 1 OR is_guest = 1)`,
-    ).bind(...chunk).run();
+    ).bind(...chunk));
   }
 
   // Places somebody changed by hand while checking the draft go in exactly as
   // the generated ones do — draft, and generated = 1. They belong to this draft,
-  // and the next draft applied over these dates replaces them wholesale with the
-  // rest; a choice meant to outlast that is confirmed, which makes it a pin.
-  // Their reason starts "Put on by", so a guest chosen here and then confirmed
-  // is kept by the next generation rather than taken off (see load.ts).
+  // and the next draft applied over these dates replaces them with the rest; to
+  // keep somebody for certain, put them on from the service's own page, which
+  // confirms them. Their reason starts "Put on by", so a guest chosen here is
+  // not taken off by a later draft once confirmed (see load.ts).
   //
-  // A hand change cannot aim OR REPLACE at a confirmed booking either: the
-  // editor never offers a place that was confirmed when the draft was made.
-  const stmt = c.env.DB.prepare(
-    `INSERT OR REPLACE INTO assignments
-       (service_id, role_id, slot, person_id, status, generated, reason)
-     VALUES (?1, ?2, ?3, ?4, 'draft', 1, ?5)`,
-  );
-  const batch = writable.map((a) =>
-    stmt.bind(a.serviceId, a.roleId, a.slot, a.personId, a.reason));
-  for (let i = 0; i < batch.length; i += 100) {
-    await c.env.DB.batch(batch.slice(i, i + 100));
+  // A confirmed booking is never written over, whoever made it and whenever.
+  // The editor never offers a place confirmed when the draft was made, but one
+  // can be booked by hand on the service page while the draft is open — and
+  // INSERT OR REPLACE, which this used to be, silently replaced it. See
+  // src/rota/apply.ts, which seed/apply-test.ts runs against the real schema.
+  const writes = writable.map((a) => c.env.DB.prepare(PLACE_SQL)
+    .bind(a.serviceId, a.roleId, a.slot, a.personId, a.reason));
+  // json_each takes one bound string however many places there are, which keeps
+  // the clear well inside D1's limit on bound parameters.
+  for (const chunk of chunked(writable, 500)) {
+    stmts.push(c.env.DB.prepare(CLEAR_DRAFT_PLACES_SQL)
+      .bind(JSON.stringify(chunk.map((a) => [a.serviceId, a.roleId, a.slot]))));
   }
-  await c.env.DB.prepare('DELETE FROM draft_rotas WHERE token = ?1').bind(token).run();
+  const firstWrite = stmts.length;
+  stmts.push(...writes);
+  stmts.push(c.env.DB.prepare('DELETE FROM draft_rotas WHERE token = ?1').bind(token));
 
-  return c.redirect('/app/rota', 303);
+  const done = await c.env.DB.batch(stmts);
+  // A write that changed nothing is a place a confirmed booking already held.
+  const placed = done.slice(firstWrite, firstWrite + writes.length)
+    .filter((r) => (r.meta?.changes ?? 0) > 0).length;
+  const kept = writes.length - placed;
+
+  const q = new URLSearchParams({ applied: String(placed) });
+  if (kept) q.set('kept', String(kept));
+  if (dropped) q.set('dropped', String(dropped));
+  return c.redirect(`/app/rota?${q}`, 303);
 });
 
 // ---------------------------------------------------------------------------
@@ -3076,6 +3164,17 @@ async function eventAdminView(
 app.get('/app/events/:id', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return c.notFound();
+  // Arriving from "Delete all cancelled", which redirects here so that
+  // reloading the page cannot send the delete again.
+  const cleared = Number(c.req.query('cleared'));
+  if (c.req.query('cleared') != null && Number.isInteger(cleared) && cleared >= 0) {
+    return eventAdminView(c, id, {
+      tone: 'ok',
+      text: cleared
+        ? `${cleared} cancelled booking${cleared === 1 ? '' : 's'} deleted.`
+        : 'There were no cancelled bookings left to delete.',
+    });
+  }
   return eventAdminView(c, id);
 });
 
@@ -3630,13 +3729,10 @@ app.post('/app/events/:id/cancelled/delete', async (c) => {
   const res = await c.env.DB.prepare(
     `DELETE FROM event_bookings WHERE event_id = ?1 AND status = 'cancelled'`,
   ).bind(eventId).run();
-  const n = res.meta?.changes ?? 0;
-  return eventAdminView(c, eventId, {
-    tone: 'ok',
-    text: n
-      ? `${n} cancelled booking${n === 1 ? '' : 's'} deleted.`
-      : 'There were no cancelled bookings left to delete.',
-  });
+  // Redirected rather than drawn here: a page drawn at this address would
+  // send the delete again on a reload — past the are-you-sure — and take any
+  // booking cancelled in the meantime with it.
+  return c.redirect(`/app/events/${eventId}?cleared=${res.meta?.changes ?? 0}`, 303);
 });
 
 

@@ -12,4 +12,7 @@ dist/
 .acc.mjs
 .exp.mjs
 .draft.mjs
+.apply.mjs
+.claude/worktrees/
+public/_preview/
 .export-test/
