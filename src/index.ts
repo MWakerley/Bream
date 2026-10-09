@@ -73,7 +73,11 @@ import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listE
          getBooking as getEventBooking, saveBooking, type BookingAttempt,
          listOrganisers, readOrganisers, saveOrganisers, eventRoomIds, readRoomIds,
          eventRoomClashes, describeClashes, syncEventRooms, readEventWhen } from './events.js';
-import { sendAcknowledgement, sendEmail, notifyOrganisers, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
+import { sendAcknowledgement, sendEmail, notifyOrganisers, sendBlindCopies, usableEmail,
+         DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
+import { messageComposePage, messageConfirmPage, messageSentPage, starterDraft,
+         type MessageDraft, type SentMessageRow } from './views/eventMessage.js';
+import type { BookingRow } from './views/events.js';
 import { formatDate, lastDay } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
@@ -3380,6 +3384,210 @@ app.post('/app/events/:id/organisers', async (c) => {
           + 'Cloudflare account.')
       : 'Saved.',
   });
+});
+
+// ---------------------------------------------------------------------------
+// Emailing the people booked on an event
+// ---------------------------------------------------------------------------
+//
+// Write it, check it, send it — see src/views/eventMessage.ts. Every page here
+// needs the right to RUN events, not just to see them, even the GET ones: the
+// pages list everybody's email address, which is the same reason the attendee
+// download asks for it.
+
+type Ctx = Context<{ Bindings: Env; Variables: Vars }>;
+
+/** The event, and the bookings a message could go to (never cancelled ones),
+ *  or null when the person may not do this or there is no such event. */
+async function messageSetup(c: Ctx) {
+  if (!(c.get('areas') ?? new Set()).has('events.manage')) return null;
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return null;
+  const [event, all] = await Promise.all([getEvent(c.env.DB, id), listEventBookings(c.env.DB, id)]);
+  if (!event) return null;
+  return { event, bookings: all.filter((b) => b.status === 'booked' || b.status === 'waitlist') };
+}
+
+/** The signed-in person's own address, to suggest for replies. */
+async function ownEmail(c: Ctx): Promise<string> {
+  const row = await c.env.DB.prepare('SELECT email FROM people WHERE id = ?1')
+    .bind(c.get('person').id).first<{ email: string | null }>();
+  return row?.email ?? '';
+}
+
+function readDraft(form: FormData): MessageDraft {
+  const s = (k: string) => String(form.get(k) ?? '');
+  return {
+    subject: s('subject').trim().replace(/[\r\n]+/g, ' '),
+    // Line endings as a browser sends them (CRLF), made plain.
+    body: s('body').replace(/\r\n/g, '\n').trim(),
+    replyTo: s('reply_to').trim(),
+    audience: s('audience') === 'chosen' ? 'chosen' : 'all',
+    chosen: [...new Set(form.getAll('booking_id').map(Number).filter(Number.isInteger))],
+  };
+}
+
+/**
+ * Who a draft reaches. 'all' is everybody booked in; 'chosen' is the ticked
+ * bookings that are still on this event and not cancelled — an id from another
+ * event, or one cancelled since the page was drawn, is quietly dropped.
+ */
+function recipientsOf(draft: MessageDraft, bookings: BookingRow[]) {
+  const picked = draft.audience === 'all'
+    ? bookings.filter((b) => b.status === 'booked')
+    : bookings.filter((b) => draft.chosen.includes(b.id));
+  return {
+    to: picked.filter((b) => usableEmail(b.email) != null),
+    noEmail: picked.filter((b) => usableEmail(b.email) == null),
+  };
+}
+
+/** What is wrong with a draft, in words for the office, or null. */
+function draftProblem(draft: MessageDraft, reach: number): string | null {
+  if (!draft.subject) return 'Give the email a subject — the line people see in their inbox.';
+  if (!draft.body) return 'The message is empty. Write what you want to tell people.';
+  if (draft.body.length > 20000) return 'The message is too long. Keep it under 20,000 characters.';
+  if (draft.replyTo && !usableEmail(draft.replyTo)) {
+    return `“${draft.replyTo}” does not look like an email address. Correct it, or leave it empty.`;
+  }
+  if (reach === 0) {
+    return draft.audience === 'chosen'
+      ? 'Nobody is ticked. Tick at least one person with an email address, or choose “Send to all participants”.'
+      : 'Nobody booked in has an email address, so there is nobody to send this to.';
+  }
+  return null;
+}
+
+async function messageHistory(db: D1Database, eventId: number): Promise<SentMessageRow[]> {
+  const { results } = await db.prepare(
+    `SELECT m.id, m.subject, m.audience, m.sent_count, m.failed_count, m.no_email_count, m.sent_at,
+            p.display_name AS sent_by_name
+       FROM event_messages m LEFT JOIN people p ON p.id = m.sent_by
+      WHERE m.event_id = ?1 ORDER BY m.sent_at DESC, m.id DESC`,
+  ).bind(eventId).all<SentMessageRow>();
+  return results;
+}
+
+async function composeView(c: Ctx, s: NonNullable<Awaited<ReturnType<typeof messageSetup>>>,
+                           draft: MessageDraft, error?: string) {
+  return c.html(messageComposePage({
+    event: s.event, bookings: s.bookings, draft, error,
+    history: await messageHistory(c.env.DB, s.event.id),
+    emailReady: Boolean(c.env.EMAIL && c.env.ACK_FROM), ctx: viewCtx(c),
+  }), error ? 400 : 200);
+}
+
+app.get('/app/events/:id/message', async (c) => {
+  const s = await messageSetup(c);
+  if (!s) return c.notFound();
+  return composeView(c, s, starterDraft(s.event, await ownEmail(c)));
+});
+
+// "No — go back and change it": the writing page again, with what was written.
+app.post('/app/events/:id/message', async (c) => {
+  const s = await messageSetup(c);
+  if (!s) return c.notFound();
+  return composeView(c, s, readDraft(await c.req.formData()));
+});
+
+app.post('/app/events/:id/message/check', async (c) => {
+  const s = await messageSetup(c);
+  if (!s) return c.notFound();
+  const draft = readDraft(await c.req.formData());
+  const reach = recipientsOf(draft, s.bookings);
+  const problem = draftProblem(draft, reach.to.length);
+  if (problem) return composeView(c, s, draft, problem);
+
+  // The "all" list is fixed here, as shown on the page being confirmed, so
+  // what is sent is exactly what was agreed to — not somebody who booked in
+  // the minute between.
+  const fixed: MessageDraft = { ...draft, chosen: [...reach.to, ...reach.noEmail].map((b) => b.id) };
+  return c.html(messageConfirmPage({
+    event: s.event, draft: fixed, recipients: reach.to, noEmail: reach.noEmail,
+    from: c.env.ACK_FROM ?? 'the church’s booking address',
+    emailReady: Boolean(c.env.EMAIL && c.env.ACK_FROM), ctx: viewCtx(c),
+  }));
+});
+
+app.post('/app/events/:id/message/send', async (c) => {
+  const s = await messageSetup(c);
+  if (!s) return c.notFound();
+  const draft = readDraft(await c.req.formData());
+  // Sent to exactly the bookings confirmed on the check page, whichever way
+  // they were chosen.
+  const reach = recipientsOf({ ...draft, audience: 'chosen' }, s.bookings);
+  const problem = draftProblem(draft, reach.to.length);
+  if (problem) return composeView(c, s, draft, problem);
+  if (!c.env.EMAIL || !c.env.ACK_FROM) {
+    return composeView(c, s, draft, 'Email sending is not set up yet, so nothing was sent.');
+  }
+
+  // The same words to the same event within the last ten minutes is a second
+  // press of the button, or the page reloaded — not a new message.
+  const again = await c.env.DB.prepare(
+    `SELECT id FROM event_messages
+      WHERE event_id = ?1 AND subject = ?2 AND body = ?3 AND sent_at > datetime('now', '-10 minutes')
+      ORDER BY id DESC LIMIT 1`,
+  ).bind(s.event.id, draft.subject, draft.body).first<{ id: number }>();
+  if (again) return c.redirect(`/app/events/${s.event.id}/message/${again.id}?sent=1`, 303);
+
+  const result = await sendBlindCopies(c.env.EMAIL, c.env.ACK_FROM,
+    reach.to.map((b) => b.email!), draft.subject, draft.body, draft.replyTo || null);
+  if (result.skipped) return composeView(c, s, draft, `Nothing was sent. ${result.skipped}`);
+
+  const sent = new Set(result.sent.map((e) => e.toLowerCase()));
+  const failed = new Map(result.failed.map((f) => [f.email.toLowerCase(), f.error]));
+  const outcome = (b: BookingRow) => {
+    const e = usableEmail(b.email)?.toLowerCase();
+    if (!e) return { status: 'no_email', error: null };
+    if (sent.has(e)) return { status: 'sent', error: null };
+    return { status: 'failed', error: failed.get(e) ?? 'Not sent.' };
+  };
+  for (const f of result.failed) console.error('event message not sent', { eventId: s.event.id, error: f.error });
+
+  const msg = await c.env.DB.prepare(
+    `INSERT INTO event_messages (event_id, subject, body, audience, sent_count, failed_count,
+                                 no_email_count, sent_by)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+  ).bind(s.event.id, draft.subject, draft.body, draft.audience, result.sent.length,
+    reach.to.filter((b) => outcome(b).status === 'failed').length, reach.noEmail.length,
+    c.get('person').id).run();
+  const msgId = Number(msg.meta.last_row_id);
+  const everyone = [...reach.to, ...reach.noEmail];
+  if (everyone.length) {
+    await c.env.DB.batch(everyone.map((b) => {
+      const o = outcome(b);
+      return c.env.DB.prepare(
+        `INSERT INTO event_message_recipients (message_id, booking_id, status, error) VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(msgId, b.id, o.status, o.error);
+    }));
+  }
+  // Away from the POST, so reloading the result cannot send it again.
+  return c.redirect(`/app/events/${s.event.id}/message/${msgId}?sent=1`, 303);
+});
+
+app.get('/app/events/:id/message/:msgId', async (c) => {
+  const s = await messageSetup(c);
+  if (!s) return c.notFound();
+  const msgId = Number(c.req.param('msgId'));
+  if (!Number.isInteger(msgId)) return c.notFound();
+  const message = await c.env.DB.prepare(
+    `SELECT m.id, m.subject, m.body, m.audience, m.sent_count, m.failed_count, m.no_email_count,
+            m.sent_at, p.display_name AS sent_by_name
+       FROM event_messages m LEFT JOIN people p ON p.id = m.sent_by
+      WHERE m.id = ?1 AND m.event_id = ?2`,
+  ).bind(msgId, s.event.id).first<SentMessageRow & { body: string }>();
+  if (!message) return c.notFound();
+  const { results } = await c.env.DB.prepare(
+    `SELECT r.status, r.error, b.name, b.email, b.phone
+       FROM event_message_recipients r JOIN event_bookings b ON b.id = r.booking_id
+      WHERE r.message_id = ?1 AND r.status != 'sent' ORDER BY b.name`,
+  ).bind(msgId).all<{ status: string; error: string | null; name: string; email: string | null; phone: string | null }>();
+  return c.html(messageSentPage({
+    event: s.event, message, ctx: viewCtx(c), justSent: c.req.query('sent') === '1',
+    failed: results.filter((r) => r.status === 'failed'),
+    noEmail: results.filter((r) => r.status === 'no_email'),
+  }));
 });
 
 /**

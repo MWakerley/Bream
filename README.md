@@ -34,6 +34,7 @@ Three areas, reachable from the main screen once signed in:
 | Events, custom booking forms, public booking page | **working** |
 | Event posters, optional email/phone questions | **working** |
 | Acknowledgement emails after booking | **built, needs a sending domain** |
+| Emailing everyone booked on an event (or those ticked), always blind-copied, with an "Are you sure?" step | **working** |
 | Calendar views for the rota and the rooms | **working** |
 | The room diary on the website (`/rooms/calendar`, `/rooms/list`), read-only; a booking ticked private shows just "Private booking" | **working** |
 | Adding and renaming rooms | **working** |

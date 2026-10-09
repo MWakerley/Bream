@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Bream Church Rota and Diary Management System",
   "scripts": {
-    "check": "tsc --noEmit && npm run smoke && npm run test:acc && npm run test:gen && npm run test:rec && npm run test:sun && npm run test:ical && npm run test:export && npm run test:draft && npm run test:apply && npm run test:rooms",
+    "check": "tsc --noEmit && npm run smoke && npm run test:acc && npm run test:gen && npm run test:rec && npm run test:sun && npm run test:ical && npm run test:export && npm run test:draft && npm run test:apply && npm run test:rooms && npm run test:msg",
     "smoke": "esbuild seed/render-smoke.ts --bundle --platform=node --format=esm --outfile=.smoke.mjs --log-level=error && node .smoke.mjs",
     "preview": "node scripts/serve.mjs 8080",
     "cf-typegen": "wrangler types",
@@ -19,7 +19,8 @@
     "test:export": "esbuild seed/export-test.ts --bundle --platform=node --format=esm --outfile=.exp.mjs --log-level=error && node .exp.mjs",
     "test:draft": "esbuild seed/draft-test.ts --bundle --platform=node --format=esm --outfile=.draft.mjs --log-level=error && node .draft.mjs",
     "test:apply": "esbuild seed/apply-test.ts --bundle --platform=node --format=esm --outfile=.apply.mjs --log-level=error && node --no-warnings=ExperimentalWarning .apply.mjs",
-    "test:rooms": "esbuild seed/public-rooms-test.ts --bundle --platform=node --format=esm --outfile=.rooms.mjs --log-level=error && node --no-warnings=ExperimentalWarning .rooms.mjs"
+    "test:rooms": "esbuild seed/public-rooms-test.ts --bundle --platform=node --format=esm --outfile=.rooms.mjs --log-level=error && node --no-warnings=ExperimentalWarning .rooms.mjs",
+    "test:msg": "esbuild seed/message-test.ts --bundle --platform=node --format=esm --outfile=.msg.mjs --log-level=error && node --no-warnings=ExperimentalWarning .msg.mjs"
   },
   "dependencies": {
     "hono": "^4.13.8",

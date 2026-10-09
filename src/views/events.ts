@@ -811,6 +811,9 @@ export function eventAdminPage(opts: {
       <h2 class="section-h2">Who has booked</h2>
       <div class="btn-row" style="margin-bottom:1.25rem">
         <a class="btn-primary" href="/app/events/${e.id}/bookings/new">Take a booking by phone</a>
+        ${bookings.some((b) => b.status !== 'cancelled') && manage
+          ? html`<a class="btn-primary" href="/app/events/${e.id}/message">✉ Communicate with participants</a>`
+          : ''}
         ${bookings.length && (!ctx.areas || ctx.areas.has('events.manage'))
           ? html`<a class="btn-quiet" href="/app/events/${e.id}/attendees.pdf">Download PDF</a>
               <a class="btn-quiet" href="/app/events/${e.id}/attendees.xlsx">Download for Excel</a>`

@@ -17,3 +17,4 @@ dist/
 .claude/worktrees/
 public/_preview/
 .export-test/
+.msg.mjs

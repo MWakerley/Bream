@@ -209,3 +209,105 @@ It is on {when}, at {where}.
 We look forward to seeing you.
 
 Bream Church`;
+
+/**
+ * How many people go in one message's blind copy. Cloudflare allows 50
+ * recipients a message, To and Bcc together; staying well under leaves room
+ * for the To line and for the limit ever being lowered.
+ */
+export const BCC_BATCH = 40;
+
+/** Something that can at least be handed to the mail provider as an address:
+ *  one @, no spaces, and none of the characters that separate addresses in a
+ *  header, so one bad entry cannot become two. */
+export function usableEmail(raw: string | null | undefined): string | null {
+  const e = (raw ?? '').trim();
+  return /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(e) ? e : null;
+}
+
+export interface BlindSendResult {
+  /** Addresses the provider accepted. */
+  sent: string[];
+  failed: { email: string; error: string }[];
+  /** Set when nothing could be tried at all — sending is not set up. */
+  skipped?: string;
+}
+
+/**
+ * One message to many people, every one of them BLIND-COPIED.
+ *
+ * THE RULE THIS FUNCTION EXISTS FOR: no participant's address is ever put in
+ * To or Cc. Those headers are shown to everybody who receives the message, and
+ * showing a list of people who booked onto a church event to everyone else on
+ * it is a personal-data breach. The only address in To is the church's own
+ * sending address; participants are in Bcc, which the provider strips before
+ * delivery, so each person sees the church's address and their own inbox and
+ * nobody else.
+ *
+ * Sent in batches of BCC_BATCH. If a batch is refused — one suppressed or
+ * malformed address can sink the lot — each of its people is tried again on
+ * their own, still blind-copied, so one bad address does not stop the rest
+ * hearing.
+ */
+export async function sendBlindCopies(
+  binding: { send: (m: unknown) => Promise<unknown> } | undefined,
+  from: string | undefined,
+  recipients: string[],
+  subject: string,
+  body: string,
+  replyTo?: string | null,
+): Promise<BlindSendResult> {
+  if (!binding || !from) {
+    return { sent: [], failed: [], skipped: 'Email sending is not set up on this account yet.' };
+  }
+
+  // Each person once, however many bookings they made.
+  const seen = new Set<string>();
+  const people: string[] = [];
+  for (const r of recipients) {
+    const e = usableEmail(r);
+    if (e && !seen.has(e.toLowerCase())) {
+      seen.add(e.toLowerCase());
+      people.push(e);
+    }
+  }
+
+  const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.5;color:#242a34">
+${escapeHtml(body).split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`).join('\n')}
+</div>`;
+  const reply = usableEmail(replyTo);
+  const message = (bcc: string[]) => ({
+    // The church's own address, and only that. Never a participant's.
+    to: { email: from, name: 'Bream Church' },
+    bcc,
+    from: { email: from, name: 'Bream Church' },
+    ...(reply ? { replyTo: reply } : {}),
+    subject: subject.slice(0, 200),
+    text: body,
+    html,
+  });
+  const why = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+  const out: BlindSendResult = { sent: [], failed: [] };
+  for (let i = 0; i < people.length; i += BCC_BATCH) {
+    const batch = people.slice(i, i + BCC_BATCH);
+    try {
+      await binding.send(message(batch));
+      out.sent.push(...batch);
+    } catch (batchErr) {
+      if (batch.length === 1) {
+        out.failed.push({ email: batch[0]!, error: why(batchErr) });
+        continue;
+      }
+      for (const one of batch) {
+        try {
+          await binding.send(message([one]));
+          out.sent.push(one);
+        } catch (err) {
+          out.failed.push({ email: one, error: why(err) });
+        }
+      }
+    }
+  }
+  return out;
+}
