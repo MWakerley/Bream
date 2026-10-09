@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import { AREAS, type ProfileRow } from '../access.js';
 
-const BACK = { href: '/app/settings', label: 'Settings' };
+const BACK = { href: '/app/settings', label: 'Admin Centre' };
 
 export function profilesPage(opts: {
   profiles: ProfileRow[];
@@ -14,7 +14,7 @@ export function profilesPage(opts: {
   return layout(
     {
       title: 'What people can see',
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: 'What people can see',
       intro: 'A profile is a set of areas. Everyone is given one, and it decides which pages '
         + 'they can open.',
@@ -30,7 +30,7 @@ export function profilesPage(opts: {
         <p style="margin:0">
           Ticking nothing gives someone a sign-in that can see nothing, which is a fair way to
           suspend an account without deleting anybody. The system will not let you remove
-          <strong>Settings</strong> from the last profile that has it, because that would lock
+          <strong>Admin Centre</strong> from the last profile that has it, because that would lock
           everybody out with no way back in.
         </p>
       </div>
@@ -135,7 +135,7 @@ export function addPersonPage(opts: {
   return layout(
     {
       title: 'Add a person',
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: 'Add a person',
       intro: 'Add somebody to the roster. Give them a sign-in as well if they need one.',
       back: { href: '/app/settings/people', label: 'People' },

@@ -7,11 +7,12 @@ import { linkRow } from './roomRequests.js';
 import type { CombinationRow, PairingRow, PersonWithRoles, RoleRow } from '../db.js';
 
 const BACK = { href: '/app', label: 'All areas' };
-const SETTINGS = { href: '/app/settings', label: 'Settings' };
+const SETTINGS = { href: '/app/settings', label: 'Admin Centre' };
 
 /** Everything behind the scenes, one card each, so People is one choice among
  *  them rather than the page every other setting hangs off. */
 const SECTIONS: { href: string; label: string; note: string }[] = [
+  { href: '/app/settings/newsletter', label: 'Newsletter', note: 'Create a newsletter with the week ahead, send it to subscribers, and the archive.' },
   { href: '/app/settings/people', label: 'People', note: 'Everyone on the roster: what each can do, how often, and finding somebody.' },
   { href: '/app/settings/keyholders', label: 'Keyholders', note: 'The register of who holds which keys — the buildings and the safe.' },
   { href: '/app/settings/safeguarding', label: 'Safeguarding', note: 'Which courses each safeguarding role needs.' },
@@ -35,7 +36,7 @@ export function settingsHomePage(
   // Only offered to somebody the page would let in.
   const mayChange = !ctx.areas || ctx.areas.has('rooms.manage');
   return layout(
-    { title: 'Settings', heading: 'Settings', back: BACK, ...ctx },
+    { title: 'Admin Centre', heading: 'Admin Centre', back: BACK, ...ctx },
     html`
       <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))">
         ${SECTIONS.map((x) => html`<a class="card" href="${x.href}"
@@ -253,7 +254,7 @@ export function rolesPage(
   return layout(
     {
       title: 'Roles',
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: 'Roles',
       intro: 'What a service needs, and how many of each. Minimum is the point below which a '
         + 'service is flagged as having a gap; ideal is what the rota aims for.',
@@ -477,7 +478,7 @@ export function pairsPage(
   return layout(
     {
       title: 'Who works with whom',
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: 'Who works with whom',
       intro: 'People who serve together. This is what stops the rota splitting up a couple who '
         + 'always do welcome as a pair.',

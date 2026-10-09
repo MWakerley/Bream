@@ -28,11 +28,11 @@ export function draftRulesPage(opts: {
   return layout(
     {
       title: 'Rules for draft rotas',
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: 'Rules for draft rotas',
       intro: 'The rules that apply to every draft rota, whoever is on it. How often each '
         + 'person does a particular job is kept on their own record instead.',
-      back: { href: '/app/settings', label: 'Settings' },
+      back: { href: '/app/settings', label: 'Admin Centre' },
       ...ctx,
     },
     html`

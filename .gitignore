@@ -18,3 +18,4 @@ dist/
 public/_preview/
 .export-test/
 .msg.mjs
+.news.mjs

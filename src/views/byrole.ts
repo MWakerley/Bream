@@ -30,7 +30,7 @@ export function peopleByRolePage(opts: {
   return layout(
     {
       title: `Who can do ${role.name}`,
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: `Who can do ${role.name}`,
       intro: 'Tick everybody who could take this role, and set how often they want to. '
         + 'Everything here is saved together.',

@@ -23,7 +23,7 @@ export function safeguardingPage(
       heading: 'Safeguarding',
       intro: 'Which courses each role needs. Tick a role on somebody\'s record under People, '
         + 'and the courses ticked here for that role appear there to be marked as done.',
-      back: { href: '/app/settings', label: 'Settings' },
+      back: { href: '/app/settings', label: 'Admin Centre' },
       ...ctx,
     },
     html`
@@ -91,7 +91,7 @@ export function personSafeguardingCard(grid: SafeguardingGrid, sg: PersonSafegua
       </h2>
       <p style="color:var(--ink-2);margin-top:0">
         Tick any of these they are. The courses each one needs are set under
-        <a href="/app/settings/safeguarding">Settings → Safeguarding</a>.
+        <a href="/app/settings/safeguarding">Admin Centre → Safeguarding</a>.
       </p>
       <div class="checks">
         ${grid.roles.map((r) => html`<label class="check">
@@ -191,7 +191,7 @@ export function safeguardingReportPage(grid: SafeguardingGrid, rows: ReportRow[]
       title: 'Safeguarding report',
       heading: 'Safeguarding',
       intro: 'Who has done the courses their roles need, and who still has some to do.',
-      back: { href: '/app/settings', label: 'Settings' },
+      back: { href: '/app/settings', label: 'Admin Centre' },
       ...ctx,
     },
     html`

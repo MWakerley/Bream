@@ -16,7 +16,7 @@ export const AREAS = [
   { key: 'events', label: 'See events', note: 'What is on and who has booked.' },
   { key: 'events.manage', label: 'Run events', note: 'Create events, take bookings, send acknowledgements.' },
   { key: 'me', label: 'Their own dates', note: 'Say when they are away and ask to swap.' },
-  { key: 'settings', label: 'Settings', note: 'People, roles, profiles — everything behind the scenes.' },
+  { key: 'settings', label: 'Admin Centre', note: 'People, roles, profiles — everything behind the scenes.' },
 ] as const;
 
 export type Area = (typeof AREAS)[number]['key'];

@@ -33,7 +33,7 @@ const NAV: NavItem[] = [
 ];
 
 const ADMIN_NAV: NavItem[] = [
-  { href: '/app/settings', label: 'Settings', match: '^/app/settings', area: 'settings' },
+  { href: '/app/settings', label: 'Admin Centre', match: '^/app/settings', area: 'settings' },
 ];
 
 /**
@@ -77,6 +77,7 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
     prefix: '/app/settings',
     items: [
       { href: '/app/settings', label: 'Overview', match: '^/app/settings$', area: 'settings' },
+      { href: '/app/settings/newsletter', label: 'Newsletter', match: '^/app/settings/newsletter', area: 'settings' },
       { href: '/app/settings/people', label: 'People', match: '^/app/settings/people', area: 'settings' },
       { href: '/app/settings/keyholders', label: 'Keyholders', match: '^/app/settings/keyholders', area: 'settings' },
       { href: '/app/settings/safeguarding', label: 'Safeguarding', match: '^/app/settings/safeguarding', area: 'settings' },

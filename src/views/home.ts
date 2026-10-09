@@ -42,6 +42,7 @@ const AREAS: Area[] = [
 ];
 
 const ADMIN_LINKS: { href: string; label: string; note: string }[] = [
+  { href: '/app/settings/newsletter', label: 'Newsletter', note: 'Create one, with the week ahead' },
   { href: '/app/settings/people', label: 'People', note: 'Who can do what, and how often' },
   { href: '/app/settings/keyholders', label: 'Keyholders', note: 'Who holds which keys — the buildings and the safe' },
   { href: '/app/settings/people/by-role', label: 'Edit by role', note: 'Who can preach, who can lead' },

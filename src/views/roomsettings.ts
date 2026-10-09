@@ -22,7 +22,7 @@ export function roomSettingsPage(opts: {
   return layout(
     {
       title: 'Rooms',
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: 'Rooms',
       intro: 'The spaces that can be booked. Rename them to match what people actually call '
         + 'them, and add any that are missing.',

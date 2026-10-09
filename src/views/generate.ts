@@ -4,7 +4,7 @@ import { formatDate } from './rota.js';
 import { editableSlots, type DraftCandidate, type DraftDerived, type DraftPerson, type DraftService,
          type DraftView } from '../rota/draft.js';
 
-const BACK = { href: '/app/settings', label: 'Settings' };
+const BACK = { href: '/app/settings', label: 'Admin Centre' };
 
 export function generateFormPage(opts: {
   ctx: ViewCtx;

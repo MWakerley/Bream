@@ -78,6 +78,7 @@ import { sendAcknowledgement, sendEmail, notifyOrganisers, sendBlindCopies, usab
 import { messageComposePage, messageConfirmPage, messageSentPage, starterDraft,
          type MessageDraft, type SentMessageRow } from './views/eventMessage.js';
 import type { BookingRow } from './views/events.js';
+import { registerNewsletter } from './newsletter/routes.js';
 import { formatDate, lastDay } from './views/rota.js';
 import { generateRota } from './rota/generate.js';
 import { loadGeneratorInput } from './rota/load.js';
@@ -788,7 +789,7 @@ app.post('/app/settings/profiles/:id', async (c) => {
     if ((others?.n ?? 0) === 0) {
       return profilesView(c, {
         tone: 'bad',
-        text: 'Nothing was changed. This is the only profile with Settings that anybody is '
+        text: 'Nothing was changed. This is the only profile with the Admin Centre that anybody is '
           + 'using, so removing it would lock everyone out.',
       });
     }
@@ -3115,6 +3116,10 @@ app.post('/app/settings/rooms/new', async (c) => {
   return roomSettingsView(c, { tone: 'ok', text: `Added "${name}". It can be booked straight away.` });
 });
 
+// The church newsletter: Admin Centre pages and the public sign-up. See
+// src/newsletter/routes.ts.
+registerNewsletter(app, viewCtx);
+
 // ---------------------------------------------------------------------------
 // Events (admin)
 // ---------------------------------------------------------------------------
@@ -4091,7 +4096,7 @@ app.post('/app/me/link', async (c) => {
     return myView(c, {
       tone: 'bad',
       text: `${other.display_name} already has their own sign-in, so it cannot be joined to yours. `
-        + 'An administrator can merge them under Settings.',
+        + 'An administrator can merge them in the Admin Centre.',
     });
   }
 

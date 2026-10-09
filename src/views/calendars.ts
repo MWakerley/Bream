@@ -146,7 +146,7 @@ export function rotaCalendarPage(opts: {
         month,
         entries,
         baseHref: '/app/rota/calendar',
-        emptyMessage: `No services in ${monthLabel(month)}. Add them under Settings → Services.`,
+        emptyMessage: `No services in ${monthLabel(month)}. Add them under Admin Centre → Services.`,
       })}
 
       <p style="margin-top:1.25rem;color:var(--ink-2);font-size:.9375rem">

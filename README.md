@@ -35,6 +35,10 @@ Three areas, reachable from the main screen once signed in:
 | Event posters, optional email/phone questions | **working** |
 | Acknowledgement emails after booking | **built, needs a sending domain** |
 | Emailing everyone booked on an event (or those ticked), always blind-copied, with an "Are you sure?" step | **working** |
+| "Settings" is now the **Admin Centre** (addresses unchanged, still `/app/settings`) | **working** |
+| Newsletter: write it with headlines, text, pictures and quotes; the week ahead filled from the diary; preview, PDF, test copy; archive | **working** |
+| Newsletter sign-up page (`/newsletter`) with GDPR consent and email confirmation; one-click unsubscribe deletes the subscriber | **working** |
+| Sending a newsletter to the whole list | **built, switched off** until a newsletter service is chosen — set `NEWSLETTER_SENDER` (see `src/newsletter/send.ts`) |
 | Calendar views for the rota and the rooms | **working** |
 | The room diary on the website (`/rooms/calendar`, `/rooms/list`), read-only; a booking ticked private shows just "Private booking" | **working** |
 | Adding and renaming rooms | **working** |

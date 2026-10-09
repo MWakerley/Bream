@@ -28,7 +28,7 @@ export function combinationsByRolePage(opts: {
   return layout(
     {
       title: `What else a ${role.name} can do`,
-      eyebrow: 'Settings',
+      eyebrow: 'Admin Centre',
       heading: `What else can the ${role.name} do?`,
       intro: `Somebody is already down as ${role.name} at a service. This says which other `
         + 'jobs they may take at the same service, and the rota is built to obey it.',

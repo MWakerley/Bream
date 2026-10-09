@@ -22,6 +22,12 @@ export interface Env {
    *  missing — see src/turnstile.ts for why that is the right failure. */
   TURNSTILE_SITEKEY?: string;
   TURNSTILE_SECRET?: string;
+  /** Which service sends newsletters to subscribers. Unset means none: the
+   *  office can write, preview and test-send, but not send to the list. See
+   *  src/newsletter/send.ts. */
+  NEWSLETTER_SENDER?: string;
+  /** The address newsletters come from. Falls back to ACK_FROM. */
+  NEWSLETTER_FROM?: string;
 }
 
 export interface PersonRow {

@@ -54,7 +54,7 @@ const BAD = rgb(0xa3 / 255, 0x2a / 255, 0x1c / 255);
  * else is decomposed to its base letter, and failing that dropped — a name
  * printed as "Zoe" is better than an export that will not open.
  */
-function printable(s: string): string {
+export function printable(s: string): string {
   return s
     .replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
     .replace(/[–—]/g, '-').replace(/…/g, '...')
@@ -71,7 +71,7 @@ function printable(s: string): string {
 
 /** Breaks text into lines that fit, on words where it can and mid-word where
  *  a single word is wider than the column. */
-function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
+export function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
   const out: string[] = [];
   for (const para of printable(text).split('\n')) {
     let line = '';
