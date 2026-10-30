@@ -71,7 +71,7 @@ import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listE
          getBooking as getEventBooking, saveBooking, type BookingAttempt,
          listOrganisers, readOrganisers, saveOrganisers, eventRoomIds, readRoomIds,
          eventRoomClashes, describeClashes, syncEventRooms, readEventWhen,
-         readEventRepeat, eventOccurrences, eventWhenText } from './events.js';
+         readEventRepeat, eventOccurrences, eventWhenText, bookingsClosed } from './events.js';
 import { sendAcknowledgement, sendEmail, notifyOrganisers, sendBlindCopies, usableEmail,
          DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
 import { messageComposePage, messageConfirmPage, messageSentPage, starterDraft,
@@ -4370,10 +4370,11 @@ app.post('/events/:slug', async (c) => {
     }), 400);
   }
 
-  if (event.booking_closes_at && new Date().toISOString().slice(0, 10) > event.booking_closes_at) {
-    return c.html(publicBookingPage({
-      event, fields, values, turnstileSitekey: c.env.TURNSTILE_SITEKEY, error: 'Bookings for this event have closed.',
-    }), 400);
+  // Closed once the event is over, as well as after its "bookings close" date,
+  // and both judged by the church's clock. The page no longer shows the form
+  // then, but one left open in a tab can still be sent.
+  if (bookingsClosed(event)) {
+    return c.html(publicBookingPage({ event, fields, values, turnstileSitekey: c.env.TURNSTILE_SITEKEY }), 400);
   }
 
   const parsed = readBookingForm(form, fields, 'self', event.max_per_booking ?? 10);

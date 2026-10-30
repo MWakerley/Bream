@@ -1,5 +1,6 @@
 import type { BookingRow, EventRow, FieldRow } from './views/events.js';
 import { formatDate, formatSpan, lastDay } from './views/rota.js';
+import { londonToday } from './views/calendar.js';
 
 /** Events, their custom booking forms, and the bookings people make. */
 
@@ -610,4 +611,41 @@ export function readEventWhen(
     };
   }
   return { ok: true, startsAt, endsAt };
+}
+
+// ---------------------------------------------------------------------------
+// Whether bookings are still being taken
+// ---------------------------------------------------------------------------
+
+/** The wall-clock time in the church's timezone, as 'YYYY-MM-DDTHH:MM' — the
+ *  shape event times are stored in, so the two compare as text. */
+export function londonNow(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
+  return `${londonToday(now)}T${get('hour')}:${get('minute')}`;
+}
+
+/**
+ * Why an event is no longer taking bookings, or null while it is.
+ *
+ *   'finished'  its last time is over — the end of the last session of a
+ *               repeating event; an old event with no finish time is taken to
+ *               run to the end of its day
+ *   'deadline'  the "bookings close" date chosen for it has passed
+ *
+ * Whether it is published is a separate question: an unpublished event is
+ * not taking bookings either, but for a reason somebody chose.
+ */
+export function bookingsClosed(
+  e: { starts_at: string; ends_at: string | null; booking_closes_at: string | null;
+       repeat_freq?: string | null; repeat_count?: number | null },
+  now: Date = new Date(),
+): 'finished' | 'deadline' | null {
+  const end = e.ends_at ?? `${e.starts_at.slice(0, 10)}T23:59`;
+  const last = eventOccurrences(e.starts_at, end, repeatOf(e)).at(-1)!;
+  if (last.endsAt <= londonNow(now)) return 'finished';
+  if (e.booking_closes_at && londonToday(now) > e.booking_closes_at) return 'deadline';
+  return null;
 }

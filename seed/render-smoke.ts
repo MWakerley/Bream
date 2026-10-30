@@ -19,6 +19,7 @@ import { personPage, mergePage } from '../src/views/person.js';
 import { roomsPage, editBookingPage, editSeriesPage, daysCovered, timeOnDay } from '../src/views/rooms.js';
 import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
          bookingEditPage, runsOver } from '../src/views/events.js';
+import { bookingsClosed } from '../src/events.js';
 import { lately } from '../src/activity.js';
 import { roomsCalendarPage } from '../src/views/calendars.js';
 import { myRotaPage, requestsPage } from '../src/views/me.js';
@@ -553,7 +554,7 @@ await check('the room calendar draws a booking in its own colour and lettering',
 // ---- events --------------------------------------------------------------
 const EVENT = {
   id: 1, slug: 'harvest-supper', title: 'Harvest Supper',
-  description: 'Bring a friend.', starts_at: '2026-10-11T19:00', ends_at: null,
+  description: 'Bring a friend.', starts_at: '2099-10-11T19:00', ends_at: null,
   location: 'Church Centre', capacity: 60, booking_closes_at: null,
   is_published: 1, ask_email: 1, ask_phone: 0, poster_key: null,
   send_ack: 1, ack_subject: null, ack_body: null, booked: 48, bookings: 19,
@@ -568,6 +569,28 @@ await check('events list', () => eventsListPage({ events: [EVENT], ctx: CTX }),
   ['Harvest Supper', 'Taking bookings', 'Add an event', '12']);
 await check('events list (empty)', () => eventsListPage({ events: [], ctx: CTX }),
   ['No events yet']);
+// Once an event is over, or its "bookings close" date has passed, it is
+// Closed: on the list, on its own page, and on the public page, which no
+// longer offers the form.
+{
+  const PAST = { ...EVENT, starts_at: '2026-10-16T19:00', ends_at: '2026-10-18T16:00' };
+  await check('a finished event is Closed on the list', () => eventsListPage({ events: [PAST], ctx: CTX }),
+    ['>Closed<'], ['Taking bookings']);
+  await check('its own page says why', () => eventAdminPage({ event: PAST, fields: FIELDS, bookings: [], ctx: CTX, origin: 'https://x', rooms: ROOMS, roomIds: [], organisers: [] }),
+    ['<strong>Closed.</strong>', 'This event has finished']);
+  await check('the public page shows no form', () => publicBookingPage({ event: PAST, fields: FIELDS }),
+    ['Bookings for this event have closed.', 'It has already taken place.'], ['Book my place', 'name="name"']);
+  await check('a passed "bookings close" date closes it too', () => eventsListPage({
+    events: [{ ...EVENT, booking_closes_at: '2026-01-01' }], ctx: CTX }), ['>Closed<'], ['Taking bookings']);
+  // Judged on the church's clock, by the end of the LAST time a repeating event happens.
+  const NOW = new Date('2026-10-30T12:00:00Z');
+  const course = { starts_at: '2026-10-07T19:00', ends_at: '2026-10-07T21:00', booking_closes_at: null,
+    repeat_freq: 'weekly', repeat_count: 6 };
+  await check('a course still running is open; after its last week it is closed', () => [
+    bookingsClosed(course, NOW), bookingsClosed({ ...course, repeat_count: 3 }, NOW),
+    bookingsClosed({ ...course, ends_at: null, starts_at: '2026-10-30T09:00', repeat_freq: null }, NOW),
+  ].join(','), [',finished,'], ['deadline']);
+}
 const EV_EXTRA = { rooms: ROOMS, roomIds: [] as number[], organisers: [] };
 await check('new event', () => newEventPage({ ctx: CTX, rooms: ROOMS }),
   ['Create the event', 'How many can come', 'name="end_time"', 'Book rooms for it',
@@ -604,10 +627,10 @@ await check('the new-event form offers the override on a clash', () => newEventP
 }), ['name="allow_clash"', 'the reason is by the button']);
 
 await check('the event page shows its rooms and organisers', () => eventAdminPage({
-  event: { ...EVENT, ends_at: '2026-10-11T21:00', notify_organisers: 1 }, fields: FIELDS,
+  event: { ...EVENT, ends_at: '2099-10-11T21:00', notify_organisers: 1 }, fields: FIELDS,
   bookings: [], ctx: CTX, origin: 'https://x.test',
   rooms: ROOMS, roomIds: [1], organisers: [{ name: 'Jan', email: 'jan@example.org' }],
-}), ['value="21:00"', 'name="end_date" type="date" value="2026-10-11"', 'value="1" checked', 'Organisers', 'value="Jan"', 'Save organisers'],
+}), ['value="21:00"', 'name="end_date" type="date" value="2099-10-11"', 'value="1" checked', 'Organisers', 'value="Jan"', 'Save organisers'],
   ['value="2" checked']);
 await check('event admin', () => eventAdminPage({
   event: EVENT, fields: FIELDS,

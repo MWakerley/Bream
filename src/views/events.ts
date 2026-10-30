@@ -4,7 +4,9 @@ import { formatDate, formatSpan, lastDay } from './rota.js';
 import { PLACEHOLDERS, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from '../email.js';
 import { searchBox } from './search.js';
 import type { RoomRow } from './rooms.js';
-import { EVENT_REPEATS, MAX_REPEAT_COUNT, describeRepeat, eventWhenText, repeatOf } from '../events.js';
+import {
+  EVENT_REPEATS, MAX_REPEAT_COUNT, bookingsClosed, describeRepeat, eventWhenText, repeatOf,
+} from '../events.js';
 
 export interface EventRow {
   id: number;
@@ -118,7 +120,9 @@ export function eventsListPage(opts: {
                     <td data-label="Places left">${left == null
                       ? html`<span style="color:var(--ink-2)">no limit</span>`
                       : left === 0 ? chip('red', 'Full') : html`<strong>${left}</strong>`}</td>
-                    <td>${e.is_published ? chip('green', 'Taking bookings') : chip('neutral', 'Not published')}</td>
+                    <td>${!e.is_published ? chip('neutral', 'Not published')
+                      : bookingsClosed(e) ? chip('neutral', 'Closed')
+                        : chip('green', 'Taking bookings')}</td>
                   </tr>`;
                 })}
               </tbody>
@@ -643,6 +647,13 @@ export function eventAdminPage(opts: {
 
       <div class="card">
         <h2>The booking page</h2>
+        ${e.is_published && bookingsClosed(e)
+          ? html`<div class="notice notice-info"><p style="margin:0">
+              <strong>Closed.</strong> ${bookingsClosed(e) === 'finished'
+                ? 'This event has finished, so the booking page no longer takes bookings.'
+                : 'The date bookings close has passed, so the booking page no longer takes them. Clear or move that date below to open it again.'}
+            </p></div>`
+          : ''}
         ${e.is_published
           ? html`<p>Anyone with this link can book — they do not need to sign in.
               ${captchaReady
@@ -1137,8 +1148,11 @@ export function publicBookingPage(opts: {
   /** Turnstile site key. Absent means no challenge is shown at all, which is
    *  what happens when the keys are not configured. */
   turnstileSitekey?: string;
+  /** Injected so a test can stand at a fixed moment. */
+  now?: Date;
 }) {
   const { event: e, fields, error } = opts;
+  const closed = bookingsClosed(e, opts.now);
   const v = opts.values ?? {};
   const left = placesLeft(e);
   const full = left === 0;
@@ -1178,13 +1192,19 @@ export function publicBookingPage(opts: {
 
         ${error ? html`<div class="notice notice-bad" role="alert"><p style="margin:0">${error}</p></div>` : ''}
 
-        ${full
+        ${closed
+          ? html`<div class="notice notice-info"><p style="margin:0">
+              <strong>Bookings for this event have closed.</strong>
+              ${closed === 'finished' ? 'It has already taken place.' : ''}
+            </p></div>`
+          : ''}
+        ${closed ? '' : full
           ? html`<div class="notice notice-warn"><p style="margin:0">
               <strong>Fully booked.</strong> You can still add yourself to the waiting list
               below — places do sometimes come back, and if one does we will be in touch.
             </p></div>`
           : ''}
-        ${html`<form method="post" class="card">
+        ${closed ? '' : html`<form method="post" class="card">
               ${full ? html`<input type="hidden" name="waitlist" value="1">` : ''}
               <div class="field">
                 <label for="name">Your name</label>
