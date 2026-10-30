@@ -158,10 +158,9 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
 
       <div class="notice notice-info">
         <p style="margin-top:0">
-          <strong>Setting up a role for lots of people at once?</strong>
-          <a href="/app/settings/people/by-role">Edit by role</a> asks the question the other way
-          round — pick Preacher, and tick everybody who could preach. Fourteen visits instead of
-          sixty-nine.
+          Each person's own record is where the draft rota learns what they can do, how often
+          and when. To see everybody who can do a role, type it into the search — "preacher"
+          lists everyone who can preach.
         </p>
         <p style="margin-bottom:0">
           The ticks were taken from what each person has actually done on the
@@ -185,7 +184,6 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
       <div class="btn-row" style="margin-bottom:1.25rem">
         <a class="btn-primary" href="/app/settings/people/new">Add a person</a>
         <a class="btn-secondary" href="/app/settings/people/merge">Merge duplicates</a>
-        <a class="btn-secondary" href="/app/settings/people/by-role">Edit by role</a>
         <a class="btn-secondary" href="/app/settings/keyholders">${raw(KEY_ICON)} Keyholders</a>
       </div>
 

@@ -40,14 +40,28 @@ export interface ActivityItem {
   href?: string;
   /** The area this belongs to, so somebody is never shown a link that refuses them. */
   area: string;
+  /** Still waiting on somebody here to act — a place nobody has filled, a
+   *  request nobody has answered. Kept on the list however old it is. */
+  urgent?: boolean;
+  /** Urgent, and older than RECENT_DAYS: shown first, as "Action needed". */
+  actionNeeded?: boolean;
 }
+
+/**
+ * How far back "Lately" looks. Anything older drops off — unless it still
+ * needs doing, in which case it stays, and once it is this old it is marked
+ * "Action needed" so a fortnight-old problem cannot sit quietly among the news.
+ */
+export const RECENT_DAYS = 14;
 
 export async function recentActivity(
   db: D1Database,
   areas: Set<string>,
   limit = 8,
+  now: Date = new Date(),
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
+  const today = now.toISOString().slice(0, 10);
 
   // 1. Somebody dropping off a service. The reason this panel exists.
   //
@@ -58,29 +72,38 @@ export async function recentActivity(
       .prepare(
         `SELECT cr.created_at, cr.kind, cr.status, cr.message,
                 p.display_name, r.name AS role_name,
-                s.id AS service_id, s.service_date
+                s.id AS service_id, s.service_date,
+                -- Somebody else is on it now: sorted by hand, even though
+                -- nobody pressed the button on the request.
+                CASE WHEN a.person_id IS NOT NULL AND a.person_id <> cr.person_id
+                     THEN 1 ELSE 0 END AS covered
            FROM change_requests cr
            JOIN people p      ON p.id = cr.person_id
            JOIN assignments a ON a.id = cr.assignment_id
            JOIN roles r       ON r.id = a.role_id
            JOIN services s    ON s.id = a.service_id
           WHERE cr.kind IN ('cannot_do', 'swap')
-          ORDER BY cr.created_at DESC
-          LIMIT 12`,
+          -- Unanswered ones first, so an old one still waiting is never pushed
+          -- out of the LIMIT by newer news.
+          ORDER BY (cr.status = 'open') DESC, cr.created_at DESC
+          LIMIT 20`,
       )
       .all<any>();
     for (const r of results) {
       const when = formatDate(r.service_date);
+      // Unanswered, still to come, and nobody else put on in their place.
+      const urgent = r.status === 'open' && r.service_date >= today && !r.covered;
       items.push({
         when: r.created_at,
         icon: r.kind === 'cannot_do' ? '⚠️' : '🔄',
-        tone: r.status === 'open' ? 'bad' : 'ok',
+        tone: urgent ? 'bad' : 'ok',
         who: r.display_name,
         what: r.kind === 'cannot_do'
-          ? `cannot do ${r.role_name} on ${when}${r.status === 'open' ? ' — still needs somebody' : ''}`
+          ? `cannot do ${r.role_name} on ${when}${urgent && r.kind === 'cannot_do' ? ' — still needs somebody' : ''}`
           : `has asked to swap ${r.role_name} on ${when}`,
         href: `/app/rota/service/${r.service_id}`,
         area: 'rota',
+        urgent,
       });
     }
   }
@@ -122,7 +145,7 @@ export async function recentActivity(
       .prepare(
         `SELECT created_at, id, title, starts_at, ends_at, is_published
            FROM events
-          WHERE created_at >= datetime('now', '-30 days')
+          WHERE created_at >= datetime('now', '-${RECENT_DAYS} days')
           ORDER BY created_at DESC
           LIMIT 5`,
       )
@@ -166,6 +189,7 @@ export async function recentActivity(
           + (r.freq ? ' (repeating)' : '') + ' — waiting for a decision',
         href: `/app/rooms#request-${r.id}`,
         area: 'rooms.manage',
+        urgent: r.starts_at.slice(0, 10) >= today,
       });
     }
   }
@@ -193,12 +217,29 @@ export async function recentActivity(
     }
   }
 
-  // Newest first, then trimmed. Sorting here rather than in SQL is what lets
-  // four different tables share one list without a compound SELECT.
-  return items
+  return lately(items, limit, now);
+}
+
+/**
+ * The last RECENT_DAYS, plus anything older that still needs doing, which
+ * comes first and is marked "Action needed". Then newest first, then trimmed —
+ * never trimming away something that needs action. Sorting here rather than in
+ * SQL is what lets several tables share one list without a compound SELECT.
+ * Kept apart from the queries so it can be tested without a database.
+ */
+export function lately(items: ActivityItem[], limit: number, now: Date): ActivityItem[] {
+  const cutoff = new Date(now.getTime() - RECENT_DAYS * 86_400_000)
+    .toISOString().slice(0, 19).replace('T', ' ');
+  const newestFirst = (a: ActivityItem, b: ActivityItem) =>
+    (a.when < b.when ? 1 : a.when > b.when ? -1 : 0);
+  const kept = items
     .filter((i) => i.when)
-    .sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0))
-    .slice(0, limit);
+    // SQLite's 'YYYY-MM-DD HH:MM:SS' compares as text; an ISO 'T' is read the same.
+    .map((i) => ({ ...i, actionNeeded: !!i.urgent && i.when.replace('T', ' ') < cutoff }))
+    .filter((i) => i.urgent || i.when.replace('T', ' ') >= cutoff);
+  const overdue = kept.filter((i) => i.actionNeeded).sort(newestFirst);
+  const rest = kept.filter((i) => !i.actionNeeded).sort(newestFirst);
+  return [...overdue, ...rest.slice(0, Math.max(0, limit - overdue.length))];
 }
 
 /** "3 days ago". A distance is more use here than a date. */

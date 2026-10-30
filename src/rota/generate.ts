@@ -1,4 +1,5 @@
 import { DEFAULT_RULES } from './types.js';
+import { weekOfMonth } from '../frequency.js';
 import type {
   Allocation, Gap, GenCapability, GeneratorInput, GeneratorResult, GenService, ServedRecord, Verdict,
 } from './types.js';
@@ -27,6 +28,7 @@ const W = {
   pair: 25, // completing a pair who like serving together
   amber: 60, // per amber combination incurred
   sticky: 15, // held this slot in the previous draft
+  beat: 30, // exactly on the spacing they asked for ("every other week")
 } as const;
 
 /** Someone who has never served ranks above the on-time and below the truly
@@ -193,11 +195,30 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
   }
   const covered = (roleId: number) => coveredDays.get(roleId) ?? horizonDays;
 
+  // A role's places, by which Sunday of the month they fall on, so somebody who
+  // only does the 2nd Sunday is never expected to take more places than the
+  // 2nd Sundays hold.
+  const slotsByWeek = new Map<number, number[]>();
+  for (const s of sorted) {
+    const wk = weekOfMonth(s.date);
+    for (const r of s.roles) {
+      const arr = slotsByWeek.get(r.roleId) ?? [0, 0, 0, 0, 0, 0];
+      arr[wk] = (arr[wk] ?? 0) + r.ideal;
+      slotsByWeek.set(r.roleId, arr);
+    }
+  }
+  const slotsOnTheirWeeks = (c: GenCapability | undefined, roleId: number) => {
+    if (!c?.weeksOfMonth) return Infinity;
+    const arr = slotsByWeek.get(roleId) ?? [];
+    return c.weeksOfMonth.reduce((n, wk) => n + (arr[wk] ?? 0), 0);
+  };
+
   /** How many of a role's places somebody's own rhythm would take: the weeks
    *  the draft covers divided by their rhythm, so a weekly vicar is every one of
-   *  the Sundays in a draft of any length. */
-  const statedTurns = (every: number, roleId: number, slots: number) =>
-    Math.min(slots, covered(roleId) / every);
+   *  the Sundays in a draft of any length — but never more than the Sundays
+   *  they are willing to do. */
+  const statedTurns = (every: number, roleId: number, slots: number, c?: GenCapability) =>
+    Math.min(slots, covered(roleId) / every, slotsOnTheirWeeks(c, roleId));
 
   const evenShare = new Map<number, number>(); // the old figure: everybody alike
   const fairShare = new Map<number, number>(); // the target for those who said nothing
@@ -214,9 +235,10 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     let unstated = 0;
     let statedDemand = 0;
     for (const pid of pool) {
-      const every = statedEvery(capBy.get(`${pid}:${roleId}`));
+      const c = capBy.get(`${pid}:${roleId}`);
+      const every = statedEvery(c);
       if (every == null) unstated++;
-      else statedDemand += statedTurns(every, roleId, slots);
+      else statedDemand += statedTurns(every, roleId, slots, c);
     }
     statedAsk.set(roleId, { demand: statedDemand, unstated });
     const even = n > 0 && slots > 0 ? (horizonDays * n) / slots : horizonDays;
@@ -323,6 +345,45 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
   };
   for (const h of history) record(h);
 
+  // Bookings already fixed LATER in the draft. The walk goes in date order and
+  // records a pin only when it reaches that service, so without these a pin on
+  // 29 November was invisible on 22 November: the draft would happily put the
+  // same person on the Sunday before, inside their own gap and over their own
+  // limit, and only the pin it could not see kept them on the 29th as well.
+  const dayOfService = new Map(sorted.map((s) => [s.id, s.day]));
+  const pinnedAhead = new Map<string, number[]>(); // person:role -> days, sorted
+  const pinnedAheadAny = new Map<number, number[]>(); // person -> days, sorted
+  for (const p of pinned) {
+    const day = dayOfService.get(p.serviceId);
+    if (day == null || !personById.has(p.personId)) continue;
+    const k = `${p.personId}:${p.roleId}`;
+    pinnedAhead.set(k, [...(pinnedAhead.get(k) ?? []), day].sort((a, b) => a - b));
+    pinnedAheadAny.set(p.personId, [...(pinnedAheadAny.get(p.personId) ?? []), day].sort((a, b) => a - b));
+  }
+
+  /**
+   * Whether one more turn on `day` keeps within "N times every P".
+   *
+   * Every window of P days that would contain the new turn is checked, looking
+   * forward to fixed bookings as well as back, not only the window ending today.
+   *
+   * P is taken in whole weeks, rounded down: services come a week apart, and a
+   * month is 30 days, so "once a month" over a 30-day window refused a fourth
+   * Sunday 28 days on and made it every five weeks; "twice a month" refused the
+   * third of a run of alternate Sundays. Quarters are 13 weeks exactly and are
+   * unchanged.
+   */
+  const fitsCap = (days: number[], day: number, cap: { count: number; windowDays: number }) => {
+    const win = cap.windowDays >= 7 ? Math.floor(cap.windowDays / 7) * 7 : cap.windowDays;
+    const near = days.filter((d) => d > day - win && d < day + win);
+    const starts = [day, ...near.filter((d) => d <= day)];
+    for (const s of starts) {
+      const n = 1 + near.filter((d) => d >= s && d < s + win).length;
+      if (n > cap.count) return false;
+    }
+    return true;
+  };
+
   // Counts accumulated during THIS run, used for fairness and tie-breaks.
   const runTotal = new Map<number, number>();
   const runInRole = new Map<string, number>();
@@ -342,7 +403,7 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     if (!n || !slots) continue;
     const every = statedEvery(c);
     const turns = every != null
-      ? statedTurns(every, c.roleId, slots)
+      ? statedTurns(every, c.roleId, slots, c)
       : unstatedTurns.get(c.roleId) ?? slots / n;
     expectedLoad.set(c.personId, (expectedLoad.get(c.personId) ?? 0) + turns);
   }
@@ -392,7 +453,8 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
     let supply = 0;
     for (const pid of pool) {
       const gap = Math.max(1, floorGap(pid, roleId));
-      supply += Math.floor(horizonDays / gap) + 1;
+      supply += Math.min(Math.floor(horizonDays / gap) + 1,
+        slotsOnTheirWeeks(capBy.get(`${pid}:${roleId}`), roleId));
     }
     if (supply < slots) {
       warnings.push(
@@ -514,8 +576,13 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
       opts: { allowInsideGap?: boolean; allowOverCap?: boolean; skipMustPairs?: boolean } = {},
       seatsRemaining = 99,
     ): string | null => {
-      if (!capBy.has(`${personId}:${roleId}`)) return 'cannot do this role';
+      const own = capBy.get(`${personId}:${roleId}`);
+      if (!own) return 'cannot do this role';
       if (isUnavailable(personId, svc.day)) return 'unavailable that day';
+      // "Only the 2nd Sunday of the month". Like being away, never bent.
+      if (own.weeksOfMonth && !own.weeksOfMonth.includes(weekOfMonth(svc.date))) {
+        return 'only does certain Sundays of the month';
+      }
 
       const heldRoles = held.get(personId) ?? [];
       if (heldRoles.includes(roleId)) return 'already in this role here';
@@ -539,12 +606,20 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
       }
 
       const k = `${personId}:${roleId}`;
+      const floor = floorGap(personId, roleId);
       const last = lastInRole.get(k);
       if (last != null && Number.isFinite(last)) {
         const since = svc.day - last;
-        const floor = floorGap(personId, roleId);
         if (since < floor && !(opts.allowInsideGap && since >= RELAX_FLOOR_DAYS)) {
           return 'too soon after their last time in this role';
+        }
+      }
+      // The same gap, looking forward to a date they are already down for.
+      const next = (pinnedAhead.get(k) ?? []).find((d) => d > svc.day);
+      if (next != null) {
+        const until = next - svc.day;
+        if (until < floor && !(opts.allowInsideGap && until >= RELAX_FLOOR_DAYS)) {
+          return 'too close to a date they are already down for';
         }
       }
 
@@ -567,6 +642,14 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
           if (sinceAny > 0 && sinceAny < rules.anyRoleHardDays
               && !(opts.allowInsideGap && sinceAny >= RELAX_FLOOR_DAYS)) {
             return 'on something else too recently';
+          }
+        }
+        const nextAny = (pinnedAheadAny.get(personId) ?? []).find((d) => d > svc.day);
+        if (nextAny != null) {
+          const untilAny = nextAny - svc.day;
+          if (untilAny < rules.anyRoleHardDays
+              && !(opts.allowInsideGap && untilAny >= RELAX_FLOOR_DAYS)) {
+            return 'too close to a date they are already down for';
           }
         }
       }
@@ -609,13 +692,13 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
           }
         }
       }
-      const cap = capBy.get(k)?.maxPerWindow;
+      const cap = own.maxPerWindow;
       if (cap && !opts.allowOverCap) {
-        const days = servedDays.get(k) ?? [];
-        const from = svc.day - cap.windowDays;
-        let n = 0;
-        for (let i = days.length - 1; i >= 0 && days[i]! > from; i--) n++;
-        if (n >= cap.count) return 'already at the limit they asked for';
+        const days = [
+          ...(servedDays.get(k) ?? []),
+          ...(pinnedAhead.get(k) ?? []).filter((d) => d > svc.day),
+        ];
+        if (!fitsCap(days, svc.day, cap)) return 'already at the limit they asked for';
       }
       return null;
     };
@@ -629,6 +712,16 @@ export function generateRota(input: GeneratorInput): GeneratorResult {
         ? NEVER_SERVED_RATIO
         : Math.min(DEBT_CAP, Math.max(0, (svc.day - last) / target));
       let score = W.debt * (ratio - 1);
+
+      // "Every other week": exactly on their beat is where they want to be. The
+      // floor already stops them coming round sooner; this stops the draft
+      // drifting them a week later, which would leave them on the wrong
+      // alternate Sundays from then on.
+      const spacing = capBy.get(k)?.spacingDays;
+      if (spacing && last != null && Number.isFinite(last)) {
+        const since = svc.day - last;
+        if (since > 0 && since % spacing === 0) score += W.beat;
+      }
 
       const expect = expectedLoad.get(personId) ?? 1;
       const done = (runTotal.get(personId) ?? 0);

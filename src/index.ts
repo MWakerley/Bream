@@ -24,7 +24,6 @@ import {
   saveCombinationsForRole,
   listPairings,
   listPeople,
-  listPeopleForRole,
   MERGE_PERSON_ROLES_SQL,
   listRoles,
   personForSession,
@@ -49,17 +48,16 @@ import { buildDraftView, derive, editService, editableSlots, type DraftCandidate
 import { listDraftCandidates } from './db.js';
 import { personPage, mergePage } from './views/person.js';
 import { profilesPage, addPersonPage, changePasswordPage } from './views/profiles.js';
-import { peopleByRolePage } from './views/byrole.js';
 import { noAccessPage } from './views/noaccess.js';
 import { AREA_KEYS, areaForPath, areasForPerson, listProfiles, mayAccess,
          suggestUsername, temporaryPassword } from './access.js';
-import { readUnitPair } from './frequency.js';
+import { readUnitPair, readWhen } from './frequency.js';
 import { roomsPage, editBookingPage, editSeriesPage, clashNotice } from './views/rooms.js';
 import { roomSettingsPage, type RoomSettingRow } from './views/roomsettings.js';
 import { listRooms, listBookings, getBooking, findClashes, readBooking, instants,
          listSeries, planSeries, getSeries, applySeriesEdit, type BookingInput,
          loadDiarySettings, listDiaryRooms, listPublicDiary, publicDiaryWindow,
-         privateAfterSave } from './rooms.js';
+         privateAfterSave, bookingColour, bookingFont } from './rooms.js';
 import { publicDiaryCalendarPage, publicDiaryListPage, diaryClosedPage } from './views/roomDiary.js';
 import { FREQUENCIES, describeSeries, type Frequency } from './recurrence.js';
 import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
@@ -843,82 +841,6 @@ app.post('/app/settings/profiles/:id/delete', async (c) => {
 // ---------------------------------------------------------------------------
 
 
-// ---------------------------------------------------------------------------
-// Everybody, against one role
-// ---------------------------------------------------------------------------
-
-async function byRoleView(
-  c: Context<{ Bindings: Env; Variables: Vars }>,
-  roleId: number,
-  notice?: { tone: 'ok' | 'bad'; text: string },
-) {
-  const roles = await listRoles(c.env.DB);
-  const role = roles.find((r) => r.id === roleId) ?? roles[0];
-  if (!role) return c.html(peoplePage([], viewCtx(c)));
-  const people = await listPeopleForRole(c.env.DB, role.id);
-  return c.html(peopleByRolePage({ roles, role, people, ctx: viewCtx(c), notice }));
-}
-
-app.get('/app/settings/people/by-role', async (c) => {
-  const asked = Number(c.req.query('role'));
-  const roles = await listRoles(c.env.DB);
-  const roleId = Number.isInteger(asked) ? asked : (roles[0]?.id ?? 0);
-  return byRoleView(c, roleId);
-});
-
-app.post('/app/settings/people/by-role', async (c) => {
-  const form = await c.req.formData();
-  const roleId = Number(form.get('role_id'));
-  if (!Number.isInteger(roleId)) return c.notFound();
-
-  // Only the people the form actually showed are touched.
-  //
-  // An unticked checkbox is not submitted at all, so "can" alone cannot tell
-  // somebody who was unticked from somebody who was never on the page. Without
-  // the explicit list of who was shown, a filtered view would wipe the role from
-  // everybody it did not display.
-  const shown = form.getAll('shown').map(Number).filter(Number.isInteger);
-  const ticked = new Set(form.getAll('can').map(Number).filter(Number.isInteger));
-  if (!shown.length) return byRoleView(c, roleId, { tone: 'bad', text: 'Nothing was submitted.' });
-
-  const num = (k: string) => {
-    const v = Number(form.get(k));
-    return Number.isInteger(v) && v > 0 ? v : null;
-  };
-
-  const stmts = shown.map((personId) => {
-    const canDo = ticked.has(personId) ? 1 : 0;
-    const max = num(`max_${personId}`);
-    const period = readUnitPair(form, `periodn_${personId}`, `periodu_${personId}`);
-    // A cap needs both halves to mean anything; half of one is treated as unset.
-    const capOk = max !== null && period !== null;
-    // Safe to read an absent box as "no": every row the page draws carries one,
-    // and only the people it drew are in `shown`.
-    const anyTime = form.get(`anytime_${personId}`) ? 1 : 0;
-    return c.env.DB.prepare(
-      `INSERT INTO person_roles (person_id, role_id, can_do, willing,
-                                 max_per_period, period_days, min_gap_days, ask_any_time)
-       VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)
-       ON CONFLICT(person_id, role_id) DO UPDATE SET
-         can_do = excluded.can_do,
-         max_per_period = excluded.max_per_period,
-         period_days = excluded.period_days,
-         min_gap_days = excluded.min_gap_days,
-         ask_any_time = excluded.ask_any_time`,
-    ).bind(personId, roleId, canDo, capOk ? max : null, capOk ? period : null,
-      readUnitPair(form, `gapn_${personId}`, `gapu_${personId}`), anyTime);
-  });
-
-  for (let i = 0; i < stmts.length; i += 50) await c.env.DB.batch(stmts.slice(i, i + 50));
-
-  const role = (await listRoles(c.env.DB)).find((r) => r.id === roleId);
-  return byRoleView(c, roleId, {
-    tone: 'ok',
-    text: `Saved. ${ticked.size} ${ticked.size === 1 ? 'person' : 'people'} can now do `
-      + `${role?.name ?? 'this role'}.`,
-  });
-});
-
 app.get('/app/settings/people/new', async (c) =>
   c.html(addPersonPage({ profiles: await listProfiles(c.env.DB), ctx: viewCtx(c) })));
 
@@ -1033,7 +955,7 @@ async function personView(
       `SELECT r.id AS role_id,
               COALESCE(pr.can_do, 0)  AS can_do,
               COALESCE(pr.willing, 1) AS willing,
-              pr.max_per_period, pr.period_days, pr.min_gap_days,
+              pr.max_per_period, pr.period_days, pr.weeks_of_month, pr.spacing_weeks,
               COALESCE(pr.ask_any_time, 0) AS ask_any_time,
               (SELECT COUNT(*) FROM assignments a
                 WHERE a.person_id = ?1 AND a.role_id = r.id) AS done
@@ -1322,18 +1244,26 @@ app.post('/app/settings/people/:id', async (c) => {
     // page is the one form that posts here: a form without the table would
     // clear every tick, so it would need its own handler.
     const anyTime = form.get(`anytime_${r.id}`) ? 1 : 0;
+    // "When": Any, or which Sundays of the month and a spacing. The same
+    // reasoning as the tick: every row is drawn, so absent means Any.
+    const when = readWhen(form, r.id);
+    // min_gap_days is written as NULL: the one "how often" replaced it
+    // (migrations/0029), and nothing reads it any more.
     return c.env.DB.prepare(
       `INSERT INTO person_roles (person_id, role_id, can_do, willing,
-                                 max_per_period, period_days, min_gap_days, ask_any_time)
-       VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)
+                                 max_per_period, period_days, min_gap_days, ask_any_time,
+                                 weeks_of_month, spacing_weeks)
+       VALUES (?1, ?2, ?3, 1, ?4, ?5, NULL, ?6, ?7, ?8)
        ON CONFLICT(person_id, role_id) DO UPDATE SET
          can_do = excluded.can_do,
          max_per_period = excluded.max_per_period,
          period_days = excluded.period_days,
-         min_gap_days = excluded.min_gap_days,
-         ask_any_time = excluded.ask_any_time`,
-    ).bind(id, r.id, canDo, pairOk ? max : null, pairOk ? period : null,
-      readUnitPair(form, `gapn_${r.id}`, `gapu_${r.id}`), anyTime);
+         min_gap_days = NULL,
+         ask_any_time = excluded.ask_any_time,
+         weeks_of_month = excluded.weeks_of_month,
+         spacing_weeks = excluded.spacing_weeks`,
+    ).bind(id, r.id, canDo, pairOk ? max : null, pairOk ? period : null, anyTime,
+      when.weeks, when.spacing);
   });
   for (let i = 0; i < stmts.length; i += 50) await c.env.DB.batch(stmts.slice(i, i + 50));
 
@@ -1441,7 +1371,7 @@ app.post('/app/settings/roles/new', async (c) => {
  * question as each person's own record, and a team-wide figure could hold back
  * a preacher who had asked to preach more without anything on their record
  * saying why. How often somebody does a job is now said in one place only: on
- * their own record, or a whole team at once on People > Edit by role.
+ * their own record.
  */
 async function draftRulesView(
   c: Context<{ Bindings: Env; Variables: Vars }>,
@@ -2558,7 +2488,8 @@ app.post('/app/rooms/book', async (c) => {
   const form = await c.req.formData();
   const parsed = readBooking(form);
   const echo = Object.fromEntries(
-    ['room_id', 'on_date', 'from_time', 'to_time', 'title', 'contact', 'notes', 'is_private']
+    ['room_id', 'on_date', 'from_time', 'to_time', 'title', 'contact', 'notes', 'is_private',
+      'colour', 'font']
       .map((k) => [k, String(form.get(k) ?? '')]),
   );
   if (!parsed.ok) return roomsView(c, { tone: 'bad', text: parsed.error }, echo);
@@ -2573,10 +2504,12 @@ app.post('/app/rooms/book', async (c) => {
   if (clashes.length) return roomsView(c, { tone: 'bad', text: clashNotice(clashes) }, echo);
 
   await c.env.DB.prepare(
-    `INSERT INTO room_bookings (room_id, title, starts_at, ends_at, booked_by, contact, notes, is_private)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    `INSERT INTO room_bookings (room_id, title, starts_at, ends_at, booked_by, contact, notes, is_private,
+                                colour, font)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
   ).bind(parsed.value.roomId, parsed.value.title, startsAt, endsAt,
-    c.get('person').id, parsed.value.contact, parsed.value.notes, parsed.value.isPrivate ? 1 : 0).run();
+    c.get('person').id, parsed.value.contact, parsed.value.notes, parsed.value.isPrivate ? 1 : 0,
+    parsed.value.colour, parsed.value.font).run();
 
   return roomsView(c, { tone: 'ok', text: `Booked: ${parsed.value.title}.` });
 });
@@ -2625,20 +2558,22 @@ async function bookSeries(
   const priv = v.isPrivate ? 1 : 0;
   const res = await c.env.DB.prepare(
     `INSERT INTO room_booking_series
-       (room_id, title, contact, notes, freq, from_date, until_date, from_time, to_time, created_by, is_private)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+       (room_id, title, contact, notes, freq, from_date, until_date, from_time, to_time, created_by, is_private,
+        colour, font)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
   ).bind(v.roomId, v.title, v.contact, v.notes, repeat, v.onDate, until,
-    v.fromTime, v.toTime, c.get('person').id, priv).run();
+    v.fromTime, v.toTime, c.get('person').id, priv, v.colour, v.font).run();
   const seriesId = Number(res.meta.last_row_id);
 
   const stmt = c.env.DB.prepare(
     `INSERT INTO room_bookings
-       (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id, is_private)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+       (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id, is_private,
+        colour, font)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
   );
   const rows = plan.dates.map((d) => stmt.bind(
     v.roomId, v.title, `${d}T${v.fromTime}`, `${d}T${v.toTime}`,
-    c.get('person').id, v.contact, v.notes, seriesId, priv));
+    c.get('person').id, v.contact, v.notes, seriesId, priv, v.colour, v.font));
   for (let i = 0; i < rows.length; i += 100) await c.env.DB.batch(rows.slice(i, i + 100));
 
   // Everything the run could not do, said plainly.
@@ -2758,6 +2693,7 @@ app.post('/app/rooms/series/:id', async (c) => {
       roomId, title, contact: str('contact') || null, notes: str('notes') || null,
       freq: freq as Frequency, untilDate: until, fromTime, toTime,
       isPrivate: privateAfterSave(form, !!series.is_private),
+      colour: bookingColour(form.get('colour')), font: bookingFont(form.get('font')),
     }, c.get('person').id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -2972,10 +2908,12 @@ app.post('/app/rooms/:id', async (c) => {
     `UPDATE room_bookings
         SET room_id = ?2, title = ?3, starts_at = ?4, ends_at = ?5,
             contact = ?6, notes = ?7, status = 'booked', is_private = ?8,
+            colour = ?9, font = ?10,
             series_detached = CASE WHEN series_id IS NULL THEN 0 ELSE 1 END
       WHERE id = ?1`,
   ).bind(id, parsed.value.roomId, parsed.value.title, startsAt, endsAt,
-    parsed.value.contact, parsed.value.notes, privateAfterSave(form, !!booking.is_private) ? 1 : 0).run();
+    parsed.value.contact, parsed.value.notes, privateAfterSave(form, !!booking.is_private) ? 1 : 0,
+    parsed.value.colour, parsed.value.font).run();
 
   return roomsView(c, { tone: 'ok', text: `Updated: ${parsed.value.title}.` });
 });

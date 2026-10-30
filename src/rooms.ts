@@ -28,7 +28,7 @@ export async function listBookings(
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
               b.contact, b.notes, b.status, b.series_id, b.event_id, b.is_tentative, b.request_id,
-              b.is_private, p.display_name AS booked_by_name
+              b.is_private, b.colour, b.font, p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by
@@ -49,7 +49,7 @@ export async function getBooking(db: D1Database, id: number): Promise<BookingRow
     .prepare(
       `SELECT b.id, b.room_id, r.name AS room_name, b.title, b.starts_at, b.ends_at,
               b.contact, b.notes, b.status, b.series_id, b.event_id, b.is_tentative, b.request_id,
-              b.is_private, p.display_name AS booked_by_name
+              b.is_private, b.colour, b.font, p.display_name AS booked_by_name
          FROM room_bookings b
          JOIN rooms r ON r.id = b.room_id
          LEFT JOIN people p ON p.id = b.booked_by
@@ -100,7 +100,44 @@ export interface BookingInput {
   notes: string | null;
   /** "Private booking": the website's room diary shows only that, and the time. */
   isPrivate: boolean;
+  /** How it looks on the room calendar; null is the usual look. */
+  colour: BookingColour | null;
+  font: BookingFont | null;
 }
+
+/**
+ * The palette a booking can be drawn in on the room calendar. A fixed list
+ * rather than a colour picker, so every choice stays readable — dark lettering
+ * on a pale wash, with a strong edge — and the calendar never turns into
+ * a fruit salad. The styles are .cal-c-<key> and .cal-f-<key> in app.css.
+ */
+export const BOOKING_COLOURS = [
+  { key: 'navy', label: 'Navy' },
+  { key: 'teal', label: 'Teal' },
+  { key: 'green', label: 'Green' },
+  { key: 'gold', label: 'Gold' },
+  { key: 'orange', label: 'Orange' },
+  { key: 'red', label: 'Red' },
+  { key: 'purple', label: 'Purple' },
+  { key: 'pink', label: 'Pink' },
+  { key: 'grey', label: 'Grey' },
+] as const;
+export type BookingColour = typeof BOOKING_COLOURS[number]['key'];
+
+export const BOOKING_FONTS = [
+  { key: 'bold', label: 'Bold' },
+  { key: 'italic', label: 'Italic' },
+  { key: 'serif', label: 'Serif' },
+  { key: 'caps', label: 'Capitals' },
+  { key: 'large', label: 'Large' },
+] as const;
+export type BookingFont = typeof BOOKING_FONTS[number]['key'];
+
+/** A stored or submitted value, or null for anything not in the palette. */
+export const bookingColour = (v: unknown): BookingColour | null =>
+  BOOKING_COLOURS.find((c) => c.key === v)?.key ?? null;
+export const bookingFont = (v: unknown): BookingFont | null =>
+  BOOKING_FONTS.find((f) => f.key === v)?.key ?? null;
 
 /** Validates a submitted booking, returning the instants or an error message. */
 export function readBooking(form: FormData): { ok: true; value: BookingInput } | { ok: false; error: string } {
@@ -129,6 +166,8 @@ export function readBooking(form: FormData): { ok: true; value: BookingInput } |
       notes: s('notes') || null,
       // A checkbox: sent when ticked, missing when not.
       isPrivate: !!form.get('is_private'),
+      colour: bookingColour(form.get('colour')),
+      font: bookingFont(form.get('font')),
     },
   };
 }
@@ -173,6 +212,8 @@ export interface SeriesRow {
   to_time: string;
   /** 1 when every booking it makes is a "Private booking" on the website. */
   is_private: number;
+  colour?: string | null;
+  font?: string | null;
   /** Occurrences still to come. */
   upcoming: number;
   total: number;
@@ -251,7 +292,7 @@ export async function applySeriesEdit(
   next: {
     roomId: number; title: string; contact: string | null; notes: string | null;
     freq: Frequency; untilDate: string; fromTime: string; toTime: string;
-    isPrivate: boolean;
+    isPrivate: boolean; colour: string | null; font: string | null;
   },
   bookedBy: number,
 ): Promise<SeriesEditResult> {
@@ -290,10 +331,17 @@ export async function applySeriesEdit(
   await db.prepare(
     `UPDATE room_booking_series
         SET room_id = ?2, title = ?3, contact = ?4, notes = ?5,
-            freq = ?6, until_date = ?7, from_time = ?8, to_time = ?9, is_private = ?10
+            freq = ?6, until_date = ?7, from_time = ?8, to_time = ?9, is_private = ?10,
+            colour = ?11, font = ?12
       WHERE id = ?1`,
   ).bind(id, next.roomId, next.title, next.contact, next.notes,
-    next.freq, next.untilDate, next.fromTime, next.toTime, priv).run();
+    next.freq, next.untilDate, next.fromTime, next.toTime, priv, next.colour, next.font).run();
+
+  // The look, onto every week of it at once — the ones changed on their own
+  // too, since a colour says which group it is, not anything about one week.
+  await db.prepare(
+    'UPDATE room_bookings SET colour = ?2, font = ?3 WHERE series_id = ?1',
+  ).bind(id, next.colour, next.font).run();
 
   // The tick, onto every booking the series owns, past ones included; onto
   // the weeks changed on their own only when it makes them private. See above.
@@ -314,12 +362,13 @@ export async function applySeriesEdit(
   if (wanted.length) {
     const stmt = db.prepare(
       `INSERT INTO room_bookings
-         (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id, is_private)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+         (room_id, title, starts_at, ends_at, booked_by, contact, notes, series_id, is_private,
+          colour, font)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
     );
     const rows = wanted.map((d) => stmt.bind(
       next.roomId, next.title, `${d}T${next.fromTime}`, `${d}T${next.toTime}`,
-      bookedBy, next.contact, next.notes, id, priv));
+      bookedBy, next.contact, next.notes, id, priv, next.colour, next.font));
     for (let i = 0; i < rows.length; i += 100) await db.batch(rows.slice(i, i + 100));
   }
 

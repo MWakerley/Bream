@@ -16,7 +16,6 @@ Three areas, reachable from the main screen once signed in:
 | Admin login, sessions, first-run setup | **working** |
 | Main screen with the three areas | **working** |
 | Settings: people, what each can do, how often | **working** (editable) |
-| Settings: edit a whole role at once | **working** |
 | Settings: merging duplicate people | **working** |
 | Settings: roles, combination rules, pairings | **working** (read) |
 | Services: Sunday pattern and one-off services | **working** |
@@ -25,7 +24,7 @@ Three areas, reachable from the main screen once signed in:
 | Readings and sermon titles | **working** |
 | Switching a role off for one service | **working** |
 | Draft rota generation, with preview before saving | **working** |
-| Draft rota follows each person's own "how often" | **working** |
+| Draft rota follows each person's own "how often" and "when" | **working** |
 | Changing any service of a draft by hand before applying | **working** |
 | My dates, saying you are away, asking to swap | **working** |
 | Change requests for whoever builds the rota | **working** |
@@ -349,20 +348,14 @@ session left open on a shared tablet is not enough to take the account over. All
 of that person's other sessions are dropped, so a password changed because
 somebody else knew it actually locks them out.
 
-## Setting up a role for lots of people at once
+## How often, and when
 
-Settings → Edit by role asks the question the other way round: pick a role, and
-tick everybody who could take it. Fourteen visits instead of sixty-nine.
+Each person's record says, for every role they do, **how often** (one figure,
+"N times every P" — the draft aims at it and does not go over it) and **when**:
+any week, only certain Sundays of the month (strictly kept), or a spacing such
+as every other week (kept unless a service would otherwise be short). "As often
+as needed" turns their figure into a preference rather than a limit.
 
-The whole roster is listed, not only those who already do it — the point of the
-screen is to *add* people, and "who could preach?" is answered by looking down
-the list of everybody. Those who can do it float to the top so the current
-picture reads first, and each person's frequency for that role is editable
-inline.
-
-**The safeguard worth knowing about.** An unticked checkbox is not submitted by a
-browser at all, so a bulk save cannot tell "somebody unticked this" from
-"somebody was never on the page". Every row therefore also submits a hidden
-`shown` field, and the save only touches those ids. Without it, a filtered view
-would silently strip the role from everybody it did not display. The render test
-asserts that field is present, so it cannot be removed by accident.
+There is no longer a page for editing a whole role at once: everything it set
+lives on the person's own record, and typing a role into the People search
+lists everybody who can do it.

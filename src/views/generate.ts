@@ -466,7 +466,7 @@ export function draftServiceEditPage(opts: {
                     ${slots.length && !pool.length
                       ? html`<p class="hint" style="margin:.35rem 0 0">
                           Nobody is ticked for ${r.roleName}.
-                          <a href="/app/settings/people/by-role?role=${r.roleId}">Tick somebody</a>
+                          <a href="/app/settings/people">Open somebody under People</a>, tick it,
                           and they will appear here.
                         </p>`
                       : ''}

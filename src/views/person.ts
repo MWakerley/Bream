@@ -2,22 +2,62 @@ import { html, raw } from 'hono/html';
 import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
 import type { RoleRow } from '../db.js';
 import { formatDate, formatDateTime } from './rota.js';
-import { UNITS, toUnits, unitFor } from '../frequency.js';
+import {
+  ORDINAL, SPACINGS, UNITS, WEEKS_OF_MONTH, parseSpacing, parseWeeks, toUnits, unitFor,
+} from '../frequency.js';
 import { personSafeguardingCard } from './safeguarding.js';
 import { KEYS, parseKeys } from '../keyholders.js';
 import type { PersonSafeguarding, SafeguardingGrid } from '../safeguarding.js';
 
 const BACK = { href: '/app/settings/people', label: 'People' };
 
+/**
+ * The "When" control for one role: Any, or Specific preferences — which Sundays
+ * of the month, and a spacing. The choices are always in the page, hidden under
+ * "Any", so it works with no JavaScript (the save ignores them under Any).
+ */
+function whenCell(r: RoleRow, s: PersonRoleSetting | undefined) {
+  const weeks = parseWeeks(s?.weeks_of_month);
+  const spacing = parseSpacing(s?.spacing_weeks);
+  const specific = !!weeks || !!spacing;
+  return html`<div class="when">
+    <select name="when_${r.id}" aria-label="When, for ${r.name}">
+      <option value="any" ${specific ? '' : 'selected'}>Any</option>
+      <option value="specific" ${specific ? 'selected' : ''}>Specific preferences…</option>
+    </select>
+    <div class="when-choices" data-when-for="${r.id}" ${specific ? '' : 'hidden'}>
+      <fieldset class="when-weeks">
+        <legend>Only these Sundays of the month</legend>
+        ${WEEKS_OF_MONTH.map((w) => html`<label>
+          <input type="checkbox" name="weeks_${r.id}" value="${w}" ${weeks?.includes(w) ? 'checked' : ''}>
+          ${ORDINAL[w]}
+        </label>`)}
+        <span class="hint">None ticked: any Sunday.</span>
+      </fieldset>
+      <label class="when-spacing">
+        <span>Spacing</span>
+        <select name="spacing_${r.id}" aria-label="Spacing, for ${r.name}">
+          <option value="">No preference</option>
+          ${SPACINGS.map((x) => html`<option value="${x.weeks}" ${spacing === x.weeks ? 'selected' : ''}>${x.label}</option>`)}
+        </select>
+      </label>
+    </div>
+  </div>`;
+}
+
 export interface PersonRoleSetting {
   role_id: number;
   can_do: number;
   willing: number;
+  /** "How often": N times every P days. One figure — see migrations/0029. */
   max_per_period: number | null;
   period_days: number | null;
-  min_gap_days: number | null;
-  /** "As often as needed": lifts the gap the draft would otherwise work out for
-   *  them, and the gap between any two jobs. Their own minimum still counts. */
+  /** "When": which Sundays of the month ('2', '1,3'), and a spacing in weeks.
+   *  Both null is "Any". */
+  weeks_of_month?: string | null;
+  spacing_weeks?: number | null;
+  /** "As often as needed": How often becomes a preference rather than a limit,
+   *  and the usual gaps stop holding them back. Their spacing still counts. */
   ask_any_time: number;
   /** How many times they have actually done it, from the imported rota. */
   done: number;
@@ -340,8 +380,8 @@ export function personPage(opts: {
               <thead>
                 <tr>
                   <th>Role</th>
-                  <th>At most</th>
-                  <th>Not more often than</th>
+                  <th>How often</th>
+                  <th>When</th>
                   <th>As often as needed</th>
                 </tr>
               </thead>
@@ -356,7 +396,7 @@ export function personPage(opts: {
                   // unticked rather than "this form never asked".
                   return html`<tr data-freq-for="${r.id}" ${s?.can_do ? '' : 'hidden'}>
                     <td class="stack-title"><strong>${r.name}</strong></td>
-                    <td data-label="At most">
+                    <td data-label="How often">
                       <span class="freq">
                         <input type="number" min="1" max="30" style="width:4.5rem"
                                name="max_${r.id}" value="${s?.max_per_period ?? ''}"
@@ -373,20 +413,7 @@ export function personPage(opts: {
                         </select>
                       </span>
                     </td>
-                    <td data-label="Not more often than">
-                      <span class="freq">
-                        <span>once every</span>
-                        <input type="number" min="1" max="24" style="width:4.5rem"
-                               name="gapn_${r.id}"
-                               value="${toUnits(s?.min_gap_days ?? null)?.n ?? ''}"
-                               aria-label="How many, minimum gap for ${r.name}">
-                        <select name="gapu_${r.id}"
-                                aria-label="Weeks, months or quarters, minimum gap for ${r.name}">
-                          ${UNITS.map((u) => html`<option value="${u.value}"
-                            ${unitFor(s?.min_gap_days) === u.value ? 'selected' : ''}>${u.label}</option>`)}
-                        </select>
-                      </span>
-                    </td>
+                    <td data-label="When">${whenCell(r, s)}</td>
                     <td data-label="As often as needed">
                       <label class="check" style="padding:.4rem .6rem">
                         <input type="checkbox" name="anytime_${r.id}" value="1"
@@ -403,7 +430,15 @@ export function personPage(opts: {
           <p style="color:var(--ink-2);font-size:.9375rem">
             For example: "most Sundays" is <strong>4 times every 1 month</strong>.
             "Twice a month" is <strong>2 times every 1 month</strong>.
-            "Only every three months" is <strong>once every 1 quarter</strong>.
+            "Once a quarter" is <strong>1 time every 1 quarter</strong>. The draft aims at
+            this and does not go over it.
+          </p>
+          <p style="color:var(--ink-2);font-size:.9375rem">
+            <strong>When</strong> is <strong>Any</strong> unless they have said. Choose
+            <strong>Specific preferences</strong> for somebody who only does, say, the 2nd Sunday
+            of the month — the draft never puts them on another week — or who would rather do it
+            every other week than two weeks running. "Twice a month, but every other week" is
+            <strong>2 times every 1 month</strong> with <strong>Every other week</strong>.
           </p>
           <!-- Said plainly because the tick is easily read as "more often". It
                is not: it only stops the usual spacing holding them back when
@@ -411,10 +446,10 @@ export function personPage(opts: {
                the figures alone (src/rota/generate.ts), so a vicar ticked and
                left blank gets an ordinary share. -->
           <p style="color:var(--ink-2);font-size:.9375rem;margin-bottom:0">
-            <strong>As often as needed</strong> means the draft may ask them again sooner than
-            usual when it needs somebody. On its own it does not put them on more often — for
-            that, fill in <strong>At most</strong>. Their own <strong>Not more often than</strong>
-            still counts.
+            <strong>As often as needed</strong> is for somebody with a preference who is happy to
+            do whatever is needed: the draft still aims at their <strong>How often</strong>, but
+            treats it as a preference rather than a limit, and may ask them again sooner than
+            usual when it needs somebody. On its own it does not put them on more often.
           </p>
         </div>
 
@@ -571,6 +606,17 @@ export function personPage(opts: {
           }
           boxes.forEach(function (b) { b.addEventListener('change', sync); });
           sync();
+
+          // "Specific preferences" opens the choices under it; "Any" hides
+          // them. Hidden, not cleared: the save ignores them under "Any"
+          // (readWhen in src/frequency.ts), and switching back keeps what was
+          // ticked.
+          document.querySelectorAll('select[name^="when_"]').forEach(function (sel) {
+            var box = document.querySelector('[data-when-for="' + sel.name.slice(5) + '"]');
+            function show() { if (box) box.hidden = sel.value !== 'specific'; }
+            sel.addEventListener('change', show);
+            show();
+          });
         }());
       </script>
     `,

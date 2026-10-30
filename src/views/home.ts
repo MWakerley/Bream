@@ -1,6 +1,6 @@
 import { html } from 'hono/html';
 import { layout, type ViewCtx } from './layout.js';
-import { howLongAgo, type ActivityItem } from '../activity.js';
+import { RECENT_DAYS, howLongAgo, type ActivityItem } from '../activity.js';
 
 interface Area {
   href: string;
@@ -45,7 +45,6 @@ const ADMIN_LINKS: { href: string; label: string; note: string }[] = [
   { href: '/app/settings/newsletter', label: 'Newsletter', note: 'Create one, with the week ahead' },
   { href: '/app/settings/people', label: 'People', note: 'Who can do what, and how often' },
   { href: '/app/settings/keyholders', label: 'Keyholders', note: 'Who holds which keys — the buildings and the safe' },
-  { href: '/app/settings/people/by-role', label: 'Edit by role', note: 'Who can preach, who can lead' },
   { href: '/app/settings/people/merge', label: 'Merge duplicates', note: 'Andy, Andy E, Andy Ewens' },
   { href: '/app/settings/profiles', label: 'What people can see', note: 'Profiles and permissions' },
   { href: '/app/settings/people/new', label: 'Add a person', note: 'And give them a sign-in' },
@@ -99,12 +98,15 @@ export function homePage(opts: {
         ? html`<section class="recent">
             <div class="recent-head">
               <h2>Lately</h2>
-              <p>What has changed since you were last here.</p>
+              <p>What has changed in the last ${RECENT_DAYS} days, and anything older still waiting for somebody.</p>
             </div>
             <ul class="recent-list">
-              ${activity.map((a) => html`<li class="recent-item recent-${a.tone}">
-                <span class="recent-icon" aria-hidden="true">${a.icon}</span>
+              ${activity.map((a) => html`<li class="recent-item recent-${a.tone} ${a.actionNeeded ? 'recent-action' : ''}">
+                ${a.actionNeeded
+                  ? html`<span class="action-mark" aria-hidden="true">!</span>`
+                  : html`<span class="recent-icon" aria-hidden="true">${a.icon}</span>`}
                 <span class="recent-body">
+                  ${a.actionNeeded ? html`<span class="action-needed">Action needed</span>` : ''}
                   <span class="recent-text">
                     <strong>${a.who}</strong> ${a.what}
                   </span>

@@ -3,7 +3,7 @@ import { layout, chip, type ViewCtx } from './layout.js';
 import { formatDate, formatSpan, lastDay } from './rota.js';
 import { viewTabs } from './calendar.js';
 import { FREQUENCIES, describeSeries } from '../recurrence.js';
-import type { SeriesRow } from '../rooms.js';
+import { BOOKING_COLOURS, BOOKING_FONTS, bookingColour, bookingFont, type SeriesRow } from '../rooms.js';
 import { requestsDashboard } from './roomRequests.js';
 import type { RequestRow } from '../roomRequests.js';
 
@@ -28,6 +28,9 @@ export interface BookingRow {
   request_id?: number | null;
   /** 1 when the website's room diary shows it only as "Private booking". */
   is_private?: number;
+  /** How it looks on the room calendar — see BOOKING_COLOURS in src/rooms.ts. */
+  colour?: string | null;
+  font?: string | null;
 }
 
 const BACK = { href: '/app', label: 'All areas' };
@@ -55,6 +58,60 @@ function privateTick(on: boolean, more = '') {
       <span class="check-note">The room diary on the website shows just "Private booking" and the time — not what it is for.${more ? ` ${more}` : ''}</span></span>
   </label>`;
 }
+
+/**
+ * "How it looks on the calendar": a colour from the palette and a lettering,
+ * the same on every form that makes or changes a booking. Radio swatches
+ * rather than a dropdown so the colour is seen before it is chosen, and a
+ * sample entry underneath that follows the choice. `more` says how far it
+ * reaches, as privateTick's does.
+ */
+export function styleChooser(colour: string | null | undefined, font: string | null | undefined, more = '') {
+  const c = bookingColour(colour);
+  const f = bookingFont(font);
+  return html`<fieldset class="booking-style">
+    <legend>How it looks on the calendar</legend>
+    <span class="hint">Optional. Leave as it is for the calendar's usual look.${more ? ` ${more}` : ''}</span>
+    <div class="swatches" role="radiogroup" aria-label="Colour">
+      <label class="swatch swatch-none" title="Usual">
+        <input type="radio" name="colour" value="" ${c ? '' : 'checked'}>
+        <span>Usual</span>
+      </label>
+      ${BOOKING_COLOURS.map((x) => html`<label class="swatch cal-c-${x.key}" title="${x.label}">
+        <input type="radio" name="colour" value="${x.key}" ${c === x.key ? 'checked' : ''}>
+        <span>${x.label}</span>
+      </label>`)}
+    </div>
+    <label class="booking-font">
+      <span>Lettering</span>
+      <select name="font">
+        <option value="">Usual</option>
+        ${BOOKING_FONTS.map((x) => html`<option value="${x.key}" ${f === x.key ? 'selected' : ''}>${x.label}</option>`)}
+      </select>
+    </label>
+    <p class="booking-sample-row">
+      <span class="hint">On the calendar:</span>
+      <span class="cal-item booking-sample ${c ? `cal-c-${c}` : ''} ${f ? `cal-f-${f}` : ''}"><strong>19:00</strong> Sample booking</span>
+    </p>
+  </fieldset>`;
+}
+
+/** Keeps every sample on the page in step with its own form's choices. */
+const STYLE_SCRIPT = html`<script>
+  (function () {
+    document.querySelectorAll('.booking-style').forEach(function (box) {
+      var sample = box.querySelector('.booking-sample');
+      function sync() {
+        var c = box.querySelector('input[name=colour]:checked');
+        var f = box.querySelector('select[name=font]');
+        sample.className = 'cal-item booking-sample'
+          + (c && c.value ? ' cal-c-' + c.value : '')
+          + (f && f.value ? ' cal-f-' + f.value : '');
+      }
+      box.addEventListener('change', sync);
+    });
+  }());
+</script>`;
 
 const time = (iso: string) => iso.slice(11, 16);
 const date = (iso: string) => iso.slice(0, 10);
@@ -187,6 +244,8 @@ export function roomsPage(opts: {
           </div>
         </div>
         ${privateTick(!!f.is_private, 'For a repeating booking, every date it books.')}
+        ${styleChooser(f.colour, f.font)}
+        ${STYLE_SCRIPT}
 
         <h3 style="margin-bottom:.5rem">Does it repeat?</h3>
         <div class="grid-fields">
@@ -474,6 +533,10 @@ export function editBookingPage(opts: {
           // one week does, so say how far the tick reaches.
           ? 'This week only: the rest of the repeating booking keeps its own setting. A later change to the series leaves this week as you set it here — unless the series is saved with "Private booking" ticked, which makes every week private.'
           : '')}
+        ${styleChooser(b.colour, b.font, b.series_id
+          ? 'This week only — until the repeating booking is next saved, which sets every week to its look.'
+          : '')}
+        ${STYLE_SCRIPT}
         <div class="btn-row">
           <button class="btn-primary" type="submit">Save changes</button>
           <a class="btn-secondary" href="/app/rooms">Back without saving</a>
@@ -563,6 +626,8 @@ export function editSeriesPage(opts: {
           </div>
         </div>
         ${privateTick(!!s.is_private, 'Every booking in the series — see above.')}
+        ${styleChooser(s.colour, s.font, 'Every week of it, including any changed on its own.')}
+        ${STYLE_SCRIPT}
 
         <div class="grid-fields">
           <div class="field">

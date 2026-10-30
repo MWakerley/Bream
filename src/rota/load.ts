@@ -1,5 +1,6 @@
 import { epochDay } from './generate.js';
 import { getRotaRules } from '../db.js';
+import { parseSpacing, parseWeeks } from '../frequency.js';
 import type { GenCapability, GeneratorInput, GenPair, GenService, Verdict } from './types.js';
 
 /** How far back to look for cadence. A quarter's rota needs roughly a year of
@@ -93,7 +94,7 @@ export async function loadGeneratorInput(
       // person_roles.role_id cascades on delete, so it never pointed at nothing.
       db.prepare(
         `SELECT pr.person_id, pr.role_id, pr.max_per_period, pr.period_days,
-                pr.min_gap_days, pr.ask_any_time
+                pr.ask_any_time, pr.weeks_of_month, pr.spacing_weeks
            FROM person_roles pr
            JOIN people p ON p.id = pr.person_id
           WHERE pr.can_do = 1 AND pr.willing = 1
@@ -112,10 +113,12 @@ export async function loadGeneratorInput(
         'SELECT person_id, from_date, to_date FROM unavailability WHERE to_date >= ?1',
       ).bind(fromDate),
 
+      // What they have done. A declined booking is not a time they served, and
+      // counting it made somebody who said no look as if they had just been on.
       db.prepare(
         `SELECT a.person_id, a.role_id, s.service_date
            FROM assignments a JOIN services s ON s.id = a.service_id
-          WHERE a.person_id IS NOT NULL
+          WHERE a.person_id IS NOT NULL AND a.status <> 'declined'
             AND s.service_date >= ?1 AND s.service_date < ?2`,
       ).bind(historyFrom, fromDate),
 
@@ -258,14 +261,16 @@ export async function loadGeneratorInput(
 export interface CapabilityRow {
   person_id: number;
   role_id: number;
-  /** "At most N times ..." */
+  /** "N times ..." */
   max_per_period: number | null;
   /** "... every P days". Only means anything alongside max_per_period. */
   period_days: number | null;
-  /** "Not more often than once every G days." */
-  min_gap_days: number | null;
   /** "Ask them as often as needed", stored 0/1. */
   ask_any_time: number | null;
+  /** Which Sundays of the month, e.g. '2' or '1,3'. Null = any. */
+  weeks_of_month?: string | null;
+  /** 2 = every other week. Null = no preference. */
+  spacing_weeks?: number | null;
 }
 
 /**
@@ -293,27 +298,35 @@ export interface CapabilityRow {
  * because roles carries CHECK constraints, and D1 refuses to drop a column from
  * such a table (see the note at the top of migrations/0001); nothing reads them.
  *
- * The schema stores a cap ("twice a month") and a floor ("every 3 months")
- * rather than a rhythm, so the rhythm is derived from whichever they gave: a
- * floor IS a rhythm, and a cap implies one of window/count. Where they gave
- * BOTH, the slower of the two is the one to aim at. "At most 4 times a quarter,
- * and not more often than every 2 weeks" is about every 23 days; aiming at the
- * fortnight would have them run into their own cap every month and then wait.
+ * ONE FIGURE. There used to be two on a person's record, "at most N times
+ * every P" and "not more often than once every G", and the draft obeyed the
+ * stricter. People filled in both, differently: "once a quarter" and "every six
+ * months" kept Matt Wakerley off the preaching rota altogether. Now there is
+ * one, "N times every P", which is both the rhythm aimed at and the limit —
+ * unless they are ticked "as often as needed", when it is only the rhythm.
+ * min_gap_days is no longer read (migrations/0029 folded it in and cleared it).
+ *
+ * WHEN. A spacing ("every other week") is a floor the draft keeps to, and the
+ * rhythm itself where they gave no "how often". Sundays of the month are a
+ * strict filter, applied in generate.ts.
  */
 export function capabilityFromRow(row: CapabilityRow): GenCapability {
-  const maxPerWindow = row.max_per_period && row.period_days
-    ? { count: row.max_per_period, windowDays: row.period_days }
-    : null;
   // Only what they actually stated. A zero would read as "every day" here and
   // as "no view" in the generator, so it is treated as no view in both.
-  const stated = [row.min_gap_days, maxPerWindow && maxPerWindow.windowDays / maxPerWindow.count]
-    .filter((d): d is number => d != null && d > 0);
+  const stated = row.max_per_period && row.max_per_period > 0 && row.period_days && row.period_days > 0
+    ? { count: row.max_per_period, windowDays: row.period_days }
+    : null;
+  const spacing = parseSpacing(row.spacing_weeks);
+  const spacingDays = spacing ? spacing * 7 : null;
+  const askAnyTime = !!row.ask_any_time;
   return {
     personId: row.person_id,
     roleId: row.role_id,
-    desiredEveryDays: stated.length ? Math.max(...stated) : null,
-    minGapDays: row.min_gap_days ?? null,
-    askAnyTime: !!row.ask_any_time,
-    maxPerWindow,
+    desiredEveryDays: stated ? stated.windowDays / stated.count : spacingDays,
+    minGapDays: spacingDays,
+    askAnyTime,
+    maxPerWindow: askAnyTime ? null : stated,
+    weeksOfMonth: parseWeeks(row.weeks_of_month),
+    spacingDays,
   };
 }

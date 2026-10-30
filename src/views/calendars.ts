@@ -4,6 +4,7 @@ import { monthCalendar, monthLabel, viewTabs, type CalendarEntry } from './calen
 import { describeUnder, formatSpan } from './rota.js';
 import type { ServiceSummary } from '../db.js';
 import { daysCovered, timeOnDay, type BookingRow, type RoomRow } from './rooms.js';
+import { bookingColour, bookingFont } from '../rooms.js';
 
 
 /** Room diary, one room at a time, as a month grid. */
@@ -33,6 +34,9 @@ export function roomsCalendarPage(opts: {
     // With every room shown at once the colour is the only thing separating
     // them, so it follows the room rather than being decorative.
     tone: roomId ? 'navy' : (['navy', 'gold', 'green', 'red'] as const)[(b.room_id - 1) % 4],
+    // Unless the booking was given a look of its own when it was made.
+    colour: bookingColour(b.colour),
+    font: bookingFont(b.font),
     title: `${b.room_name}: ${b.title}, ${formatSpan(b.starts_at, b.ends_at)}`
       + (b.is_private ? ' — private: the website shows just "Private booking"' : ''),
   })));

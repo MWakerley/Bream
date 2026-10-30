@@ -18,22 +18,30 @@ export interface GenPerson {
 
 export interface GenCapability {
   /** "Ask them as often as needed" — this person is exempt from the gap the
-   *  generator would otherwise work out from their share of the role, and from
-   *  the gap between any two jobs. Their OWN stated minimum, if they have one,
-   *  still applies: the tick removes a rule set on their behalf, not one they
-   *  set themselves. */
+   *  generator would otherwise work out from their share of the role, from
+   *  the gap between any two jobs, and from their own "N times every P" as a
+   *  limit (it is still the rhythm they are aimed at). A spacing they chose
+   *  ("every other week") still applies. */
   askAnyTime?: boolean;
   personId: number;
   roleId: number;
-  /** The rhythm this person stated on their own record in People — the slower
-   *  of their "not more often than" and their "at most N times every P" (see
+  /** The rhythm this person stated on their own record in People — their
+   *  "N times every P", or their spacing where that is all they gave (see
    *  capabilityFromRow in load.ts). Null means "no view", and the generator
    *  substitutes their share of whatever the people who did say leave over. */
   desiredEveryDays: number | null;
-  /** Hard floor, from their own record. Null means "derive from the target". */
+  /** Floor, from their own record: their spacing ("every other week" is 14).
+   *  Null means "derive from the target". */
   minGapDays: number | null;
-  /** Hard cap over a rolling window: "twice a month" is {count:2, windowDays:30}. */
+  /** Cap over a rolling window: "twice a month" is {count:2, windowDays:30}.
+   *  Null for somebody ticked "as often as needed", whose figure is then a
+   *  preference rather than a limit. */
   maxPerWindow: { count: number; windowDays: number } | null;
+  /** Only these Sundays of the month (1-5). Null or absent means any week.
+   *  Never bent, even to fill a short service. */
+  weeksOfMonth?: number[] | null;
+  /** "Every other week" is 14. The draft prefers to keep to that beat. */
+  spacingDays?: number | null;
 }
 
 export type Verdict = 'green' | 'amber' | 'red';

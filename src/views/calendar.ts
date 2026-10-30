@@ -30,6 +30,10 @@ export interface CalendarEntry {
   label: string;
   /** Drives the colour of the dot. */
   tone?: 'navy' | 'gold' | 'green' | 'red';
+  /** A booking's own look, from the palette in src/rooms.ts. A colour wins
+   *  over the tone. */
+  colour?: string | null;
+  font?: string | null;
   title?: string;
 }
 
@@ -200,11 +204,11 @@ export function monthCalendar(opts: {
                   // No href, no link: the public booking page shows when a room
                   // is taken, and must not point anybody at the booking itself.
                   (e) => e.href
-                    ? html`<a class="cal-item cal-${e.tone ?? 'navy'}" href="${e.href}"
+                    ? html`<a class="cal-item ${itemClass(e)}" href="${e.href}"
                                  title="${e.title ?? `${e.lead ?? ''} ${e.label}`}">
                         ${e.lead ? html`<strong>${e.lead}</strong> ` : ''}${e.label}
                       </a>`
-                    : html`<span class="cal-item cal-${e.tone ?? 'navy'}"
+                    : html`<span class="cal-item ${itemClass(e)}"
                                  title="${e.title ?? `${e.lead ?? ''} ${e.label}`}">
                         ${e.lead ? html`<strong>${e.lead}</strong> ` : ''}${e.label}
                       </span>`,
@@ -216,6 +220,10 @@ export function monthCalendar(opts: {
     </div>
   `;
 }
+
+/** The classes for one entry: its tone, or its own colour, and its lettering. */
+const itemClass = (e: CalendarEntry) =>
+  (e.colour ? `cal-c-${e.colour}` : `cal-${e.tone ?? 'navy'}`) + (e.font ? ` cal-f-${e.font}` : '');
 
 /** The list/calendar switch that sits above both views. */
 export function viewTabs(current: 'list' | 'calendar', listHref: string, calendarHref: string) {

@@ -198,52 +198,6 @@ export async function listPeople(db: D1Database): Promise<PersonWithRoles[]> {
   return results;
 }
 
-export interface PersonForRole {
-  id: number;
-  display_name: string;
-  needs_review: number;
-  on_break: number;
-  is_guest: number;
-  can_do: number;
-  max_per_period: number | null;
-  period_days: number | null;
-  min_gap_days: number | null;
-  /** "As often as needed" for this role. 0 when they have no row yet. */
-  ask_any_time: number;
-  /** How many times they have actually done this role. */
-  done: number;
-}
-
-/**
- * Everybody, against ONE role.
- *
- * The whole roster rather than only those who already do it, because the point
- * of the screen is to add people — "who could preach" is a question you answer
- * by looking down the list of everyone, not by looking at the four who already
- * do. Those who can do it float to the top so the current picture reads first.
- */
-export async function listPeopleForRole(
-  db: D1Database,
-  roleId: number,
-): Promise<PersonForRole[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT p.id, p.display_name, p.needs_review, p.on_break, p.is_guest,
-              COALESCE(pr.can_do, 0) AS can_do,
-              pr.max_per_period, pr.period_days, pr.min_gap_days,
-              COALESCE(pr.ask_any_time, 0) AS ask_any_time,
-              (SELECT COUNT(*) FROM assignments a
-                WHERE a.person_id = p.id AND a.role_id = ?1) AS done
-         FROM people p
-         LEFT JOIN person_roles pr ON pr.person_id = p.id AND pr.role_id = ?1
-        WHERE p.is_active = 1
-        ORDER BY COALESCE(pr.can_do, 0) DESC, done DESC, p.display_name`,
-    )
-    .bind(roleId)
-    .all<PersonForRole>();
-  return results;
-}
-
 /**
  * What the kept person can do, and how often, after a merge: the union of
  * everything the duplicates could do.
@@ -262,9 +216,11 @@ export async function listPeopleForRole(
  */
 export const MERGE_PERSON_ROLES_SQL = (ids: string, keepP: string) => `
   INSERT INTO person_roles (person_id, role_id, can_do, willing,
-                            max_per_period, period_days, min_gap_days, ask_any_time)
+                            max_per_period, period_days, min_gap_days, ask_any_time,
+                            weeks_of_month, spacing_weeks)
   SELECT ${keepP}, role_id, MAX(can_do), MAX(willing),
-         MAX(max_per_period), MAX(period_days), MIN(min_gap_days), MAX(ask_any_time)
+         MAX(max_per_period), MAX(period_days), MIN(min_gap_days), MAX(ask_any_time),
+         MAX(weeks_of_month), MAX(spacing_weeks)
     FROM person_roles WHERE person_id IN (${ids}) GROUP BY role_id
   ON CONFLICT (person_id, role_id) DO UPDATE SET
     can_do         = MAX(person_roles.can_do, excluded.can_do),
@@ -274,7 +230,12 @@ export const MERGE_PERSON_ROLES_SQL = (ids: string, keepP: string) => `
     period_days    = CASE WHEN person_roles.max_per_period IS NULL
                           THEN excluded.period_days ELSE person_roles.period_days END,
     min_gap_days   = COALESCE(person_roles.min_gap_days, excluded.min_gap_days),
-    ask_any_time   = MAX(person_roles.ask_any_time, excluded.ask_any_time)`;
+    ask_any_time   = MAX(person_roles.ask_any_time, excluded.ask_any_time),
+    -- "When" is kept whole from the kept record if it said anything, never mixed.
+    weeks_of_month = CASE WHEN person_roles.weeks_of_month IS NULL AND person_roles.spacing_weeks IS NULL
+                          THEN excluded.weeks_of_month ELSE person_roles.weeks_of_month END,
+    spacing_weeks  = CASE WHEN person_roles.weeks_of_month IS NULL AND person_roles.spacing_weeks IS NULL
+                          THEN excluded.spacing_weeks ELSE person_roles.spacing_weeks END`;
 
 export interface Candidate {
   id: number;
@@ -296,7 +257,7 @@ export interface Candidate {
  * when eight of them can preach is not a choice, it is a search — and the
  * question being asked is "who else could preach on the 20th", not "who else
  * exists". Somebody missing from the list is fixed where that fact belongs:
- * tick them on their own page, or in the by-role editor.
+ * tick them on their own page.
  *
  * Who is EXCLUDED from the generator is a different question and is not asked
  * here. A guest preacher is ticked as a preacher and appears, which is the only

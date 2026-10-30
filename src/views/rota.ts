@@ -516,7 +516,7 @@ export function servicePage(
                   ${(candidatesFor?.get(r.role_id) ?? []).filter((cand) => !cand.already_here).length === 0
                     ? html`<p class="hint" style="margin:.35rem 0 0">
                         Nobody else is ticked for ${r.role_name}.
-                        <a href="/app/settings/people/by-role?role=${r.role_id}">Tick somebody</a>
+                        <a href="/app/settings/people">Open somebody under People</a>, tick it,
                         and they will appear here.
                       </p>`
                     : ''}`

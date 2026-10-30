@@ -1438,3 +1438,78 @@ table.grid.sg-grid thead th.sg-course { text-align: center; font-size: .6875rem;
   .cal-today .cal-n { outline: 2px solid; }
   .table-scroll.matrix::before { border: 1px solid; }
 }
+
+/* The "When" choice on a person's record: Any, or specific Sundays of the
+   month and a spacing (src/views/person.ts, whenCell). */
+.when { display: grid; gap: .5rem; min-width: 13rem; }
+.when select { width: auto; padding: .45rem .5rem; }
+.when-choices { display: grid; gap: .5rem; padding: .6rem .7rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--ground); }
+.when-choices[hidden] { display: none; }
+.when-weeks { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem .8rem; align-items: center; }
+.when-weeks legend { font-size: .875rem; color: var(--ink-2); padding: 0; margin-bottom: .3rem; }
+.when-weeks label { display: inline-flex; align-items: center; gap: .3rem; font-size: .9375rem; }
+.when-weeks .hint { flex-basis: 100%; font-size: .8125rem; }
+.when-spacing { display: flex; align-items: center; gap: .5rem; font-size: .875rem; color: var(--ink-2); }
+
+/* A booking's own look on the room calendar: the palette and the lettering
+   chosen when it was made (BOOKING_COLOURS and BOOKING_FONTS in src/rooms.ts).
+   Each colour is a pale wash with a strong edge, the lettering kept dark, so
+   every choice reads as well as the default. Hover turns it solid, as the
+   default entries do. */
+.cal-c-navy   { --bk: #324158; --bk-wash: #eef1f6; }
+.cal-c-teal   { --bk: #0f6e68; --bk-wash: #e3f3f1; }
+.cal-c-green  { --bk: #1f6b4a; --bk-wash: #e8f4ee; }
+.cal-c-gold   { --bk: #9a7b12; --bk-wash: #fbf3d6; }
+.cal-c-orange { --bk: #b4480f; --bk-wash: #fdebdd; }
+.cal-c-red    { --bk: #a32a1c; --bk-wash: #fbe6e3; }
+.cal-c-purple { --bk: #643a99; --bk-wash: #f0e9f8; }
+.cal-c-pink   { --bk: #a82c66; --bk-wash: #fbe7f0; }
+.cal-c-grey   { --bk: #586072; --bk-wash: #eceef2; }
+.cal-item[class*="cal-c-"] { border-left-color: var(--bk); background: var(--bk-wash); }
+.cal-item[class*="cal-c-"] strong { color: var(--bk); }
+a.cal-item[class*="cal-c-"]:hover { background: var(--bk); color: #fff; }
+a.cal-item[class*="cal-c-"]:hover strong { color: #fff; }
+
+.cal-f-bold   { font-weight: 800; }
+.cal-f-italic { font-style: italic; }
+.cal-f-serif  { font-family: Georgia, "Times New Roman", serif; }
+.cal-f-caps   { text-transform: uppercase; letter-spacing: .04em; font-size: .75rem; }
+.cal-f-large  { font-size: .9375rem; font-weight: 700; }
+
+/* The chooser on the booking forms (styleChooser in src/views/rooms.ts). */
+.booking-style { border: 1px solid var(--rule); border-radius: var(--radius); padding: .8rem 1rem 1rem; margin: 0 0 1.25rem; max-width: 40rem; }
+.booking-style legend { font-weight: 700; padding: 0 .3rem; }
+.booking-style > .hint { display: block; margin-bottom: .6rem; }
+.swatches { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .8rem; }
+.swatch {
+  display: inline-flex; align-items: center; gap: .35rem; cursor: pointer;
+  padding: .35rem .6rem .35rem .45rem; border-radius: 999px; font-size: .875rem;
+  border: 2px solid var(--bk, var(--rule-strong)); background: var(--bk-wash, var(--paper)); color: var(--ink);
+}
+.swatch input { margin: 0; accent-color: var(--bk, var(--navy)); }
+.swatch:has(input:checked) { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--bk, var(--navy)); font-weight: 700; }
+.swatch:has(input:focus-visible) { outline: 3px solid var(--gold); outline-offset: 2px; }
+.booking-font { display: flex; align-items: center; gap: .6rem; margin-bottom: .8rem; }
+.booking-font select { width: auto; }
+.booking-sample-row { display: flex; align-items: center; gap: .6rem; margin: 0; }
+.booking-sample { display: inline-block; min-width: 12rem; }
+@media (max-width: 40rem) {
+  .swatch { min-height: 2.75rem; }
+}
+
+/* "Action needed" on the home page's Lately list: something still waiting on
+   somebody here, more than a fortnight after it was raised (lately() in
+   src/activity.ts). A big red exclamation mark in place of the usual icon, and
+   the words, so it does not depend on the colour alone. */
+.recent-action { border-left-width: 6px; background: var(--bad-wash); }
+.action-mark {
+  flex: none; display: inline-grid; place-items: center;
+  width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  background: var(--bad); color: #fff;
+  font-family: var(--display); font-weight: 900; font-size: 1.5rem; line-height: 1;
+}
+.action-needed {
+  display: inline-block; margin-bottom: .2rem;
+  font-family: var(--display); font-weight: 800; font-size: .8125rem;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--bad);
+}

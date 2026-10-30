@@ -711,11 +711,14 @@ console.log('generator:');
       .filter((a) => a.personId === personId && a.roleId === R.preacher)
       .map((a) => inp.services.find((s) => s.id === a.serviceId)!.day)
       .sort((x, y) => x - y);
+  // A month, for "twice a month", is four Sundays: the generator takes a cap's
+  // window in whole weeks, so alternate Sundays — 28 days from first to third —
+  // are twice a month, as the church means it.
   const mostInAnyMonth = (days: number[]) => {
     let most = 0;
     for (let i = 0; i < days.length; i++) {
       let n = 0;
-      for (let j = i; j < days.length && days[j]! - days[i]! < 30; j++) n++;
+      for (let j = i; j < days.length && days[j]! - days[i]! < 28; j++) n++;
       most = Math.max(most, n);
     }
     return most;
@@ -748,7 +751,7 @@ console.log('generator:');
     const average = 13 / 8;
     ok('somebody who asks for twice a month preaches clearly more than the average',
       twice.length >= 2 * average, `${twice.length} against an average of ${average}`);
-    ok('but never more than twice in any 30 days', mostInAnyMonth(twice) <= 2,
+    ok('but never more than twice in any four Sundays', mostInAnyMonth(twice) <= 2,
       `${mostInAnyMonth(twice)} in one month`);
     // Thirteen Sundays hold at most six turns at two a month. The old even-share
     // brake held this person to every third week: five.
@@ -819,7 +822,7 @@ console.log('generator:');
   {
     const short: string[] = [];
     for (const n of [1, 2, 4, 13]) {
-      const inp = draftOf(n, 100, { min_gap_days: 7 }, vicarHeavyYear());
+      const inp = draftOf(n, 100, { max_per_period: 1, period_days: 7 }, vicarHeavyYear());
       const got = preachDays(inp, generateRota(inp), 100).length;
       if (got !== n) short.push(`${got} of ${n}`);
     }
@@ -830,7 +833,7 @@ console.log('generator:');
     // spacing that refuses them.
     const uncovered: string[] = [];
     for (const n of [1, 4]) {
-      const inp = draftOf(n, 100, { min_gap_days: 7 }, vicarHeavyYear());
+      const inp = draftOf(n, 100, { max_per_period: 1, period_days: 7 }, vicarHeavyYear());
       inp.unavailable = [{ personId: 100, fromDay: inp.services[0]!.day, toDay: inp.services[0]!.day }];
       inp.rules = { ...DEFAULT_RULES, whenShort: 'leave_empty' };
       const gaps = preacherGaps(generateRota(inp));
@@ -904,21 +907,34 @@ console.log('generator:');
       person_id: 1, role_id: R.preacher, max_per_period: null, period_days: null,
       min_gap_days: null, ask_any_time: 0, ...over,
     });
-    const gapOnly = capabilityFromRow(row({ min_gap_days: 91 }));
-    ok('"not more often than once a quarter" is a rhythm and a floor',
-      gapOnly.desiredEveryDays === 91 && gapOnly.minGapDays === 91 && gapOnly.maxPerWindow === null,
-      JSON.stringify(gapOnly));
     const capOnly = capabilityFromRow(row({ max_per_period: 2, period_days: 30 }));
-    ok('"at most twice a month" aims at every 15 days, as a cap and not a floor',
+    ok('"twice a month" aims at every 15 days, as a limit and not a floor',
       capOnly.desiredEveryDays === 15 && capOnly.minGapDays === null
         && capOnly.maxPerWindow?.count === 2 && capOnly.maxPerWindow?.windowDays === 30,
       JSON.stringify(capOnly));
-    // Four a quarter is about every 23 days; aiming at the fortnight instead
-    // would have them hit their own cap every month and then wait.
-    const both = capabilityFromRow(row({ max_per_period: 4, period_days: 91, min_gap_days: 14 }));
-    ok('given both, the slower of the two is the rhythm aimed at',
-      Math.abs((both.desiredEveryDays ?? 0) - 22.75) < 1e-9 && both.minGapDays === 14,
-      JSON.stringify(both));
+    // Matt Wakerley's record: "once a quarter", and a stray "not more often than
+    // every six months" from the box that no longer exists. The old code obeyed
+    // the six months and he was never asked. The quarter is what counts now.
+    const matt = capabilityFromRow(row({ max_per_period: 1, period_days: 91, min_gap_days: 182 }));
+    ok('the old "not more often than" is no longer read',
+      matt.desiredEveryDays === 91 && matt.minGapDays === null && matt.maxPerWindow?.windowDays === 91,
+      JSON.stringify(matt));
+    const alternate = capabilityFromRow(row({ max_per_period: 2, period_days: 30, spacing_weeks: 2 }));
+    ok('"twice a month, every other week" is a fortnightly floor under the same rhythm',
+      alternate.desiredEveryDays === 15 && alternate.minGapDays === 14 && alternate.spacingDays === 14,
+      JSON.stringify(alternate));
+    const spacingOnly = capabilityFromRow(row({ spacing_weeks: 2 }));
+    ok('"every other week" on its own is the rhythm as well',
+      spacingOnly.desiredEveryDays === 14 && spacingOnly.maxPerWindow === null,
+      JSON.stringify(spacingOnly));
+    const anyTime = capabilityFromRow(row({ max_per_period: 2, period_days: 30, ask_any_time: 1 }));
+    ok('"as often as needed" keeps the rhythm but drops the limit',
+      anyTime.desiredEveryDays === 15 && anyTime.maxPerWindow === null && anyTime.askAnyTime === true,
+      JSON.stringify(anyTime));
+    ok('which Sundays of the month come through, and "all five" is any',
+      JSON.stringify(capabilityFromRow(row({ weeks_of_month: '3,1' })).weeksOfMonth) === '[1,3]'
+        && capabilityFromRow(row({ weeks_of_month: '1,2,3,4,5' })).weeksOfMonth === null
+        && capabilityFromRow(row({ weeks_of_month: 'x' })).weeksOfMonth === null);
     const nothing = capabilityFromRow(row({}));
     ok('saying nothing is no view at all',
       nothing.desiredEveryDays === null && nothing.minGapDays === null
@@ -1057,6 +1073,89 @@ console.log('generator:');
     ok('and does not warn where nobody gave a figure, the figures leave room, nobody left theirs blank, '
       + 'or a slow figure meets a short draft',
       noisy.length === 0, noisy.map(([why, w]) => `${why}: ${w.join(' ')}`).join('; '));
+  }
+}
+// ---------------------------------------------------------------------------
+// How often, said once, and when (migrations/0029)
+// ---------------------------------------------------------------------------
+{
+  const set = (inp: GeneratorInput, personId: number, roleId: number, over: object) => {
+    inp.capabilities = inp.capabilities.map((c) =>
+      c.personId === personId && c.roleId === roleId ? { ...c, ...over } : c);
+  };
+  const fromRecord = (personId: number, over: object) => capabilityFromRow({
+    person_id: personId, role_id: R.preacher, max_per_period: null, period_days: null,
+    ask_any_time: 0, ...over,
+  });
+  const preached = (inp: GeneratorInput, r: ReturnType<typeof generateRota>, personId: number) =>
+    r.allocations
+      .filter((a) => a.personId === personId && a.roleId === R.preacher)
+      .map((a) => inp.services.find((s) => s.id === a.serviceId)!)
+      .sort((x, y) => x.day - y.day);
+  const year = (d0: number) => Array.from({ length: 52 }, (_, i) => (
+    { personId: 100 + ((i + 1) % 8), roleId: R.preacher, day: d0 - 7 * (i + 1) }));
+
+  // Matt Wakerley: "once a quarter", plus a stray six-month gap in the box that
+  // has gone. He last preached six weeks before the quarter, and the old code
+  // kept him off the whole of it.
+  {
+    const inp = base();
+    const d0 = inp.services[0]!.day;
+    inp.history = year(d0).filter((h) => h.personId !== 101).concat({ personId: 101, roleId: R.preacher, day: d0 - 42 });
+    inp.capabilities = inp.capabilities.map((c) => c.personId === 101 && c.roleId === R.preacher
+      ? fromRecord(101, { max_per_period: 1, period_days: 91, min_gap_days: 182 }) : c);
+    const n = preached(inp, generateRota(inp), 101).length;
+    ok('somebody who asks for once a quarter is asked once in the quarter', n === 1, `${n} times`);
+  }
+
+  // Only the 2nd Sunday of the month: never another week, and still asked.
+  {
+    const inp = base();
+    inp.history = year(inp.services[0]!.day);
+    set(inp, 102, R.preacher, { weeksOfMonth: [2] });
+    set(inp, 102, R.leader, { weeksOfMonth: [2] });
+    const res = generateRota(inp);
+    const wrong = res.allocations.filter((a) => a.personId === 102)
+      .map((a) => inp.services.find((s) => s.id === a.serviceId)!.date)
+      .filter((d) => Math.ceil(Number(d.slice(8, 10)) / 7) !== 2);
+    ok('somebody who only does the 2nd Sunday is never put on another week', wrong.length === 0, wrong.join(', '));
+    ok('and is still asked on a 2nd Sunday', res.allocations.some((a) => a.personId === 102));
+  }
+
+  // "Twice a month, but every other week": every turn a whole number of
+  // fortnights after the last, never a week or three weeks.
+  {
+    const inp = base();
+    const d0 = inp.services[0]!.day;
+    inp.history = year(d0).filter((h) => h.personId !== 100).concat({ personId: 100, roleId: R.preacher, day: d0 - 14 });
+    inp.capabilities = inp.capabilities.map((c) => c.personId === 100 && c.roleId === R.preacher
+      ? fromRecord(100, { max_per_period: 2, period_days: 30, spacing_weeks: 2 }) : c);
+    const days = [d0 - 14, ...preached(inp, generateRota(inp), 100).map((s) => s.day)];
+    const offBeat = days.slice(1).filter((d, i) => (d - days[i]!) % 14 !== 0);
+    ok('twice a month, every other week, keeps to alternate Sundays',
+      offBeat.length === 0 && days.length >= 6, `${days.length - 1} turns, gaps ${days.slice(1).map((d, i) => d - days[i]!).join(',')}`);
+  }
+
+  // "Once a month" is every four Sundays, not every five. The cap's window was
+  // 30 days, which refused the fourth Sunday 28 days on.
+  {
+    const inp = base();
+    inp.capabilities = inp.capabilities.filter((c) => c.roleId !== R.preacher || c.personId === 103);
+    set(inp, 103, R.preacher, { desiredEveryDays: 30, maxPerWindow: { count: 1, windowDays: 30 } });
+    inp.rules = { ...DEFAULT_RULES, whenShort: 'leave_empty' };
+    const days = preached(inp, generateRota(inp), 103).map((s) => s.day);
+    const gaps = days.slice(1).map((d, i) => d - days[i]!);
+    ok('once a month is every four Sundays', gaps.length > 0 && gaps.every((g) => g === 28), gaps.join(','));
+  }
+
+  // A date somebody is already down for, later in the draft, counts against
+  // their limit and their spacing before the walk reaches it.
+  {
+    const inp = base();
+    set(inp, 105, R.preacher, { desiredEveryDays: 91, maxPerWindow: { count: 1, windowDays: 91 } });
+    inp.pinned = [{ serviceId: 5, roleId: R.preacher, slot: 1, personId: 105 }];
+    const n = preached(inp, generateRota(inp), 105).length;
+    ok('a date already fixed later on counts against their limit', n === 1, `${n} times (old code: 2)`);
   }
 }
 console.log(failures === 0 ? '\nGenerator OK.' : `\n${failures} FAILURES`);

@@ -54,11 +54,11 @@ export function draftRulesPage(opts: {
           preacher is glad to preach twice a month, another would rather once a quarter — so
           the draft goes by what each of them has said. Open somebody under
           <a href="/app/settings/people">People</a> and fill in <strong>How often they want to
-          do it</strong>, or set a whole team at once with
-          <a href="/app/settings/people/by-role">Edit by role</a>; "most Sundays" is
-          <strong>4 times every 1 month</strong>. The <strong>As often as needed</strong> tick is
-          there too — it lets the draft ask somebody again sooner than usual when it needs to,
-          but on its own does not put them on more often.
+          do it</strong>: <strong>How often</strong> ("most Sundays" is
+          <strong>4 times every 1 month</strong>) and <strong>When</strong> (any week, only
+          certain Sundays of the month, or every other week). The <strong>As often as
+          needed</strong> tick is there too — it makes their figure a preference rather than a
+          limit, but on its own does not put them on more often.
         </p>
         <p style="margin-bottom:0;color:var(--ink-2)">
           Anybody who has not said gets a fair share of whatever is left, once everybody who

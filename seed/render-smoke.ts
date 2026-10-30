@@ -19,12 +19,12 @@ import { personPage, mergePage } from '../src/views/person.js';
 import { roomsPage, editBookingPage, editSeriesPage, daysCovered, timeOnDay } from '../src/views/rooms.js';
 import { eventsListPage, newEventPage, eventAdminPage, publicBookingPage, bookingDonePage,
          bookingEditPage, runsOver } from '../src/views/events.js';
+import { lately } from '../src/activity.js';
 import { roomsCalendarPage } from '../src/views/calendars.js';
 import { myRotaPage, requestsPage } from '../src/views/me.js';
 import { roomSettingsPage } from '../src/views/roomsettings.js';
 import { profilesPage, addPersonPage, changePasswordPage } from '../src/views/profiles.js';
 import { noAccessPage } from '../src/views/noaccess.js';
-import { peopleByRolePage } from '../src/views/byrole.js';
 import { combinationsByRolePage } from '../src/views/combinations.js';
 import { draftRulesPage } from '../src/views/draftrules.js';
 import { worshipPage } from '../src/views/worship.js';
@@ -148,6 +148,29 @@ await check('home', () => homePage({ ctx: CTX, gapCount: 3, isAdmin: true }),
   ['Room booking', 'Events', '3', 'Setting things up', 'Merge duplicates']);
 await check('home (no gaps, not admin)',
   () => homePage({ ctx: { ...CTX, signedInAs: 'Sue', isAdmin: false }, gapCount: 0, isAdmin: false }), ['Room booking']);
+// "Lately": the last fortnight, plus anything older still waiting on somebody,
+// which comes first and says "Action needed" with a big red mark.
+{
+  const NOW = new Date('2026-10-30T12:00:00Z');
+  const item = (when: string, who: string, urgent = false) => ({
+    when, icon: '⚠️', tone: 'bad' as const, who, what: 'did something', area: 'rota', urgent,
+  });
+  const got = lately([
+    item('2026-10-28 09:00:00', 'Fresh'),
+    item('2026-10-01 09:00:00', 'Stale'),
+    item('2026-09-25 12:51:22', 'Matt Wakerley', true),
+    item('2026-10-25 09:00:00', 'Recent and urgent', true),
+  ], 8, NOW);
+  await check('lately keeps a fortnight, and older things only while they need doing', () =>
+    got.map((g) => `${g.who}${g.actionNeeded ? '!' : ''}`).join(','),
+  ['Matt Wakerley!,Fresh,Recent and urgent'], ['Stale']);
+  await check('and never trims away something needing action', () =>
+    lately([item('2026-09-01 00:00:00', 'Old', true), item('2026-10-29 00:00:00', 'A'),
+      item('2026-10-28 00:00:00', 'B')], 1, NOW).map((g) => g.who).join(','), ['Old'], ['A', 'B']);
+  await check('home marks it "Action needed" with a red exclamation mark', () => homePage({
+    ctx: CTX, gapCount: 0, isAdmin: true, now: NOW, activity: got,
+  }), ['Action needed', 'class="action-mark"', 'recent-action', 'in the last 14 days']);
+}
 await check('sign in', () => signInPage({ error: 'Nope', next: '/app' }), ['Nope', 'password']);
 await check('setup', () => setupPage('tok'), ['Create administrator']);
 await check('people', () => peoplePage(
@@ -247,7 +270,7 @@ await check('a coordinator can put somebody on', () => servicePage(detail, CTX, 
 // empty dropdown that looks broken.
 await check('an empty picker says how to fill it', () => servicePage(
   detail, CTX, new Map([[1, []], [4, []], [2, []]])),
-  ['Nobody else is ticked for', '/app/settings/people/by-role?role=1']);
+  ['Nobody else is ticked for', 'Open somebody under People']);
 await check('readings', () => readingsPage([service()], CTX, '2026-11-15'),
   ['Gen 1:1-5', 'Sermon title', 'Saved']);
 await check('services', () => servicesPage({
@@ -349,7 +372,8 @@ await check('person edit', () => personPage({
     is_active: 1, is_admin: 0,
     settings: new Map([[1, {
       role_id: 1, can_do: 1, willing: 1,
-      max_per_period: 2, period_days: 30, min_gap_days: null, ask_any_time: 0, done: 4,
+      max_per_period: 2, period_days: 30, ask_any_time: 0, done: 4,
+      weeks_of_month: '2', spacing_weeks: null,
     }]]),
   },
   roles, ctx: CTX, saved: true,
@@ -358,7 +382,10 @@ await check('person edit', () => personPage({
      // The card is now the only thing the draft goes by, so it has to say so.
      'what the draft rota goes by', 'whatever is left once everybody who has said is counted',
      // The how-often rows are cards on a phone, each control under its name.
-     'class="grid stack" id="freq-table"', 'data-label="At most"']);
+     'class="grid stack" id="freq-table"', 'data-label="How often"', 'data-label="When"',
+     // One figure now: the second box, and its heading, are gone.
+     'Specific preferences', 'name="weeks_1" value="2" checked', 'Every other week'],
+  ['Not more often than', 'At most', 'name="gapn_1"']);
 
 /**
  * Which unit each named <select> has selected, followed by the whole page with
@@ -388,23 +415,25 @@ await check('a blank frequency row starts on months', () => unitsShown(() => per
     review_note: null, is_active: 1, is_admin: 0,
     settings: new Map([[1, {
       role_id: 1, can_do: 1, willing: 1,
-      max_per_period: null, period_days: null, min_gap_days: 14, ask_any_time: 1, done: 30,
+      max_per_period: 2, period_days: 14, ask_any_time: 1, done: 30,
+      weeks_of_month: null, spacing_weeks: 2,
     }], [2, {
       role_id: 2, can_do: 1, willing: 1,
-      max_per_period: null, period_days: null, min_gap_days: null, ask_any_time: 0, done: 3,
+      max_per_period: null, period_days: null, ask_any_time: 0, done: 3,
     }]]),
   },
   roles, ctx: CTX,
-}), ['periodu_1', 'gapu_1', 'periodu_2', 'gapu_2', 'periodu_3', 'gapu_3']), [
-  // Nothing set: both selects on months, for a ticked role and an unticked one.
-  'periodu_2=months', 'gapu_2=months', 'periodu_3=months', 'gapu_3=months',
-  'periodu_1=months',
+}), ['periodu_1', 'periodu_2', 'periodu_3', 'when_1', 'when_2', 'spacing_1']), [
+  // Nothing set: on months, for a ticked role and an unticked one.
+  'periodu_2=months', 'periodu_3=months',
   // 14 days still reads back as 2 weeks, not as half a month.
-  'gapu_1=weeks', 'name="gapn_1" value="2"',
+  'periodu_1=weeks', 'name="periodn_1" value="2"',
+  // When: Any unless they said; a spacing opens Specific preferences.
+  'when_2=any', 'when_1=specific', 'spacing_1=2', 'data-when-for="2" hidden',
   // "As often as needed" has a box of its own on every row, ticked when set.
   'As often as needed', 'name="anytime_1" value="1" checked', 'name="anytime_2" value="1" aria-label',
   'name="anytime_6" value="1"',
-], ['periodu_2=weeks', 'gapu_2=weeks', 'periodu_3=weeks', 'gapu_3=weeks', '=none', '=missing',
+], ['periodu_2=weeks', 'periodu_3=weeks', '=missing', 'data-when-for="1" hidden',
     'name="anytime_2" value="1" checked']);
 
 await check('merge', () => mergePage({
@@ -494,6 +523,32 @@ await check('the room calendar says "(private)" after a private booking', () => 
   rooms: ROOMS, roomId: null, bookings: [PRIV_BOOKING, { ...BOOKING, id: 2, starts_at: '2026-11-21T19:00', ends_at: '2026-11-21T21:00' }],
   counts: new Map(), month: '2026-11', ctx: CTX,
 }), ['Counselling (private)', 'the website shows just &quot;Private booking&quot;', 'Home group'], ['Home group (private)']);
+
+// A booking's own colour and lettering: chosen on every booking form, drawn on
+// the room calendar, and winning over the room's colour on "All rooms".
+await check('the new-booking form offers the palette, set to usual', () => roomsPage({
+  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
+}), ['How it looks on the calendar', 'name="colour" value="" checked', 'name="colour" value="teal"',
+     'class="swatch cal-c-purple"', 'name="font"', '<option value="caps"', 'booking-sample']);
+await check('and a refused booking comes back with its look kept', () => roomsPage({
+  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
+  form: { title: 'Toddlers', colour: 'green', font: 'bold' }, notice: { tone: 'bad', text: 'x' },
+}), ['name="colour" value="green" checked', 'value="bold" selected', 'booking-sample cal-c-green cal-f-bold'],
+  ['name="colour" value="" checked']);
+await check('a booking page opens with its own look chosen', () => editBookingPage({
+  booking: { ...BOOKING, colour: 'pink', font: 'serif' }, rooms: ROOMS, ctx: CTX,
+}), ['name="colour" value="pink" checked', 'value="serif" selected']);
+await check('one week of a series says how far its look reaches', () => editBookingPage({
+  booking: { ...BOOKING, series_id: 1 }, rooms: ROOMS, ctx: CTX,
+}), ['until the repeating booking is next saved']);
+await check('a series page offers the look for every week', () => editSeriesPage({
+  series: { ...SERIES[0]!, colour: 'orange', font: null }, rooms: ROOMS, ctx: CTX,
+}), ['name="colour" value="orange" checked', 'Every week of it, including any changed on its own.']);
+await check('the room calendar draws a booking in its own colour and lettering', () => roomsCalendarPage({
+  rooms: ROOMS, roomId: null,
+  bookings: [{ ...BOOKING, colour: 'purple', font: 'caps' }, { ...BOOKING, id: 2, title: 'Choir', colour: 'nonsense' }],
+  counts: new Map(), month: '2026-11', ctx: CTX,
+}), ['class="cal-item cal-c-purple cal-f-caps"', 'class="cal-item cal-gold"'], ['cal-c-nonsense']);
 
 // ---- events --------------------------------------------------------------
 const EVENT = {
@@ -614,48 +669,6 @@ await check('change requests', () => requestsPage({
 }), ['Sue', 'Welcome team', 'Take them off', 'Away that weekend']);
 await check('change requests (none)', () => requestsPage({ requests: [], ctx: CTX }),
   ['Nothing outstanding']);
-
-const BY_ROLE = {
-  roles, role: roles[0]!,
-  people: [
-    { id: 1, display_name: 'Steve', needs_review: 0, on_break: 0, is_guest: 0, can_do: 1,
-      max_per_period: 2, period_days: 30, min_gap_days: null, ask_any_time: 1, done: 15 },
-    { id: 2, display_name: 'Matt R', needs_review: 1, on_break: 1, is_guest: 0, can_do: 1,
-      max_per_period: null, period_days: null, min_gap_days: 91, ask_any_time: 0, done: 2 },
-    { id: 3, display_name: 'Sue', needs_review: 0, on_break: 0, is_guest: 1, can_do: 0,
-      max_per_period: null, period_days: null, min_gap_days: null, ask_any_time: 0, done: 0 },
-    { id: 4, display_name: 'Pat', needs_review: 0, on_break: 0, is_guest: 0, can_do: 1,
-      max_per_period: null, period_days: null, min_gap_days: 14, ask_any_time: 0, done: 6 },
-  ],
-  ctx: CTX,
-};
-
-await check('people by role', () => peopleByRolePage(BY_ROLE), [
-  'Who can do Preacher', 'Steve', 'Sue',
-  // The hidden list of who was shown is what stops a filtered save wiping
-  // everybody it did not display, so its absence must fail the test.
-  'name="shown"',
-  'Save who can do Preacher', 'possible duplicate', 'thin pool',
-  // A tick says somebody COULD do it; the warning counts who the rota may
-  // actually pick, and says why the two numbers differ.
-  'taking a break', 'the rota can use now', 'are ticked, but',
-  'The draft rota goes by these figures',
-  // A card per person on a phone, each box under its column's name.
-  'class="grid stack"', 'class="stack-title"', 'data-label="Not more often than"',
-]);
-
-// The same months default and "as often as needed" box as a person's own page,
-// since this is the other place the same figures are typed.
-await check('by role, a blank row starts on months', () => unitsShown(
-  () => peopleByRolePage(BY_ROLE),
-  ['periodu_1', 'gapu_1', 'gapu_2', 'periodu_3', 'gapu_3', 'gapu_4'],
-), [
-  'periodu_1=months', 'gapu_1=months', 'gapu_2=quarters',
-  'periodu_3=months', 'gapu_3=months',
-  'gapu_4=weeks', 'name="gapn_4" value="2"',
-  'As often as needed', 'name="anytime_1" value="1" checked', 'name="anytime_3" value="1" aria-label',
-], ['gapu_1=weeks', 'periodu_3=weeks', 'gapu_3=weeks', '=none', '=missing',
-    'name="anytime_2" value="1" checked']);
 
 // --- searching ------------------------------------------------------------
 // The filter runs in the browser, so what this can prove is that every row
@@ -1015,12 +1028,12 @@ await check('the draft rules page', () => draftRulesPage({
   'Never on two Sundays running',
   // Where the per-person figures live now, for whoever comes looking here.
   'How often one person does the same job', 'set for each person now',
-  'href="/app/settings/people"', 'href="/app/settings/people/by-role"', 'Edit by role',
+  'href="/app/settings/people"', 'certain Sundays of the month, or every other week',
   'gets a fair share of whatever is left',
   'action="/app/settings/draft-rules"', 'Save these rules',
 ], [
   // The per-role table, and the warning and exceptions that hung off it.
-  'name="gapn_1"', 'name="targetn_2"', 'Aim for about',
+  'name="gapn_1"', 'name="targetn_2"', 'Aim for about', 'Edit by role', 'people/by-role',
   'These figures are not new', 'Save these exceptions', 'draft-rules/exempt',
 ]);
 

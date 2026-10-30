@@ -1,5 +1,6 @@
 /**
- * How often somebody is willing to do a role, in units people actually use.
+ * How often somebody is willing to do a role, in units people actually use —
+ * and, at the end of the file, which weeks they want to do it.
  *
  * Nobody says "every 90 days" — they say "once a quarter". The database keeps
  * days because the generator does date arithmetic, but the form asks in weeks,
@@ -74,25 +75,81 @@ export function readUnitPair(
   return toDays(n, unit);
 }
 
-/** A readable description, e.g. "at most 2 times every month". */
-export function describeFrequency(
-  maxPerPeriod: number | null,
-  periodDays: number | null,
-  minGapDays: number | null,
-): string {
-  const parts: string[] = [];
+/** A readable description, e.g. "2 times every month". There is one figure:
+ *  the form used to ask "at most" and "not more often than" separately, and
+ *  people answered both differently (see migrations/0029). */
+export function describeFrequency(maxPerPeriod: number | null, periodDays: number | null): string {
   const period = toUnits(periodDays);
-  if (maxPerPeriod && period) {
-    parts.push(`at most ${maxPerPeriod} time${maxPerPeriod === 1 ? '' : 's'} every ${period.n === 1 ? '' : `${period.n} `}${unitWord(period.unit, period.n)}`);
-  }
-  const gap = toUnits(minGapDays);
-  if (gap) {
-    parts.push(`no more often than once every ${gap.n === 1 ? '' : `${gap.n} `}${unitWord(gap.unit, gap.n)}`);
-  }
-  return parts.length ? parts.join(', and ') : 'no strong view';
+  if (!maxPerPeriod || !period) return 'no strong view';
+  return `${maxPerPeriod === 1 ? 'once' : `${maxPerPeriod} times`} every `
+    + `${period.n === 1 ? '' : `${period.n} `}${unitWord(period.unit, period.n)}`;
 }
 
 function unitWord(unit: Unit, n: number): string {
   const singular = unit === 'weeks' ? 'week' : unit === 'months' ? 'month' : 'quarter';
   return n === 1 ? singular : `${singular}s`;
+}
+
+// ---------------------------------------------------------------------------
+// When they want to do it
+// ---------------------------------------------------------------------------
+
+/** Which Sunday of the month a date is: 1 for the 1st to the 7th, and so on.
+ *  Counted on the date's own weekday, so a one-off Wednesday service is the
+ *  "2nd" if it is the month's second Wednesday. */
+export const weekOfMonth = (iso: string): number => Math.ceil(Number(iso.slice(8, 10)) / 7);
+
+export const WEEKS_OF_MONTH = [1, 2, 3, 4, 5] as const;
+export const ORDINAL = ['', '1st', '2nd', '3rd', '4th', '5th'];
+
+/** The spacings offered. 2 is "every other week". */
+export const SPACINGS: { weeks: number; label: string }[] = [
+  { weeks: 2, label: 'Every other week' },
+  { weeks: 3, label: 'Every third week' },
+  { weeks: 4, label: 'Every fourth week' },
+];
+
+/** '1,3' -> [1, 3]. Anything unreadable, or every week ticked, is "any": null. */
+export function parseWeeks(raw: string | null | undefined): number[] | null {
+  if (!raw) return null;
+  const weeks = [...new Set(String(raw).split(',').map(Number))]
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 5)
+    .sort((a, b) => a - b);
+  return weeks.length && weeks.length < 5 ? weeks : null;
+}
+
+export function parseSpacing(raw: unknown): number | null {
+  const n = Number(raw);
+  return SPACINGS.some((s) => s.weeks === n) ? n : null;
+}
+
+/**
+ * Reads the "When" choice for one role off a form.
+ *
+ * "Any" clears both, whatever else was left ticked underneath it — the boxes
+ * are hidden rather than cleared when somebody switches back to Any, and a
+ * hidden tick must not quietly keep a restriction they think they removed.
+ */
+export function readWhen(
+  form: { get(k: string): unknown; getAll(k: string): unknown[] },
+  roleId: number,
+): { weeks: string | null; spacing: number | null } {
+  if (form.get(`when_${roleId}`) !== 'specific') return { weeks: null, spacing: null };
+  const weeks = parseWeeks(form.getAll(`weeks_${roleId}`).map(String).join(','));
+  return { weeks: weeks ? weeks.join(',') : null, spacing: parseSpacing(form.get(`spacing_${roleId}`)) };
+}
+
+/** "the 2nd Sunday of the month", "every other week", or "any week". */
+export function describeWhen(weeksRaw: string | null | undefined, spacing: number | null | undefined): string {
+  const parts: string[] = [];
+  const weeks = parseWeeks(weeksRaw);
+  if (weeks) {
+    const named = weeks.map((w) => ORDINAL[w]!);
+    const list = named.length === 1 ? named[0]
+      : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+    parts.push(`only the ${list} Sunday${weeks.length === 1 ? '' : 's'} of the month`);
+  }
+  const s = SPACINGS.find((x) => x.weeks === spacing);
+  if (s) parts.push(s.label.toLowerCase());
+  return parts.length ? parts.join(', ') : 'any week';
 }
