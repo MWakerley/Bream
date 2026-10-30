@@ -1,5 +1,5 @@
 import type { BookingRow, EventRow, FieldRow } from './views/events.js';
-import { formatSpan, lastDay } from './views/rota.js';
+import { formatDate, formatSpan, lastDay } from './views/rota.js';
 
 /** Events, their custom booking forms, and the bookings people make. */
 
@@ -362,12 +362,13 @@ export function readRoomIds(form: FormData): number[] {
 export async function eventRoomClashes(
   db: D1Database,
   roomIds: number[],
-  startsAt: string,
-  endsAt: string,
+  times: Occurrence[],
   eventId?: number,
 ): Promise<{ room: string; title: string; starts_at: string; ends_at: string }[]> {
-  if (!roomIds.length) return [];
-  const { results } = await db
+  if (!roomIds.length || !times.length) return [];
+  // One query per time the event happens, sent together: a six-week course is
+  // checked on each of its six evenings, not only the first.
+  const stmt = db
     .prepare(
       `SELECT r.name AS room, b.title, b.starts_at, b.ends_at
          FROM room_bookings b JOIN rooms r ON r.id = b.room_id
@@ -376,59 +377,165 @@ export async function eventRoomClashes(
           AND b.starts_at < ?3 AND b.ends_at > ?2
           AND (?4 IS NULL OR b.event_id IS NULL OR b.event_id <> ?4)
         ORDER BY r.sort_order, b.starts_at`,
-    )
-    .bind(JSON.stringify(roomIds), startsAt, endsAt, eventId ?? null)
-    .all<{ room: string; title: string; starts_at: string; ends_at: string }>();
-  return results;
+    );
+  const batched = await db.batch<{ room: string; title: string; starts_at: string; ends_at: string }>(
+    times.map((t) => stmt.bind(JSON.stringify(roomIds), t.startsAt, t.endsAt, eventId ?? null)));
+  // The same booking can clash with two of the times (a weekend away against a
+  // daily club), so it is named once.
+  const seen = new Set<string>();
+  return batched.flatMap((b) => b.results ?? []).filter((c) => {
+    const k = `${c.room}|${c.starts_at}|${c.title}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 export function describeClashes(
   clashes: { room: string; title: string; starts_at: string; ends_at: string }[],
 ): string {
-  const list = clashes
+  // A repeating event against a weekly group can clash on every one of its
+  // dates; the first few say enough.
+  const list = clashes.slice(0, 6)
     .map((c) => `${c.room} (${c.title}, ${formatSpan(c.starts_at, c.ends_at)})`)
-    .join('; ');
+    .join('; ') + (clashes.length > 6 ? `; and ${clashes.length - 6} more` : '');
   return `${clashes.length === 1 ? 'A room is' : 'Some rooms are'} already booked then: ${list}. `
     + `Untick ${clashes.length === 1 ? 'it' : 'them'}, change the time, or tick below to hold the rooms anyway.`;
 }
 
 /**
- * Makes the event's room holds match what was ticked, for the event's times.
+ * Makes the event's room holds match what was ticked: every ticked room, for
+ * every time the event happens.
  *
- * Holds for rooms still wanted are MOVED rather than replaced, so a note
- * somebody added to one on the room diary survives the event changing time.
- * Rooms no longer wanted are cancelled, not deleted, like every other room
- * booking. Call eventRoomClashes first: this writes without checking.
+ * Holds still wanted are MOVED rather than replaced — each room's holds, in
+ * date order, onto the event's times in date order — so a note somebody added
+ * to one on the room diary survives the event changing time. Holds no longer
+ * wanted (a room unticked, or a course cut from six weeks to five) are
+ * cancelled, not deleted, like every other room booking. Call
+ * eventRoomClashes first: this writes without checking.
  */
 export async function syncEventRooms(
   db: D1Database,
   opts: {
     eventId: number; roomIds: number[]; title: string;
-    startsAt: string; endsAt: string; bookedBy: number;
+    times: Occurrence[]; bookedBy: number;
   },
 ): Promise<void> {
-  const { eventId, roomIds, title, startsAt, endsAt, bookedBy } = opts;
+  const { eventId, roomIds, title, times, bookedBy } = opts;
   const { results: held } = await db
-    .prepare(`SELECT id, room_id FROM room_bookings WHERE event_id = ?1 AND status = 'booked'`)
+    .prepare(`SELECT id, room_id FROM room_bookings WHERE event_id = ?1 AND status = 'booked'
+               ORDER BY starts_at, id`)
     .bind(eventId)
     .all<{ id: number; room_id: number }>();
 
   const stmts: D1PreparedStatement[] = [];
-  for (const h of held) {
-    stmts.push(roomIds.includes(h.room_id)
-      ? db.prepare('UPDATE room_bookings SET title = ?2, starts_at = ?3, ends_at = ?4 WHERE id = ?1')
-        .bind(h.id, title, startsAt, endsAt)
-      : db.prepare(`UPDATE room_bookings SET status = 'cancelled' WHERE id = ?1`).bind(h.id));
-  }
-  const heldRooms = new Set(held.map((h) => h.room_id));
+  const move = db.prepare('UPDATE room_bookings SET title = ?2, starts_at = ?3, ends_at = ?4 WHERE id = ?1');
+  const cancel = db.prepare(`UPDATE room_bookings SET status = 'cancelled' WHERE id = ?1`);
   const insert = db.prepare(
     `INSERT INTO room_bookings (room_id, title, starts_at, ends_at, booked_by, notes, event_id)
      VALUES (?1, ?2, ?3, ?4, ?5, 'Held for an event', ?6)`,
   );
-  for (const r of roomIds) {
-    if (!heldRooms.has(r)) stmts.push(insert.bind(r, title, startsAt, endsAt, bookedBy, eventId));
+  for (const h of held) {
+    if (!roomIds.includes(h.room_id)) stmts.push(cancel.bind(h.id));
   }
-  if (stmts.length) await db.batch(stmts);
+  for (const r of roomIds) {
+    const mine = held.filter((h) => h.room_id === r);
+    times.forEach((t, i) => {
+      const h = mine[i];
+      stmts.push(h
+        ? move.bind(h.id, title, t.startsAt, t.endsAt)
+        : insert.bind(r, title, t.startsAt, t.endsAt, bookedBy, eventId));
+    });
+    for (const h of mine.slice(times.length)) stmts.push(cancel.bind(h.id));
+  }
+  for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
+}
+
+// ---------------------------------------------------------------------------
+// Events that happen more than once (migrations/0031)
+// ---------------------------------------------------------------------------
+
+export type RepeatFreq = 'daily' | 'weekly' | 'fortnightly';
+
+export const EVENT_REPEATS: { value: RepeatFreq; label: string; days: number }[] = [
+  { value: 'daily', label: 'Every day', days: 1 },
+  { value: 'weekly', label: 'Every week', days: 7 },
+  { value: 'fortnightly', label: 'Every two weeks', days: 14 },
+];
+
+/** A year of weekly sessions; more is almost certainly a typing slip. */
+export const MAX_REPEAT_COUNT = 52;
+
+export interface EventRepeat { freq: RepeatFreq; count: number }
+export interface Occurrence { startsAt: string; endsAt: string }
+
+/** An event's own repeat, or null when it happens once (or the row is odd). */
+export function repeatOf(e: { repeat_freq?: string | null; repeat_count?: number | null }): EventRepeat | null {
+  const r = EVENT_REPEATS.find((x) => x.value === e.repeat_freq);
+  const n = Number(e.repeat_count);
+  return r && Number.isInteger(n) && n >= 2 && n <= MAX_REPEAT_COUNT ? { freq: r.value, count: n } : null;
+}
+
+/** 'YYYY-MM-DDTHH:MM' moved on by whole days, the wall-clock time kept. */
+function shiftDays(iso: string, days: number): string {
+  const d = new Date(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) + days * 86_400_000);
+  return d.toISOString().slice(0, 10) + iso.slice(10);
+}
+
+/** Every time the event happens: the first, then the same times moved on. */
+export function eventOccurrences(startsAt: string, endsAt: string, repeat: EventRepeat | null): Occurrence[] {
+  if (!repeat) return [{ startsAt, endsAt }];
+  const step = EVENT_REPEATS.find((x) => x.value === repeat.freq)!.days;
+  return Array.from({ length: repeat.count }, (_, i) => ({
+    startsAt: shiftDays(startsAt, i * step), endsAt: shiftDays(endsAt, i * step),
+  }));
+}
+
+/**
+ * The repeat from an event's form, or null for "just once".
+ *
+ * Refused when one time would run into the next — an overnight event "every
+ * day" — since every room would then be held twice over, and nobody means it.
+ */
+export function readEventRepeat(
+  form: FormData,
+  startsAt: string,
+  endsAt: string | null,
+): { ok: true; value: EventRepeat | null } | { ok: false; error: string } {
+  const freq = EVENT_REPEATS.find((x) => x.value === String(form.get('repeat') ?? ''));
+  if (!freq) return { ok: true, value: null };
+  const n = Number(String(form.get('repeat_count') ?? '').trim());
+  if (!Number.isInteger(n) || n < 2 || n > MAX_REPEAT_COUNT) {
+    return { ok: false, error: `Say how many times it happens, from 2 to ${MAX_REPEAT_COUNT} — the first one included.` };
+  }
+  if (!endsAt) return { ok: false, error: 'Give a finish time, so each time it happens has an end.' };
+  const end = Date.parse(`${endsAt}:00Z`);
+  const nextStart = Date.parse(`${shiftDays(startsAt, freq.days)}:00Z`);
+  if (end > nextStart) {
+    return { ok: false, error: `Each time runs into the next: it finishes after it starts again ${freq.label.toLowerCase()}.` };
+  }
+  return { ok: true, value: { freq: freq.value, count: n } };
+}
+
+/** "Every week, 6 times: Wed 21 Jan 2026 to Wed 25 Feb 2026", or '' for once. */
+export function describeRepeat(e: {
+  starts_at: string; ends_at: string | null; repeat_freq?: string | null; repeat_count?: number | null;
+}): string {
+  const r = repeatOf(e);
+  if (!r) return '';
+  const times = eventOccurrences(e.starts_at, e.ends_at ?? e.starts_at, r);
+  const label = EVENT_REPEATS.find((x) => x.value === r.freq)!.label;
+  return `${label}, ${r.count} times: ${formatDate(times[0]!.startsAt.slice(0, 10))} to `
+    + `${formatDate(times[times.length - 1]!.startsAt.slice(0, 10))}`;
+}
+
+/** When an event runs, in words, its repeat included. */
+export function eventWhenText(e: {
+  starts_at: string; ends_at: string | null; repeat_freq?: string | null; repeat_count?: number | null;
+}): string {
+  const once = formatSpan(e.starts_at, e.ends_at);
+  const rep = describeRepeat(e);
+  return rep ? `${once} — ${rep[0]!.toLowerCase()}${rep.slice(1)}` : once;
 }
 
 // ---------------------------------------------------------------------------

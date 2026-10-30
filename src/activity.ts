@@ -1,4 +1,5 @@
 import { formatDate, lastDay } from './views/rota.js';
+import { describeRepeat, repeatOf } from './events.js';
 
 /**
  * What has changed lately, for the top of the home page.
@@ -143,7 +144,7 @@ export async function recentActivity(
   if (areas.has('events')) {
     const { results } = await db
       .prepare(
-        `SELECT created_at, id, title, starts_at, ends_at, is_published
+        `SELECT created_at, id, title, starts_at, ends_at, is_published, repeat_freq, repeat_count
            FROM events
           WHERE created_at >= datetime('now', '-${RECENT_DAYS} days')
           ORDER BY created_at DESC
@@ -159,6 +160,7 @@ export async function recentActivity(
         what: (r.ends_at && lastDay(r.starts_at, r.ends_at) !== r.starts_at.slice(0, 10)
           ? `runs from ${formatDate(r.starts_at.slice(0, 10))} to ${formatDate(lastDay(r.starts_at, r.ends_at))}`
           : `is on ${formatDate(r.starts_at.slice(0, 10))}`)
+          + (repeatOf(r) ? ` (${describeRepeat(r).replace(/^E/, 'e')})` : '')
           + (r.is_published ? ' and taking bookings' : ' — not published yet'),
         href: `/app/events/${r.id}`,
         area: 'events',

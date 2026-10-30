@@ -1,5 +1,6 @@
 import { newSessionId } from '../auth.js';
 import { usableEmail } from '../email.js';
+import { MAX_REPEAT_COUNT, eventOccurrences, repeatOf } from '../events.js';
 
 /**
  * The newsletter's data: its subscribers, its issues, and the week ahead read
@@ -171,10 +172,12 @@ export async function diaryWeek(db: D1Database, from: string): Promise<WeekItem[
         ORDER BY s.service_date, s.service_time`,
     ).bind(from, to),
     db.prepare(
-      `SELECT id, title, starts_at, ends_at FROM events
-        WHERE is_published = 1 AND starts_at >= ?1 AND starts_at < ?2
+      // From far enough back to catch a repeating event that began before this
+      // week (a year of fortnights); expanded and trimmed to the week below.
+      `SELECT id, title, starts_at, ends_at, repeat_freq, repeat_count FROM events
+        WHERE is_published = 1 AND starts_at >= ?3 AND starts_at < ?2
         ORDER BY starts_at`,
-    ).bind(`${from}T00:00`, `${to}T00:00`),
+    ).bind(`${from}T00:00`, `${to}T00:00`, `${addDays(from, -2 * 7 * MAX_REPEAT_COUNT)}T00:00`),
     db.prepare(
       `SELECT b.title, b.starts_at, b.ends_at
          FROM room_bookings b JOIN rooms r ON r.id = b.room_id
@@ -191,10 +194,17 @@ export async function diaryWeek(db: D1Database, from: string): Promise<WeekItem[
     items.push({ key: `service:${s.id}`, date: s.date, time: s.time ?? '', endTime: '', title: s.title,
       note: s.location ?? '', kind: 'service' });
   }
-  for (const e of (events?.results ?? []) as { id: number; title: string; starts_at: string; ends_at: string | null }[]) {
-    items.push({ key: `event:${e.id}`, date: e.starts_at.slice(0, 10), time: e.starts_at.slice(11, 16),
-      endTime: e.ends_at && e.ends_at.slice(0, 10) === e.starts_at.slice(0, 10) ? e.ends_at.slice(11, 16) : '',
-      title: e.title, note: '', kind: 'event' });
+  for (const e of (events?.results ?? []) as { id: number; title: string; starts_at: string; ends_at: string | null; repeat_freq: string | null; repeat_count: number | null }[]) {
+    // Each time a repeating event happens this week, not only its first.
+    for (const t of eventOccurrences(e.starts_at, e.ends_at ?? e.starts_at, repeatOf(e))) {
+      const date = t.startsAt.slice(0, 10);
+      if (date < from || date >= to) continue;
+      // A one-off keeps the key it always had, so a newsletter that left it out
+      // still leaves it out.
+      items.push({ key: repeatOf(e) ? `event:${e.id}:${date}` : `event:${e.id}`, date, time: t.startsAt.slice(11, 16),
+        endTime: e.ends_at && t.endsAt.slice(0, 10) === date ? t.endsAt.slice(11, 16) : '',
+        title: e.title, note: '', kind: 'event' });
+    }
   }
   for (const b of (bookings?.results ?? []) as { title: string; starts_at: string; ends_at: string }[]) {
     const title = b.title.trim();

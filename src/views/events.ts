@@ -4,6 +4,7 @@ import { formatDate, formatSpan, lastDay } from './rota.js';
 import { PLACEHOLDERS, DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from '../email.js';
 import { searchBox } from './search.js';
 import type { RoomRow } from './rooms.js';
+import { EVENT_REPEATS, MAX_REPEAT_COUNT, describeRepeat, eventWhenText, repeatOf } from '../events.js';
 
 export interface EventRow {
   id: number;
@@ -25,6 +26,9 @@ export interface EventRow {
   notify_organisers: number;
   /** The most places one booking may take on the public page. */
   max_per_booking: number;
+  /** Set when it happens more than once — see repeatOf in src/events.ts. */
+  repeat_freq?: string | null;
+  repeat_count?: number | null;
   booked: number; // sum of party_size
   bookings: number; // number of bookings
 }
@@ -107,7 +111,8 @@ export function eventsListPage(opts: {
                     </td>
                     <td data-label="When">${formatDate(dateOf(e.starts_at))}
                       <div class="num" style="font-size:.9375rem;color:var(--ink-2)">${timeOf(e.starts_at)}${runsOver(e)
-                        ? ` · until ${formatDate(lastDay(e.starts_at, e.ends_at!))}` : ''}</div></td>
+                        ? ` · until ${formatDate(lastDay(e.starts_at, e.ends_at!))}` : ''}</div>
+                      ${repeatOf(e) ? html`<div style="font-size:.875rem;color:var(--ink-2)">${describeRepeat(e)}</div>` : ''}</td>
                     <td class="num" data-label="Booked">${e.booked}${e.capacity ? ` / ${e.capacity}` : ''}
                       <div style="font-size:.9375rem;color:var(--ink-2)">${e.bookings} booking${e.bookings === 1 ? '' : 's'}</div></td>
                     <td data-label="Places left">${left == null
@@ -141,6 +146,9 @@ function whenFields(o: {
   /** Required on a new event. An older event may still have no finish at all. */
   endRequired: boolean;
   endHint?: string;
+  /** '' for once, or one of EVENT_REPEATS; and how many times in all. */
+  repeat: string;
+  repeatCount: string;
 }) {
   const id = (k: string) => `${o.idPrefix}${k}`;
   return html`
@@ -164,7 +172,28 @@ function whenFields(o: {
       <input id="${id('end')}" name="end_time" type="time" value="${o.endTime}"
              ${o.endRequired ? 'required' : ''} aria-label="Finish time">
     </div>
+    <div class="field">
+      <label for="${id('repeat')}">Does it repeat?</label>
+      <span class="hint">A course on six Wednesdays, a club every day for a week. People book once for all of it, and the rooms are held every time.</span>
+      <select id="${id('repeat')}" name="repeat">
+        <option value="">Just once</option>
+        ${EVENT_REPEATS.map((r) => html`<option value="${r.value}" ${o.repeat === r.value ? 'selected' : ''}>${r.label}</option>`)}
+      </select>
+    </div>
+    <div class="field" id="${id('repeat_n')}" ${o.repeat ? '' : 'hidden'}>
+      <label for="${id('repeat_count')}">How many times in all</label>
+      <span class="hint">The first one included — "every week for 6 weeks" is 6.</span>
+      <input id="${id('repeat_count')}" name="repeat_count" type="number" min="2" max="${MAX_REPEAT_COUNT}"
+             value="${o.repeatCount}">
+    </div>
     <script>
+      (function () {
+        var rep = document.getElementById('${id('repeat')}');
+        var n = document.getElementById('${id('repeat_n')}');
+        function showCount() { n.hidden = !rep.value; }
+        rep.addEventListener('change', showCount);
+        showCount();
+      }());
       (function () {
         var start = document.getElementById('${id('date')}');
         var end = document.getElementById('${id('end_date')}');
@@ -201,8 +230,8 @@ function roomChecks(rooms: RoomRow[], ticked: number[]) {
     <h3 style="margin-bottom:.5rem">Book rooms for it</h3>
     <p class="hint" style="margin-top:0">
       Tick any rooms this event needs. They are booked on the room diary from when it starts
-      until when it finishes — overnight too, if it runs over more than one day — and move
-      with it if the time changes.
+      until when it finishes — overnight too, if it runs over more than one day, and every
+      time it happens, if it repeats — and move with it if the time changes.
     </p>
     <div class="checks">
       ${rooms.map((r) => html`<label class="check">
@@ -303,6 +332,8 @@ export function newEventPage(opts: {
             endDate: f.end_date || f.on_date || '',
             endTime: f.end_time ?? '21:00',
             endRequired: true,
+            repeat: f.repeat ?? '',
+            repeatCount: f.repeat_count ?? '',
           })}
           <div class="field">
             <label for="location">Where</label>
@@ -543,6 +574,8 @@ export function eventAdminPage(opts: {
               endTime: val('end_time', e.ends_at ? timeOf(e.ends_at) : ''),
               endRequired: false,
               endHint: e.ends_at ? undefined : 'Needed before any rooms can be booked for it.',
+              repeat: val('repeat', repeatOf(e)?.freq ?? ''),
+              repeatCount: val('repeat_count', String(repeatOf(e)?.count ?? '')),
             })}
             <div class="field">
               <label for="d_location">Where</label>
@@ -1127,7 +1160,7 @@ export function publicBookingPage(opts: {
                       style="width:100%;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:1.25rem">`
           : ''}
         <div class="card">
-          <p style="margin-top:0"><strong>${formatWhen(e.starts_at, e.ends_at)}</strong>${e.location
+          <p style="margin-top:0"><strong>${eventWhenText(e)}</strong>${e.location
             ? `, ${e.location}` : ''}</p>
           ${e.description ? html`<p>${raw(e.description.replace(/\n/g, '<br>'))}</p>` : ''}
           <!-- Whether there is room, never how much of it. "3 places left"
@@ -1246,7 +1279,7 @@ export function bookingDonePage(e: EventRow, partySize: number, waitlist = false
           <p style="margin:0">
             Thank you. We have you down for
             <strong>${partySize}</strong> ${partySize === 1 ? 'place' : 'places'} at
-            <strong>${e.title}</strong>, ${formatWhen(e.starts_at, e.ends_at)}.
+            <strong>${e.title}</strong>, ${eventWhenText(e)}.
           </p>
         </div>
         <div class="card">

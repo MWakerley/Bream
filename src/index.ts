@@ -70,7 +70,8 @@ import { listEvents, getEvent, getEventBySlug, listFields, listBookings as listE
          makeSlug, fieldKey, readBookingForm, hasRoom,
          getBooking as getEventBooking, saveBooking, type BookingAttempt,
          listOrganisers, readOrganisers, saveOrganisers, eventRoomIds, readRoomIds,
-         eventRoomClashes, describeClashes, syncEventRooms, readEventWhen } from './events.js';
+         eventRoomClashes, describeClashes, syncEventRooms, readEventWhen,
+         readEventRepeat, eventOccurrences, eventWhenText } from './events.js';
 import { sendAcknowledgement, sendEmail, notifyOrganisers, sendBlindCopies, usableEmail,
          DEFAULT_ACK_SUBJECT, DEFAULT_ACK_BODY } from './email.js';
 import { messageComposePage, messageConfirmPage, messageSentPage, starterDraft,
@@ -3080,7 +3081,7 @@ app.post('/app/events/new', async (c) => {
   const s = (k: string) => String(form.get(k) ?? '').trim();
   const echo = Object.fromEntries(
     ['title', 'description', 'on_date', 'start_time', 'end_date', 'end_time', 'location', 'capacity',
-      'max_per_booking', 'closes']
+      'max_per_booking', 'closes', 'repeat', 'repeat_count']
       .map((k) => [k, s(k)]));
   const rooms = await listRooms(c.env.DB);
   const roomIds = readRoomIds(form).filter((id) => rooms.some((r) => r.id === id));
@@ -3099,6 +3100,11 @@ app.post('/app/events/new', async (c) => {
   const { startsAt } = when;
   // Required above, so always present here.
   const endsAt = when.endsAt!;
+  // Once, or every day / week / two weeks for so many times. Each ticked room
+  // is held for every one of them.
+  const repeat = readEventRepeat(form, startsAt, endsAt);
+  if (!repeat.ok) return refuse(repeat.error);
+  const times = eventOccurrences(startsAt, endsAt, repeat.value);
 
   const organisers = readOrganisers(form, notify);
   if (!organisers.ok) return refuse(organisers.error);
@@ -3107,7 +3113,7 @@ app.post('/app/events/new', async (c) => {
   // event that looks as though it has its rooms when it does not — unless the
   // person has ticked to hold the rooms anyway, alongside what is there.
   if (!form.get('allow_clash')) {
-    const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt);
+    const clashes = await eventRoomClashes(c.env.DB, roomIds, times);
     if (clashes.length) return refuse(describeClashes(clashes), 409, true);
   }
 
@@ -3116,17 +3122,19 @@ app.post('/app/events/new', async (c) => {
 
   const res = await c.env.DB.prepare(
     `INSERT INTO events (slug, title, description, starts_at, ends_at, location, capacity,
-                          booking_closes_at, ask_email, ask_phone, notify_organisers, max_per_booking)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+                          booking_closes_at, ask_email, ask_phone, notify_organisers, max_per_booking,
+                          repeat_freq, repeat_count)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
   ).bind(slug, title, s('description') || null, startsAt, endsAt,
     s('location') || null, Number.isInteger(capacity) && capacity > 0 ? capacity : null,
     s('closes') || null, form.get('ask_email') ? 1 : 0, form.get('ask_phone') ? 1 : 0,
-    notify ? 1 : 0, perBooking(form.get('max_per_booking'))).run();
+    notify ? 1 : 0, perBooking(form.get('max_per_booking')),
+    repeat.value?.freq ?? null, repeat.value?.count ?? null).run();
   const eventId = Number(res.meta.last_row_id);
 
   await saveOrganisers(c.env.DB, eventId, organisers.value);
   await syncEventRooms(c.env.DB, {
-    eventId, roomIds, title, startsAt, endsAt, bookedBy: c.get('person').id,
+    eventId, roomIds, title, times, bookedBy: c.get('person').id,
   });
 
   return c.redirect(`/app/events/${eventId}`, 303);
@@ -3190,7 +3198,7 @@ app.post('/app/events/:id/details', async (c) => {
   // of the page, so a refusal looked exactly like the save being ignored.
   const values = Object.fromEntries(
     ['title', 'description', 'on_date', 'start_time', 'end_date', 'end_time', 'location', 'capacity',
-      'max_per_booking', 'closes'].map((k) => [k, String(form.get(k) ?? '')]));
+      'max_per_booking', 'closes', 'repeat', 'repeat_count'].map((k) => [k, String(form.get(k) ?? '')]));
   const rooms = await listRooms(c.env.DB);
   const roomIds = readRoomIds(form).filter((r) => rooms.some((x) => x.id === r));
   const refuse = (error: string, offerOverride = false) =>
@@ -3203,6 +3211,9 @@ app.post('/app/events/:id/details', async (c) => {
   const when = readEventWhen(form, false);
   if (!when.ok) return refuse(when.error);
   const { startsAt, endsAt } = when;
+  const repeat = readEventRepeat(form, startsAt, endsAt);
+  if (!repeat.ok) return refuse(repeat.error);
+  const times = eventOccurrences(startsAt, endsAt ?? startsAt, repeat.value);
 
   const rawCapacity = String(form.get('capacity') ?? '').trim();
   const capacity = rawCapacity === '' ? null : Number(rawCapacity);
@@ -3218,7 +3229,7 @@ app.post('/app/events/:id/details', async (c) => {
   // naturally includes the Sunday service, and refusing it helps nobody. The
   // other bookings stand; both show on the diary.
   if (endsAt && !form.get('allow_clash')) {
-    const clashes = await eventRoomClashes(c.env.DB, roomIds, startsAt, endsAt, id);
+    const clashes = await eventRoomClashes(c.env.DB, roomIds, times, id);
     if (clashes.length) return refuse(describeClashes(clashes), true);
   }
 
@@ -3234,13 +3245,15 @@ app.post('/app/events/:id/details', async (c) => {
   await c.env.DB.prepare(
     `UPDATE events
         SET title = ?2, description = ?3, starts_at = ?4, location = ?5,
-            capacity = ?6, booking_closes_at = ?7, ends_at = ?8, max_per_booking = ?9
+            capacity = ?6, booking_closes_at = ?7, ends_at = ?8, max_per_booking = ?9,
+            repeat_freq = ?10, repeat_count = ?11
       WHERE id = ?1`,
   ).bind(id, title, str('description'), startsAt, str('location'),
-    capacity, str('closes'), endsAt, perBooking(form.get('max_per_booking'))).run();
+    capacity, str('closes'), endsAt, perBooking(form.get('max_per_booking')),
+    repeat.value?.freq ?? null, repeat.value?.count ?? null).run();
 
   await syncEventRooms(c.env.DB, {
-    eventId: id, roomIds, title, startsAt, endsAt: endsAt ?? startsAt, bookedBy: c.get('person').id,
+    eventId: id, roomIds, title, times, bookedBy: c.get('person').id,
   });
 
   const over = capacity != null && (booked?.n ?? 0) > capacity;
@@ -3248,7 +3261,8 @@ app.post('/app/events/:id/details', async (c) => {
   // the rooms took.
   const heldNames = rooms.filter((r) => roomIds.includes(r.id)).map((r) => r.name);
   const held = heldNames.length && endsAt
-    ? ` ${heldNames.join(' and ')} ${heldNames.length === 1 ? 'is' : 'are'} held ${formatWhen(startsAt, endsAt)}.`
+    ? ` ${heldNames.join(' and ')} ${heldNames.length === 1 ? 'is' : 'are'} held ${formatWhen(startsAt, endsAt)}`
+      + (times.length > 1 ? `, and each of the ${times.length - 1} times after.` : '.')
     : '';
   return eventAdminView(c, id, {
     tone: over ? 'bad' : 'ok',
@@ -3554,7 +3568,7 @@ async function tellOrganisers(
     ]);
     const sent = await notifyOrganisers(c.env.EMAIL, c.env.ACK_FROM, organisers, {
       eventTitle: event.title,
-      eventWhen: formatWhen(event.starts_at, event.ends_at),
+      eventWhen: eventWhenText(event),
       name: booking.name,
       email: booking.email,
       phone: booking.phone,
@@ -4431,7 +4445,7 @@ app.post('/events/:slug', async (c) => {
           ? `${formatDate(event.starts_at.slice(0, 10))} to ${formatDate(lastDay(event.starts_at, event.ends_at!))}`
           : formatDate(event.starts_at.slice(0, 10)),
         eventTime: event.starts_at.slice(11, 16),
-        eventWhen: formatWhen(event.starts_at, event.ends_at),
+        eventWhen: eventWhenText(event),
         location: event.location,
         partySize: parsed.value.partySize,
       },
