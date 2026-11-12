@@ -29,6 +29,7 @@ import { noAccessPage } from '../src/views/noaccess.js';
 import { combinationsByRolePage } from '../src/views/combinations.js';
 import { draftRulesPage } from '../src/views/draftrules.js';
 import { worshipPage } from '../src/views/worship.js';
+import { worshipSettingsPage } from '../src/views/worshipsettings.js';
 import { safeguardingPage, safeguardingReportPage } from '../src/views/safeguarding.js';
 import { readEventWhen } from '../src/events.js';
 import { fillPlaceholders, DEFAULT_ACK_BODY } from '../src/email.js';
@@ -193,6 +194,25 @@ await check('people', () => peoplePage(
      needs_review: 1, review_note: 'may be Matt W', happy_with_anyone: 1,
      role_names: 'Preacher', role_count: 1 }], CTX),
   ['Matt R', 'Possible duplicate', 'may be Matt W', 'Merge duplicates']);
+// November 2026: a "Show" filter beside the buttons, by role or state; and
+// keys only for a profile with Regulation.
+{
+  const PEOPLE = [
+    { id: 1, display_name: 'Sue', full_name: null, email: null, is_active: 1, is_admin: 0, needs_review: 0,
+      review_note: null, happy_with_anyone: 1, role_names: 'Preacher, Reader', role_count: 2, is_keyholder: 1 },
+    { id: 2, display_name: 'Tom', full_name: null, email: null, is_active: 1, is_admin: 0, needs_review: 0,
+      review_note: null, happy_with_anyone: 1, role_names: 'Reader', role_count: 1, on_break: 1 },
+  ] as any[];
+  await check('people can be shown by role, beside the buttons', () => peoplePage(PEOPLE, CTX, roles),
+    ['data-filter-for="people-list"', '<option value="">Everyone</option>', '<option value="role:Preacher">Preacher</option>',
+     '<option value="state:break">Taking a break</option>', 'data-filter="role:Preacher|role:Reader"',
+     'data-filter="role:Reader|state:break"', 'Keyholders', 'title="Keyholder"'],
+    ['state:review']);
+  await check('and an administrator without Regulation sees no keys there', () => peoplePage(PEOPLE,
+    { ...CTX, areas: ADMIN_AREAS }, roles),
+  ['data-filter-for="people-list"', 'Add a person'],
+  ['href="/app/settings/keyholders"', 'title="Keyholder"', ' keyholder"']);
+}
 await check('roles', () => rolesPage(roles, CTX), ['Prayer ministry', 'Save all roles', 'Add this role']);
 await check('roles can be marked critical', () => rolesPage([{ ...roles[0]!, is_critical: 1 }, roles[1]!], CTX),
   ['Critical to service', 'name="critical_1" value="1" checked', 'name="critical_2" value="1" ']);
@@ -254,9 +274,22 @@ await check('rota dashboard (empty)', () => rotaDashboard([], CTX, null), ['No u
   await check('the rota opens every service as a full card, under month tabs', full,
     ['href="#month-2027-01"', 'id="month-2027-01"', 'January 2027', 'next-up-later',
      'Sun 10 Jan 2027 at 15:00', 'Jump to', '?view=condensed', 'href="#top"', '--topbar-h',
-     'class="btn-file btn-pdf" href="/app/rota/export.pdf"', 'class="btn-file btn-xls" href="/app/rota/export.xlsx"', '>PDF</span>', '>XLS</span>'],
+     'class="btn-file btn-pdf" href="/app/rota/export.pdf"', 'class="btn-file btn-xls" href="/app/rota/export.xlsx"', '>PDF</span>', '>XLS</span>',
+     // The search: every card findable by who is on it, months that hide.
+     'Search the rota', 'data-search-target="rota-services"', 'id="rota-services"', '<section data-search-group>',
+     'data-search="Sun 10 Jan 2027'],
     ['<details class="svc-more">', 'Key roles are missing', 'have roles with nobody',
      'Generate a whole draft', 'has its required roles filled']);
+  await check('the downloads sit under the buttons, and the search under them', async () => {
+    const out = String(await full());
+    const at = ['Unfilled roles', 'class="rota-downloads"', 'Search the rota', 'Jump to'].map((t) => out.indexOf(t));
+    return at.every((n, i) => n > 0 && (i === 0 || n > at[i - 1]!)) ? 'in order' : `out of order ${at.join(',')}`;
+  }, ['in order']);
+  await check('a card can be found by somebody on it', async () => {
+    const out = String(await full());
+    const card = out.match(/data-search="Sun 10 Jan 2027[^"]*"/)?.[0] ?? '';
+    return card.includes('Preacher') && card.includes(detail.roles[0]!.people[0]?.display_name ?? '§') ? 'findable' : card;
+  }, ['findable']);
   await check('with the buttons above everything else', async () => {
     const out = String(await full());
     return out.indexOf('Add a service') < out.indexOf('Next service')
@@ -573,8 +606,12 @@ await check('rooms', () => roomsPage({
 await check('rooms: the List opens on what is booked, with tabs for the rest', async () => {
   const out = String(await roomsPage({ rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18' }));
   return out.indexOf('What is booked') < out.indexOf('The rooms') ? out : 'out of order';
-}, ['href="/app/rooms/book"', '>+ Make a booking</a>', 'href="/app/rooms/repeating"', '>Repeating bookings</a>',
-    'tab tab-main is-on" href="/app/rooms"', 'class="tab tab-main tab-book "', 'class="tab tab-quiet " href="/app/rooms/calendar"']);
+}, ['href="/app/rooms/book"', '</span>Make a booking</a>', 'href="/app/rooms/repeating"', '</span>Repeating bookings</a>',
+    // List view and Calendar together, bold and prominent; repeating quieter;
+    // an icon on each.
+    'class="tab tab-main tab-view is-on" href="/app/rooms"', '</span>List view</a>',
+    'class="tab tab-main tab-view " href="/app/rooms/calendar"', 'class="tab tab-main tab-book "',
+    'class="tab tab-quiet " href="/app/rooms/repeating"', '<span class="tab-icon"><svg class="icon"']);
 await check('rooms: the Make a booking tab is the form alone', () => roomsPage({
   rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18', tab: 'book',
 }), ['Book this room', 'tab tab-main tab-book is-on" href="/app/rooms/book"'], ['What is booked', 'Every Monday']);
@@ -1197,6 +1234,19 @@ const BAND = [
   { id: 2, display_name: 'Stu Dix' },
   { id: 3, display_name: 'Owen Price' },
 ];
+// Exactly what migration 0035 fills the tables with.
+const W_POS = [['drums', 'Drums'], ['bass', 'Bass'], ['guitar', 'Guitar'], ['keys', 'Keyboards'],
+  ['singer1', 'Singer 1'], ['singer2', 'Singer 2'], ['singer3', 'Singer 3']]
+  .map(([key, label], i) => ({ key: key!, label: label!, sort_order: (i + 1) * 10, is_active: 1 }));
+const W_SETTINGS = {
+  positions: W_POS,
+  kinds: [
+    { key: 'live', label: 'Live worship', note: 'A band — drums, bass, guitar, keys and singers', sort_order: 10, is_active: 1,
+      positions: W_POS.map((p) => p.key) },
+    { key: 'lyrics', label: 'Worship lyrics', note: 'Sung to recorded music — singers only', sort_order: 20, is_active: 1,
+      positions: ['singer1', 'singer2', 'singer3'] },
+  ],
+};
 
 await check('the worship roster', () => worshipPage({
   sundays: [
@@ -1216,7 +1266,7 @@ await check('the worship roster', () => worshipPage({
       plan_id: null, kind: null, notes: null, leaders: [], slots: [],
     },
   ],
-  people: BAND,
+  people: BAND, settings: W_SETTINGS,
   ctx: CTX,
   savedId: 1,
 }), [
@@ -1242,13 +1292,44 @@ await check('a viewer sees the band but no form', () => worshipPage({
     leaders: ['Nat Dix'],
     slots: [{ position: 'singer1', person_id: 3, name: null }],
   }],
-  people: BAND,
+  people: BAND, settings: W_SETTINGS,
   ctx: CTX,
   canEdit: false,
 }), ['Owen Price', 'Singer 1'],
   // On a lyrics week there is no band to ask about, so the band positions are
   // not shown at all in the read-only view.
   ['Save this week', 'Drums', 'Keyboards']);
+
+// November 2026: the kinds and positions come from the Admin Centre. Each box
+// says which kinds ask about it, so switching shows exactly those — singers
+// stay for lyrics (that bug), and a kind the church adds works the same way.
+{
+  const ACOUSTIC = { ...W_SETTINGS, kinds: [...W_SETTINGS.kinds,
+    { key: 'acoustic', label: 'Acoustic', note: 'Guitar and voices', sort_order: 30, is_active: 1,
+      positions: ['guitar', 'singer1', 'singer2'] }] };
+  const week = (kind: string | null) => ({
+    service_id: 9, service_date: '2026-12-06', service_time: '18:00', title: 'Lift - Christmas', is_communion: 0,
+    plan_id: kind ? 3 : null, kind, notes: null, leaders: ['Stu'], slots: [],
+  });
+  await check('worship boxes say which kinds ask about them', () => worshipPage({
+    sundays: [week(null)], people: BAND, settings: ACOUSTIC, ctx: CTX,
+  }), ['data-kinds="live"', 'data-kinds="live lyrics"', 'data-kinds="live acoustic"', 'data-kinds="live lyrics acoustic"',
+    '<option value="acoustic"', 'Acoustic', 'Guitar and voices', 'Change the kinds and positions'],
+  ['data-band', 'data-live']);
+  await check('an acoustic week shows guitar and two singers, the rest hidden', async () => {
+    const out = String(await worshipPage({ sundays: [week('acoustic')], people: BAND, settings: ACOUSTIC, ctx: CTX }));
+    const shown = [...out.matchAll(/<div class="field" data-kinds="([^"]*)"\s*(hidden)?/g)]
+      .filter((m) => !m[2]).map((m) => m[1]);
+    return JSON.stringify(shown);
+  }, ['["live acoustic","live lyrics acoustic","live lyrics acoustic"]']);
+  await check('admin centre: the worship kinds, positions and their ticks', () => worshipSettingsPage({
+    settings: { ...ACOUSTIC, positions: [...W_POS, { key: 'violin', label: 'Violin', sort_order: 80, is_active: 0 }] },
+    ctx: { ...CTX, path: '/app/settings/worship' },
+  }), ['Kinds of worship', 'name="label_acoustic" value="Acoustic"', 'name="pos_lyrics" value="singer1"\n                         checked',
+    'name="pos_lyrics" value="drums"\n                         ', 'Save the kinds', 'Add a kind of worship', 'Positions',
+    'name="label_violin" value="Violin"', 'Add this position', 'wk-pos is-off'],
+  ['name="pos_lyrics" value="drums"\n                         checked']);
+}
 
 // --- what has changed lately ---------------------------------------------
 // The case this exists for, in the churchwarden's own words: somebody says on

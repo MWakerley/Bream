@@ -1,7 +1,7 @@
 import { html, raw } from 'hono/html';
 import { layout, chip, icon, type ViewCtx } from './layout.js';
 import { formatDate } from './rota.js';
-import { KINDS, POSITIONS, positionsFor, type WorshipSunday } from '../worship.js';
+import { defaultKind, positionsFor, type WorshipSettings, type WorshipSunday } from '../worship.js';
 
 /**
  * The worship team's own area.
@@ -18,6 +18,8 @@ export function worshipPage(opts: {
   sundays: WorshipSunday[];
   /** Everybody on the roster, for the dropdowns. */
   people: { id: number; display_name: string }[];
+  /** The kinds of worship and positions, from Admin Centre → Worship Rota. */
+  settings: WorshipSettings;
   ctx: ViewCtx;
   /** The service whose card was last saved, so it can say so in place. */
   savedId?: number;
@@ -45,10 +47,12 @@ export function worshipPage(opts: {
 
       <div class="notice notice-info">
         <p style="margin:0">
-          <strong>Live worship</strong> asks about the whole band.
-          <strong>Worship lyrics</strong> asks only about singers, because there is no band to
-          ask about. Either way, leave anything blank that has nobody on it —
-          you do not have to fill in every line.
+          ${opts.settings.kinds.filter((k) => k.is_active).map((k) => html`<strong>${k.label}</strong>${k.note
+            ? html` — ${k.note}` : ''}. `)}
+          Leave anything blank that has nobody on it — you do not have to fill in every line.
+          ${!ctx.areas || ctx.areas.has('settings')
+            ? html`<a href="/app/settings/worship">Change the kinds and positions</a>.`
+            : ''}
         </p>
       </div>
 
@@ -67,7 +71,7 @@ export function worshipPage(opts: {
         ? html`<div class="card"><p style="margin:0">
             No services coming up yet. They appear here as soon as they are in the diary.
           </p></div>`
-        : sundays.map((s) => worshipCard(s, people, canEdit, opts.savedId === s.service_id))}
+        : sundays.map((s) => worshipCard(s, people, opts.settings, canEdit, opts.savedId === s.service_id))}
     `,
   );
 }
@@ -75,10 +79,15 @@ export function worshipPage(opts: {
 function worshipCard(
   s: WorshipSunday,
   people: { id: number; display_name: string }[],
+  settings: WorshipSettings,
   canEdit: boolean,
   justSaved: boolean,
 ) {
-  const kind = s.kind ?? 'live';
+  const kind = s.kind ?? defaultKind(settings);
+  // The kinds offered, plus this week's own if it has since been retired, so
+  // opening an old week never quietly changes what it was.
+  const kinds = settings.kinds.filter((k) => k.is_active || k.key === kind);
+  const active = settings.positions.filter((p) => p.is_active);
   const filled = s.slots.length;
   const nameOf = new Map(people.map((p) => [p.id, p.display_name]));
   const byPosition = new Map(s.slots.map((x) => [x.position, x]));
@@ -118,24 +127,27 @@ function worshipCard(
           <div class="field" style="max-width:26rem">
             <label for="kind-${s.service_id}">What kind of worship</label>
             <select id="kind-${s.service_id}" name="kind"
-                    onchange="this.closest('form').querySelectorAll('[data-live]').forEach(function(el){el.hidden = this.value !== 'live';}, this)">
-              ${KINDS.map((k) => html`<option value="${k.value}" ${kind === k.value ? 'selected' : ''}>
-                ${k.label} — ${k.note}
+                    onchange="var v=' '+this.value+' ';this.closest('form').querySelectorAll('[data-kinds]').forEach(function(el){el.hidden=(' '+el.getAttribute('data-kinds')+' ').indexOf(v)<0;})">
+              ${kinds.map((k) => html`<option value="${k.key}" ${kind === k.key ? 'selected' : ''}>
+                ${k.label}${k.note ? ` — ${k.note}` : ''}${k.is_active ? '' : ' (no longer offered)'}
               </option>`)}
             </select>
           </div>
 
-          <!-- Every position is rendered, and the band half is hidden rather
-               than removed when the kind is lyrics. That way switching the
-               dropdown reveals the boxes immediately with no round trip, and the
-               page still works with no JavaScript at all — it simply shows
-               everything, and the save ignores what does not apply. -->
+          <!-- Every position is rendered, each saying which kinds ask about it
+               (data-kinds), and the ones this kind does not ask about are hidden
+               rather than removed. That way switching the dropdown reveals the
+               boxes immediately with no round trip, and the page still works
+               with no JavaScript at all — it simply shows them, and the save
+               ignores what does not apply. Which kind asks about which
+               position is set in Admin Centre → Worship Rota. -->
           <div class="worship-grid">
-            ${POSITIONS.map((pos) => {
+            ${active.map((pos) => {
               const cur = byPosition.get(pos.key);
               const id = `${pos.key}-${s.service_id}`;
-              return html`<div class="field" data-live="${pos.live ? '1' : ''}"
-                                ${pos.live && kind !== 'live' ? 'hidden' : ''}>
+              const asks = kinds.filter((k) => k.positions.includes(pos.key)).map((k) => k.key);
+              return html`<div class="field" data-kinds="${asks.join(' ')}"
+                                ${asks.includes(kind) ? '' : 'hidden'}>
                 <label for="${id}">${pos.label}</label>
                 <select id="${id}" name="p_${pos.key}">
                   <option value="">— nobody —</option>
@@ -162,7 +174,7 @@ function worshipCard(
           <button class="btn-primary" type="submit">Save this week</button>
         </form>`
       : html`<div class="worship-grid">
-          ${positionsFor(kind).map((pos) => {
+          ${positionsFor(settings, kind).map((pos) => {
             const cur = byPosition.get(pos.key);
             return html`<p style="margin:0">
               <strong>${pos.label}:</strong>

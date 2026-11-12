@@ -1,5 +1,5 @@
-import { html } from 'hono/html';
-import { layout, chip, type ViewCtx } from './layout.js';
+import { html, raw } from 'hono/html';
+import { layout, chip, icon, type IconName, type ViewCtx } from './layout.js';
 import { formatDate, formatSpan, lastDay } from './rota.js';
 
 import { FREQUENCIES, describeSeries } from '../recurrence.js';
@@ -173,19 +173,20 @@ export type RoomsTab = 'list' | 'book' | 'repeating';
  * server checks before saving one — so nobody is shown a form that refuses them.
  */
 export function roomTabs(current: RoomsTab | 'calendar', canBook: boolean, calendarHref = '/app/rooms/calendar') {
-  const tab = (key: RoomsTab | 'calendar', href: string, label: string, cls = '') => html`<a
+  const tab = (key: RoomsTab | 'calendar', href: string, label: string, ico: IconName, cls = '') => html`<a
     class="tab ${cls} ${current === key ? 'is-on' : ''}" href="${href}" role="tab"
-    aria-selected="${current === key ? 'true' : 'false'}">${label}</a>`;
-  // The two things people come here to do — see what is booked, and book —
-  // side by side and prominent; the other two views quieter, to the right.
+    aria-selected="${current === key ? 'true' : 'false'}"><span class="tab-icon">${raw(icon(ico, 17))}</span>${label}</a>`;
+  // What people come here for — what is booked, as a list or a calendar, and
+  // booking — together and prominent, each with an icon that says what it
+  // does; repeating bookings quieter, to the right.
   return html`<div class="tabs room-tabs" role="tablist">
     <span class="room-tabs-main">
-      ${tab('list', '/app/rooms', 'List', 'tab-main')}
-      ${canBook ? tab('book', '/app/rooms/book', '+ Make a booking', 'tab-main tab-book') : ''}
+      ${tab('list', '/app/rooms', 'List view', 'list', 'tab-main tab-view')}
+      ${tab('calendar', calendarHref, 'Calendar', 'calendar', 'tab-main tab-view')}
+      ${canBook ? tab('book', '/app/rooms/book', 'Make a booking', 'plus', 'tab-main tab-book') : ''}
     </span>
     <span class="room-tabs-more">
-      ${tab('calendar', calendarHref, 'Calendar', 'tab-quiet')}
-      ${tab('repeating', '/app/rooms/repeating', 'Repeating bookings', 'tab-quiet')}
+      ${tab('repeating', '/app/rooms/repeating', 'Repeating bookings', 'repeat', 'tab-quiet')}
     </span>
   </div>`;
 }

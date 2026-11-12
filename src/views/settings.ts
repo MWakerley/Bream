@@ -40,6 +40,7 @@ export const SETTINGS_GROUPS: { title: string; note: string; icon: IconName; ite
       { href: '/app/settings/draft-rules', label: 'Draft rota rules', icon: 'sliders', note: 'The rules a generated rota follows.' },
       { href: '/app/settings/combinations', label: 'Combination rules', icon: 'grid', note: 'Which roles one person can do together on the same day.' },
       { href: '/app/settings/pairs', label: 'Who works with whom', icon: 'link', note: 'People who serve together, or should be kept apart.' },
+      { href: '/app/settings/worship', label: 'Worship Rota', icon: 'music', note: 'The kinds of worship, the positions on the team, and which go together.' },
     ],
   },
   {
@@ -190,8 +191,25 @@ export function keyholdersPage(rows: KeyholderRow[], ctx: ViewCtx) {
   );
 }
 
-export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
+export function peoplePage(
+  people: PersonWithRoles[],
+  ctx: ViewCtx,
+  /** For the "Show" filter. Absent, the filter offers the roles people have. */
+  roles?: { id: number; name: string }[],
+) {
   const needsReview = people.filter((p) => p.needs_review);
+  // Keys are Regulation's: without it, nobody is marked as a keyholder here,
+  // there is no Keyholders button, and "keyholder" finds nobody.
+  const regulated = !ctx.areas || ctx.areas.has('regulation');
+  const roleList = roles?.map((r) => r.name)
+    ?? [...new Set(people.flatMap((p) => (p.role_names ?? '').split(', ').filter(Boolean)))].sort();
+  // What a row can be filtered on: its roles, plus the three states worth
+  // seeing on their own. Bars either side so "Reader" never matches inside a
+  // longer name.
+  const filterOf = (p: PersonWithRoles) => [
+    ...(p.role_names ?? '').split(', ').filter(Boolean).map((r) => `role:${r}`),
+    p.on_break ? 'state:break' : '', p.is_guest ? 'state:guest' : '', p.needs_review ? 'state:review' : '',
+  ].filter(Boolean).join('|');
   return layout(
     { title: 'People', heading: 'People', back: SETTINGS, ...ctx },
     html`
@@ -203,8 +221,8 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
       <div class="notice notice-info">
         <p style="margin-top:0">
           Each person's own record is where the draft rota learns what they can do, how often
-          and when. To see everybody who can do a role, type it into the search — "preacher"
-          lists everyone who can preach.
+          and when. To see everybody who can do a role, choose it under <strong>Show</strong>
+          beside the buttons — or type it into the search.
         </p>
         <p style="margin-bottom:0">
           The ticks were taken from what each person has actually done on the
@@ -225,10 +243,28 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
           </div>`
         : ''}
 
-      <div class="btn-row" style="margin-bottom:1.25rem">
+      <div class="btn-row people-actions">
         <a class="btn-primary" href="/app/settings/people/new">Add a person</a>
         <a class="btn-secondary" href="/app/settings/people/merge">Merge duplicates</a>
-        <a class="btn-secondary" href="/app/settings/keyholders">${raw(KEY_ICON)} Keyholders</a>
+        ${regulated
+          ? html`<a class="btn-secondary" href="/app/settings/keyholders">${raw(KEY_ICON)} Keyholders</a>`
+          : ''}
+        <!-- Show only one role (or one state). Works with the search box: both
+             have to match. search.js finds it by data-filter-for. -->
+        <label class="people-filter">
+          <span class="people-filter-label">Show</span>
+          <select data-filter-for="people-list" aria-label="Show only people who can do a role">
+            <option value="">Everyone</option>
+            <optgroup label="Who can do">
+              ${roleList.map((r) => html`<option value="role:${r}">${r}</option>`)}
+            </optgroup>
+            <optgroup label="Who is">
+              <option value="state:break">Taking a break</option>
+              <option value="state:guest">Guests</option>
+              ${needsReview.length ? html`<option value="state:review">Possible duplicates</option>` : ''}
+            </optgroup>
+          </select>
+        </label>
       </div>
 
       ${searchBox({
@@ -253,14 +289,15 @@ export function peoplePage(people: PersonWithRoles[], ctx: ViewCtx) {
           <tbody id="people-list">
             ${people.map(
               (p) => html`<tr class="${p.needs_review ? 'row-gap' : ''}"
+                    data-filter="${filterOf(p)}"
                     data-search="${[p.display_name, p.full_name, p.email, p.role_names,
                       p.on_break ? 'taking a break' : '', p.is_guest ? 'guest' : '',
-                      p.is_keyholder ? 'keyholder' : '']
+                      regulated && p.is_keyholder ? 'keyholder' : '']
                       .filter(Boolean)
                       .join(' ')}">
                 <td class="stack-title">
                   <a href="/app/settings/people/${p.id}"><strong>${p.display_name}</strong></a>
-                  ${p.is_keyholder ? html`<span title="Keyholder" aria-label="Keyholder">${raw(KEY_ICON)}</span>` : ''}
+                  ${regulated && p.is_keyholder ? html`<span title="Keyholder" aria-label="Keyholder">${raw(KEY_ICON)}</span>` : ''}
                 </td>
                 <td data-label="What they can do">${p.role_names ?? html`<span style="color:var(--ink-2)">nothing ticked yet</span>`}</td>
                 <td class="num" data-label="Roles">${p.role_count}</td>

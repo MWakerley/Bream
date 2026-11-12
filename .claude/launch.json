@@ -6,6 +6,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["scripts/serve.mjs", "8080"],
       "port": 8080
+    },
+    {
+      "name": "bream-local",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--local", "--port", "8787", "--var", "ADMIN_BOOTSTRAP_TOKEN:local-test-only"],
+      "port": 8787
     }
   ]
 }

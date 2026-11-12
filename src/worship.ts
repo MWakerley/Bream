@@ -10,33 +10,80 @@
  * with two singers and nothing else.
  */
 
-/** The positions, in the order they are asked about. */
-export const POSITIONS = [
-  { key: 'drums', label: 'Drums', live: true },
-  { key: 'bass', label: 'Bass', live: true },
-  { key: 'guitar', label: 'Guitar', live: true },
-  { key: 'keys', label: 'Keyboards', live: true },
-  { key: 'singer1', label: 'Singer 1', live: false },
-  { key: 'singer2', label: 'Singer 2', live: false },
-  { key: 'singer3', label: 'Singer 3', live: false },
-] as const;
-
-export type PositionKey = (typeof POSITIONS)[number]['key'];
-
-/**
- * Which positions a kind of service asks about.
- *
- * Sung to recorded music, there is no band — only voices. Showing a drummer box
- * on a lyrics week is asking a question with no answer.
- */
-export function positionsFor(kind: string) {
-  return kind === 'lyrics' ? POSITIONS.filter((p) => !p.live) : POSITIONS;
+/** A kind of worship: a band, lyrics to recorded music, and whatever else the
+ *  church adds in the Admin Centre. `positions` are the keys it asks about. */
+export interface WorshipKind {
+  key: string;
+  label: string;
+  note: string | null;
+  sort_order: number;
+  is_active: number;
+  positions: string[];
 }
 
-export const KINDS = [
-  { value: 'live', label: 'Live worship', note: 'A band — drums, bass, guitar, keys and singers' },
-  { value: 'lyrics', label: 'Worship lyrics', note: 'Sung to recorded music — singers only' },
-] as const;
+/** A position on the worship team: an instrument, or a voice. */
+export interface WorshipPosition {
+  key: string;
+  label: string;
+  sort_order: number;
+  is_active: number;
+}
+
+export interface WorshipSettings { kinds: WorshipKind[]; positions: WorshipPosition[] }
+
+/**
+ * Every kind and position, in order, retired ones included (the Admin Centre
+ * lists them, and a week saved before one was retired still names it).
+ * Set in Admin Centre → Worship Rota (0035 filled it with the original two
+ * kinds and seven positions).
+ */
+export async function loadWorshipSettings(db: D1Database): Promise<WorshipSettings> {
+  const [kinds, positions, links] = await db.batch([
+    db.prepare('SELECT key, label, note, sort_order, is_active FROM worship_kinds ORDER BY sort_order, label'),
+    db.prepare('SELECT key, label, sort_order, is_active FROM worship_positions ORDER BY sort_order, label'),
+    db.prepare('SELECT kind_key, position_key FROM worship_kind_positions'),
+  ]);
+  const byKind = new Map<string, Set<string>>();
+  for (const l of (links?.results ?? []) as { kind_key: string; position_key: string }[]) {
+    byKind.set(l.kind_key, (byKind.get(l.kind_key) ?? new Set()).add(l.position_key));
+  }
+  const pos = (positions?.results ?? []) as WorshipPosition[];
+  return {
+    positions: pos,
+    kinds: ((kinds?.results ?? []) as Omit<WorshipKind, 'positions'>[]).map((k) => ({
+      ...k,
+      // In the positions' own order, not the order the links were made in.
+      positions: pos.filter((p) => byKind.get(k.key)?.has(p.key)).map((p) => p.key),
+    })),
+  };
+}
+
+/**
+ * The positions a kind asks about, in order — only ones still offered.
+ * Sung to recorded music there is no band, so a lyrics week shows no drummer.
+ */
+export function positionsFor(settings: WorshipSettings, kind: string): WorshipPosition[] {
+  const want = new Set(settings.kinds.find((k) => k.key === kind)?.positions ?? []);
+  return settings.positions.filter((p) => p.is_active && want.has(p.key));
+}
+
+/** The kind a week starts as: the first one still offered. */
+export function defaultKind(settings: WorshipSettings): string {
+  return settings.kinds.find((k) => k.is_active)?.key ?? 'live';
+}
+
+/**
+ * A key for something newly named: "Electric guitar" -> "electric_guitar",
+ * made unique against the keys already taken. Keys never change after, so a
+ * rename never loses a saved week.
+ */
+export function newKey(label: string, taken: Set<string>): string {
+  const base = label.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'item';
+  let key = base;
+  for (let n = 2; taken.has(key); n++) key = `${base}_${n}`;
+  return key;
+}
 
 export interface WorshipSlot {
   position: string;
@@ -82,7 +129,7 @@ export async function listWorshipSundays(
     .prepare(
       `SELECT s.id AS service_id, s.service_date, s.service_time, s.title,
               COALESCE(s.is_communion, st.is_communion, 0) AS is_communion,
-              w.id AS plan_id, w.kind, w.notes
+              w.id AS plan_id, COALESCE(w.kind_key, w.kind) AS kind, w.notes
          FROM services s
          LEFT JOIN service_types st ON st.id = s.service_type_id
          LEFT JOIN worship_plans w  ON w.service_id = s.id
@@ -149,16 +196,20 @@ export interface SlotInput {
 export async function saveWorshipPlan(
   db: D1Database,
   serviceId: number,
-  kind: 'live' | 'lyrics',
+  kind: string,
   notes: string | null,
   slots: SlotInput[],
+  /** The position keys this kind asks about; anything else is dropped. */
+  allowedPositions: Set<string>,
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO worship_plans (service_id, kind, notes)
-       VALUES (?1, ?2, ?3)
+      // kind keeps to the two values its CHECK allows (see 0035); kind_key is
+      // the real one, any kind the Admin Centre has.
+      `INSERT INTO worship_plans (service_id, kind, kind_key, notes)
+       VALUES (?1, CASE WHEN ?2 IN ('live', 'lyrics') THEN ?2 ELSE 'live' END, ?2, ?3)
        ON CONFLICT(service_id)
-       DO UPDATE SET kind = excluded.kind, notes = excluded.notes,
+       DO UPDATE SET kind = excluded.kind, kind_key = excluded.kind_key, notes = excluded.notes,
                      updated_at = datetime('now')`,
     )
     .bind(serviceId, kind, notes)
@@ -174,9 +225,8 @@ export async function saveWorshipPlan(
 
   // Only positions this kind of service actually has. Switching a week from a
   // band to lyrics must not leave a drummer behind in a row nothing displays.
-  const allowed = new Set(positionsFor(kind).map((p) => p.key as string));
   const filled = slots.filter(
-    (s) => allowed.has(s.position) && (s.personId != null || (s.name && s.name.trim())),
+    (s) => allowedPositions.has(s.position) && (s.personId != null || (s.name && s.name.trim())),
   );
   if (!filled.length) return;
 

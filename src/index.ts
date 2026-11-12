@@ -38,7 +38,9 @@ import { combinationsByRolePage } from './views/combinations.js';
 import { draftRulesPage } from './views/draftrules.js';
 import { worshipPage } from './views/worship.js';
 import { recentActivity } from './activity.js';
-import { listWorshipSundays, saveWorshipPlan, POSITIONS } from './worship.js';
+import { listWorshipSundays, saveWorshipPlan, loadWorshipSettings, positionsFor, defaultKind,
+         newKey } from './worship.js';
+import { worshipSettingsPage } from './views/worshipsettings.js';
 import { gapsPage, glancePage, readingsPage, rotaDashboard, servicePage, type RotaLayout } from './views/rota.js';
 import { getCookie, setCookie } from 'hono/cookie';
 import { servicesPage, type ServiceListRow, type ServiceTypeOption } from './views/services.js';
@@ -438,8 +440,11 @@ app.get('/app/settings', async (c) => {
   }));
 });
 
-app.get('/app/settings/people', async (c) =>
-  c.html(peoplePage(await listPeople(c.env.DB), viewCtx(c))));
+app.get('/app/settings/people', async (c) => {
+  // The roles too, in the rota's order, for the "Show" filter beside the buttons.
+  const [people, roles] = await Promise.all([listPeople(c.env.DB), listRoles(c.env.DB)]);
+  return c.html(peoplePage(people, viewCtx(c), roles));
+});
 
 app.get('/app/settings/safeguarding', async (c) =>
   c.html(safeguardingPage(await loadSgGrid(c.env.DB), viewCtx(c))));
@@ -1752,15 +1757,17 @@ async function worshipView(
   savedId?: number,
 ) {
   const from = c.req.query('from') ?? new Date().toISOString().slice(0, 10);
-  const [sundays, people] = await Promise.all([
+  const [sundays, people, settings] = await Promise.all([
     listWorshipSundays(c.env.DB, from),
     c.env.DB.prepare(
       'SELECT id, display_name FROM people WHERE is_active = 1 ORDER BY display_name',
     ).all<{ id: number; display_name: string }>(),
+    loadWorshipSettings(c.env.DB),
   ]);
   return c.html(worshipPage({
     sundays,
     people: people.results,
+    settings,
     ctx: viewCtx(c),
     notice,
     savedId,
@@ -1772,19 +1779,121 @@ async function worshipView(
 
 app.get('/app/rota/worship', (c) => worshipView(c));
 
+// ---- Admin Centre → Worship Rota: the kinds and positions themselves -------
+
+async function worshipSettingsView(
+  c: Context<{ Bindings: Env; Variables: Vars }>,
+  notice?: { tone: 'ok' | 'bad'; text: string },
+) {
+  const settings = await loadWorshipSettings(c.env.DB);
+  return c.html(worshipSettingsPage({ settings, ctx: viewCtx(c), notice }), notice?.tone === 'bad' ? 400 : 200);
+}
+
+app.get('/app/settings/worship', (c) => worshipSettingsView(c));
+
+/** Every kind at once: names, notes, order, offered, and the position ticks. */
+app.post('/app/settings/worship/kinds', async (c) => {
+  const form = await c.req.formData();
+  const { kinds, positions } = await loadWorshipSettings(c.env.DB);
+  const posKeys = new Set(positions.map((p) => p.key));
+  const stmts: D1PreparedStatement[] = [];
+  for (const k of kinds) {
+    const label = String(form.get(`label_${k.key}`) ?? '').trim();
+    if (!label) return worshipSettingsView(c, { tone: 'bad', text: 'Every kind needs a name. Nothing was saved.' });
+    const order = Number(form.get(`order_${k.key}`));
+    stmts.push(c.env.DB.prepare(
+      'UPDATE worship_kinds SET label = ?2, note = ?3, sort_order = ?4, is_active = ?5 WHERE key = ?1',
+    ).bind(k.key, label, String(form.get(`note_${k.key}`) ?? '').trim() || null,
+      Number.isInteger(order) && order >= 0 ? order : k.sort_order, form.get(`active_${k.key}`) ? 1 : 0));
+    stmts.push(c.env.DB.prepare('DELETE FROM worship_kind_positions WHERE kind_key = ?1').bind(k.key));
+    for (const p of form.getAll(`pos_${k.key}`).map(String).filter((x) => posKeys.has(x))) {
+      stmts.push(c.env.DB.prepare(
+        'INSERT INTO worship_kind_positions (kind_key, position_key) VALUES (?1, ?2)',
+      ).bind(k.key, p));
+    }
+  }
+  if (!kinds.some((k) => form.get(`active_${k.key}`))) {
+    return worshipSettingsView(c, { tone: 'bad', text: 'At least one kind has to be offered. Nothing was saved.' });
+  }
+  await c.env.DB.batch(stmts);
+  return worshipSettingsView(c, { tone: 'ok', text: 'Saved the kinds of worship.' });
+});
+
+app.post('/app/settings/worship/kinds/new', async (c) => {
+  const form = await c.req.formData();
+  const label = String(form.get('label') ?? '').trim();
+  if (!label) return worshipSettingsView(c, { tone: 'bad', text: 'Give the new kind a name.' });
+  const { kinds, positions } = await loadWorshipSettings(c.env.DB);
+  if (kinds.some((k) => k.label.toLowerCase() === label.toLowerCase())) {
+    return worshipSettingsView(c, { tone: 'bad', text: `There is already a kind called "${label}".` });
+  }
+  const key = newKey(label, new Set(kinds.map((k) => k.key)));
+  const posKeys = new Set(positions.map((p) => p.key));
+  const order = Math.max(0, ...kinds.map((k) => k.sort_order)) + 10;
+  await c.env.DB.batch([
+    c.env.DB.prepare('INSERT INTO worship_kinds (key, label, note, sort_order) VALUES (?1, ?2, ?3, ?4)')
+      .bind(key, label, String(form.get('note') ?? '').trim() || null, order),
+    ...form.getAll('pos').map(String).filter((p) => posKeys.has(p)).map((p) => c.env.DB.prepare(
+      'INSERT INTO worship_kind_positions (kind_key, position_key) VALUES (?1, ?2)').bind(key, p)),
+  ]);
+  return worshipSettingsView(c, { tone: 'ok', text: `Added "${label}". It is offered on every Worship Rota card now.` });
+});
+
+/** Every position at once: names, order, offered. */
+app.post('/app/settings/worship/positions', async (c) => {
+  const form = await c.req.formData();
+  const { positions } = await loadWorshipSettings(c.env.DB);
+  const stmts: D1PreparedStatement[] = [];
+  for (const p of positions) {
+    const label = String(form.get(`label_${p.key}`) ?? '').trim();
+    if (!label) return worshipSettingsView(c, { tone: 'bad', text: 'Every position needs a name. Nothing was saved.' });
+    const order = Number(form.get(`order_${p.key}`));
+    stmts.push(c.env.DB.prepare(
+      'UPDATE worship_positions SET label = ?2, sort_order = ?3, is_active = ?4 WHERE key = ?1',
+    ).bind(p.key, label, Number.isInteger(order) && order >= 0 ? order : p.sort_order,
+      form.get(`active_${p.key}`) ? 1 : 0));
+  }
+  if (stmts.length) await c.env.DB.batch(stmts);
+  return worshipSettingsView(c, { tone: 'ok', text: 'Saved the positions.' });
+});
+
+app.post('/app/settings/worship/positions/new', async (c) => {
+  const form = await c.req.formData();
+  const label = String(form.get('label') ?? '').trim();
+  if (!label) return worshipSettingsView(c, { tone: 'bad', text: 'Give the new position a name.' });
+  const { kinds, positions } = await loadWorshipSettings(c.env.DB);
+  if (positions.some((p) => p.label.toLowerCase() === label.toLowerCase())) {
+    return worshipSettingsView(c, { tone: 'bad', text: `There is already a position called "${label}".` });
+  }
+  const key = newKey(label, new Set(positions.map((p) => p.key)));
+  const kindKeys = new Set(kinds.map((k) => k.key));
+  const order = Math.max(0, ...positions.map((p) => p.sort_order)) + 10;
+  await c.env.DB.batch([
+    c.env.DB.prepare('INSERT INTO worship_positions (key, label, sort_order) VALUES (?1, ?2, ?3)')
+      .bind(key, label, order),
+    ...form.getAll('kind').map(String).filter((k) => kindKeys.has(k)).map((k) => c.env.DB.prepare(
+      'INSERT INTO worship_kind_positions (kind_key, position_key) VALUES (?1, ?2)').bind(k, key)),
+  ]);
+  return worshipSettingsView(c, { tone: 'ok', text: `Added "${label}".` });
+});
+
 app.post('/app/rota/worship/:serviceId', async (c) => {
   const serviceId = Number(c.req.param('serviceId'));
   if (!Number.isInteger(serviceId)) return c.notFound();
 
   const form = await c.req.formData();
-  const kindRaw = String(form.get('kind') ?? 'live');
-  const kind: 'live' | 'lyrics' = kindRaw === 'lyrics' ? 'lyrics' : 'live';
+  // The kinds and positions are the Admin Centre's (Worship Rota). A kind that
+  // is not one of them falls back to the first still offered.
+  const settings = await loadWorshipSettings(c.env.DB);
+  const kindRaw = String(form.get('kind') ?? '');
+  const kind = settings.kinds.some((k) => k.key === kindRaw) ? kindRaw : defaultKind(settings);
+  const allowed = new Set(positionsFor(settings, kind).map((p) => p.key));
 
   // Every position comes back from the form, whether anybody is on it or not,
   // so a position just cleared can go back to empty. "other" means the name was
   // typed rather than picked — a visiting musician, or somebody's son who plays
   // drums once and should not have to be added to the church roster first.
-  const slots = POSITIONS.map((pos) => {
+  const slots = settings.positions.map((pos) => {
     const picked = String(form.get(`p_${pos.key}`) ?? '');
     const typed = String(form.get(`n_${pos.key}`) ?? '').trim();
     if (picked === 'other') return { position: pos.key, personId: null, name: typed || null };
@@ -1794,9 +1903,9 @@ app.post('/app/rota/worship/:serviceId', async (c) => {
   });
 
   const notes = String(form.get('notes') ?? '').trim() || null;
-  await saveWorshipPlan(c.env.DB, serviceId, kind, notes, slots);
+  await saveWorshipPlan(c.env.DB, serviceId, kind, notes, slots, allowed);
 
-  const named = slots.filter((x) => x.personId != null || x.name).length;
+  const named = slots.filter((x) => allowed.has(x.position) && (x.personId != null || x.name)).length;
   return worshipView(c, {
     tone: 'ok',
     text: named

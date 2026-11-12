@@ -1,6 +1,7 @@
 import { html, raw } from 'hono/html';
 import { layout, chip, icon, type ViewCtx } from './layout.js';
 import { viewTabs } from './calendar.js';
+import { searchBox } from './search.js';
 import type { Candidate, ServiceDetail, ServiceSummary } from '../db.js';
 
 const BACK = { href: '/app', label: 'All areas' };
@@ -111,6 +112,17 @@ const RED_DOT = html`<span class="crit-dot" aria-hidden="true"></span>`;
  *   ideal    — everything has its minimum, some roles could use more.
  *   ok       — everyone in place.
  */
+/** What the rota's search matches a service on: its date, title and place,
+ *  and every role with whoever is on it. */
+function searchText(s: { service_date: string; service_time: string; title: string | null; location?: string | null },
+  d?: ServiceDetail): string {
+  return [
+    formatDate(s.service_date), s.service_time, s.title ?? 'Worship', s.location ?? '',
+    ...(d?.roles ?? []).map((r) => `${r.role_name} ${r.people.map((p) => p.display_name).join(' ')}`),
+    d?.sermon_title ?? '', d?.readings ?? '',
+  ].join(' ');
+}
+
 function serviceCard(s: ServiceSummary, detail?: ServiceDetail) {
   const critical = s.critical ?? [];
   const minorGaps = s.gaps.filter((r) => !critical.includes(r));
@@ -126,7 +138,7 @@ function serviceCard(s: ServiceSummary, detail?: ServiceDetail) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dow = days[new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)).getUTCDay()] ?? '';
 
-  return html`<li>
+  return html`<li data-search="${searchText(s, detail)}">
     <a class="svc svc-${state}" href="/app/rota/service/${s.id}">
       <span class="svc-date" aria-hidden="true">
         <span class="svc-dow">${dow}</span>
@@ -210,7 +222,7 @@ function nextServiceCard(next: ServiceDetail, isNext = true) {
   const below = next.roles.filter((r) => r.people.length < r.min_needed);
   const critical = below.filter((r) => r.is_critical);
   return html`
-    <section class="next-up${isNext ? '' : ' next-up-later'}">
+    <section class="next-up${isNext ? '' : ' next-up-later'}" data-search="${searchText(next, next)}">
       <div class="next-up-head">
         <div>
           <p class="next-up-when">${isNext ? 'Next service · ' : ''}${formatDate(next.service_date)} at ${next.service_time}</p>
@@ -288,7 +300,9 @@ export function rotaDashboard(
         ${may('rota.manage') ? html`
           <a class="btn-secondary" href="/app/rota/requests">People who cannot make it</a>
           <a class="btn-secondary" href="/app/rota/readings">Readings</a>` : ''}
-        <span class="rota-downloads">
+      </div>
+
+      <div class="rota-downloads">
           <a class="btn-file btn-pdf" href="/app/rota/export.pdf" download>
             <span class="btn-file-icon">${raw(icon('filePdf', 22))}<span class="btn-file-tag">PDF</span></span>
             <span>Download PDF</span>
@@ -297,8 +311,15 @@ export function rotaDashboard(
             <span class="btn-file-icon">${raw(icon('fileSheet', 22))}<span class="btn-file-tag">XLS</span></span>
             <span>Download for Excel</span>
           </a>
-        </span>
       </div>
+
+      ${services.length
+        ? html`<div class="rota-search">${searchBox({
+            target: 'rota-services', label: 'Search the rota', noun: 'services',
+            placeholder: 'A name, a role or a date',
+            hint: 'Type somebody’s name to see only the services they are on — or a role, or a date like 20 Dec.',
+          })}</div>`
+        : ''}
 
       ${months.length
         ? html`<nav class="month-jump" aria-label="Jump to a month">
@@ -340,6 +361,7 @@ export function rotaDashboard(
         ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
         : ''}
 
+      <div id="rota-services">
       ${next ? nextServiceCard(next) : ''}
 
       ${services.length === 0
@@ -348,14 +370,15 @@ export function rotaDashboard(
             <a href="/app/settings/services#add-one">Add one</a>, or
             <a href="/app/settings/services">set up the Sunday pattern</a>.
           </p></div>`
-        : months.map((m) => html`
+        : months.map((m) => html`<section data-search-group>
             <h2 class="section-h2 month-h" id="month-${m.key}">${monthLabel(m.key)}</h2>
             ${mode === 'full'
               ? m.items.map((s) => {
                   const d = details?.get(s.id);
                   return d ? nextServiceCard(d, false) : html`<ul class="svc-list">${serviceCard(s)}</ul>`;
                 })
-              : html`<ul class="svc-list">${m.items.map((s) => serviceCard(s, details?.get(s.id)))}</ul>`}`)}
+              : html`<ul class="svc-list">${m.items.map((s) => serviceCard(s, details?.get(s.id)))}</ul>`}</section>`)}
+      </div>
     `,
   );
 }
