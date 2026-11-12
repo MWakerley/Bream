@@ -10,7 +10,7 @@ const BACK = { href: '/app', label: 'All areas' };
 const SETTINGS = { href: '/app/settings', label: 'Admin Centre' };
 
 /**
- * Everything behind the scenes, sorted into what it is about, so twelve cards
+ * Everything behind the scenes, sorted into what it is about (People, the rota, Rooms, Newsletter), so the cards
  * are four short groups rather than one block. Each has its icon, as
  * Keyholders always had its key. `area` is the right the page itself needs,
  * so nobody is offered a card that would refuse them.
@@ -24,12 +24,6 @@ export const SETTINGS_GROUPS: { title: string; note: string; icon: IconName; ite
       { href: '/app/settings/profiles', label: 'What people can see', icon: 'eye', note: 'Profiles, and which areas each one opens — including who can book rooms.' },
       { href: '/app/settings/keyholders', label: 'Keyholders', icon: 'key', note: 'The register of who holds which keys — the buildings and the safe.' },
       { href: '/app/settings/safeguarding', label: 'Safeguarding', icon: 'shield', note: 'Which courses each safeguarding role needs.' },
-    ],
-  },
-  {
-    title: 'Newsletter', icon: 'mail', note: 'The weekly newsletter and who it goes to.',
-    items: [
-      { href: '/app/settings/newsletter', label: 'Newsletter', icon: 'mail', note: 'Create a newsletter with the week ahead, send it to subscribers, and the archive.' },
     ],
   },
   {
@@ -48,6 +42,12 @@ export const SETTINGS_GROUPS: { title: string; note: string; icon: IconName; ite
     items: [
       { href: '/app/settings/rooms', label: 'Rooms', icon: 'house', note: 'Adding and renaming rooms, and each one’s calendar colour.' },
       { href: '/app/rooms/booking-form', label: 'Website booking form', icon: 'globe', area: 'rooms.manage', note: 'Whether the public can ask for a room, and the room diary on the website.' },
+    ],
+  },
+  {
+    title: 'Newsletter', icon: 'mail', note: 'The weekly newsletter and who it goes to.',
+    items: [
+      { href: '/app/settings/newsletter', label: 'Newsletter', icon: 'mail', note: 'Create a newsletter with the week ahead, send it to subscribers, and the archive.' },
     ],
   },
 ];

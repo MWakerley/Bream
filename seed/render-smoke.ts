@@ -152,10 +152,17 @@ console.log(`  2026-11-15 -> ${fd}`);
 if (fd !== 'Sun 15 Nov 2026') { console.log('  FAIL wrong weekday'); failures++; }
 
 console.log('\nviews:');
-await check('home', () => homePage({ ctx: CTX, gapCount: 3, isAdmin: true }),
-  ['Room booking', 'Events', '3', 'Setting things up', 'Merge duplicates']);
-await check('home (no gaps, not admin)',
-  () => homePage({ ctx: { ...CTX, signedInAs: 'Sue', isAdmin: false }, gapCount: 0, isAdmin: false }), ['Room booking']);
+// November 2026: five areas and nothing else — no setting-up tiles, no gaps.
+await check('home is the five areas, nothing else', async () => {
+  const out = String(await homePage({ ctx: CTX }));
+  const cards = out.slice(out.indexOf('<ul class="areas'));
+  const order = ['>Rota<', '>Room bookings<', '>Events<', '>My dates<', '>Admin Centre</h2>'].map((t) => cards.indexOf(t));
+  return order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1]!)) ? out : 'out of order ' + order.join(',');
+}, ['areas-5', 'href="/app/settings"', 'class="area area-teal" href="/app/me"', '<svg class="icon"'],
+['Setting things up', 'Merge duplicates', 'with nobody at all', '/app/rota/gaps']);
+await check('home: a volunteer sees only the areas their profile opens',
+  () => homePage({ ctx: { ...CTX, signedInAs: 'Sue', isAdmin: false, areas: VOLUNTEER_AREAS } }),
+  ['>Rota<', '>Room bookings<', '>My dates<', 'areas-4'], ['Admin Centre</h2>']);
 // "Lately": the last fortnight, plus anything older still waiting on somebody,
 // which comes first and says "Action needed" with a big red mark.
 {
@@ -176,7 +183,7 @@ await check('home (no gaps, not admin)',
     lately([item('2026-09-01 00:00:00', 'Old', true), item('2026-10-29 00:00:00', 'A'),
       item('2026-10-28 00:00:00', 'B')], 1, NOW).map((g) => g.who).join(','), ['Old'], ['A', 'B']);
   await check('home marks it "Action needed" with a red exclamation mark', () => homePage({
-    ctx: CTX, gapCount: 0, isAdmin: true, now: NOW, activity: got,
+    ctx: CTX, now: NOW, activity: got,
   }), ['Action needed', 'class="action-mark"', 'recent-action', 'in the last 14 days']);
 }
 await check('sign in', () => signInPage({ error: 'Nope', next: '/app' }), ['Nope', 'password']);
@@ -325,7 +332,7 @@ await check('settings has its own overview', () => settingsHomePage(CTX),
 // November 2026: four groups, each card with its own icon, People first.
 await check('the admin centre is sorted into groups, every card with an icon', async () => {
   const out = String(await settingsHomePage(CTX));
-  const order = ['>People<span', '>Newsletter<span', '>The rota<span', '>Rooms<span'].map((t) => out.indexOf(t));
+  const order = ['>People<span', '>The rota<span', '>Rooms<span', '>Newsletter<span'].map((t) => out.indexOf(t));
   const cards = (out.match(/class="admin-card"/g) ?? []).length;
   const icons = (out.match(/class="admin-card-icon"><svg class="icon"/g) ?? []).length;
   return order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1]!)) && cards === icons && cards >= 12
@@ -1002,7 +1009,7 @@ await check('the phone menu lists this area\'s pages under it, and Sign out', as
     && menu.includes('Signed in as Matt') && menu.includes('action="/auth/sign-out"')
     ? out : 'the phone menu is missing an area, the current page or Sign out';
 }, ['<summary class="phone-menu-button">', 'Generate a rota']);
-await check('and on a page with no section, no list under it', () => homePage({ ctx: CTX, gapCount: 0, isAdmin: true }),
+await check('and on a page with no section, no list under it', () => homePage({ ctx: CTX }),
   ['<details class="phone-menu">', 'Signed in as Matt'], ['phone-menu-sub', 'class="subnav"']);
 
 
@@ -1210,7 +1217,7 @@ await check('a viewer sees the band but no form', () => worshipPage({
 // until the gap is noticed. It has to name the person, say what and when, and
 // link through to the service it affects.
 await check('the home page shows what has changed', () => homePage({
-  ctx: CTX, gapCount: 0, isAdmin: true,
+  ctx: CTX,
   now: new Date('2026-09-18T12:00:00Z'),
   activity: [
     { when: '2026-09-18 09:00:00', icon: '⚠️', tone: 'bad', who: 'Matt Wakerley',
@@ -1239,7 +1246,7 @@ await check('the home page shows what has changed', () => homePage({
 // wall of "the main church is booked". An event EXISTING is news; sixty people
 // booking a place at it is not.
 await check('a room booking is not news', () => homePage({
-  ctx: CTX, gapCount: 0, isAdmin: true,
+  ctx: CTX,
   now: new Date('2026-09-18T12:00:00Z'),
   activity: [
     { when: '2026-09-18 09:00:00', icon: '⚠️', tone: 'bad', who: 'Don Ellie',
@@ -1257,7 +1264,7 @@ await check('a room booking is not news', () => homePage({
 
 // A quiet week must not leave an empty box sitting there looking broken.
 await check('and nothing at all on a quiet week', () => homePage({
-  ctx: CTX, gapCount: 0, isAdmin: true, activity: [],
+  ctx: CTX, activity: [],
 }), ['Welcome'], ['Lately', 'recent-list']);
 
 // --- every kind of question renders its own control ----------------------

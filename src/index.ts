@@ -12,7 +12,6 @@ import {
 } from './auth.js';
 import {
   countAdmins,
-  countServicesWithGaps,
   getServiceDetail, getServiceDetails,
   listUpcomingServices,
   getRotaRules,
@@ -408,16 +407,12 @@ app.use('/app/*', requireSignIn);
 app.use('/app', requireSignIn);
 
 app.get('/app', async (c) => {
-  const person = c.get('person');
-  const [gaps, activity] = await Promise.all([
-    countServicesWithGaps(c.env.DB),
-    // Filtered by what this person may open, so nobody is shown a change they
-    // cannot act on or a link that would refuse them.
-    recentActivity(c.env.DB, c.get('areas') ?? new Set()),
-  ]);
-  return c.html(
-    homePage({ ctx: viewCtx(c), gapCount: gaps, isAdmin: !!person.is_admin, activity }),
-  );
+  // Filtered by what this person may open, so nobody is shown a change they
+  // cannot act on or a link that would refuse them. Gaps in the rota are no
+  // longer counted here: they belong under Rota → Unfilled roles, not on the
+  // page everybody opens.
+  const activity = await recentActivity(c.env.DB, c.get('areas') ?? new Set());
+  return c.html(homePage({ ctx: viewCtx(c), activity }));
 });
 
 app.use('/app/settings', requireAdmin);

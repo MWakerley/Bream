@@ -1,66 +1,55 @@
-import { html } from 'hono/html';
-import { layout, type ViewCtx } from './layout.js';
+import { html, raw } from 'hono/html';
+import { layout, icon, type IconName, type ViewCtx } from './layout.js';
 import { RECENT_DAYS, howLongAgo, type ActivityItem } from '../activity.js';
 
 interface Area {
   href: string;
+  /** The right that opens it; a card for a door that would refuse is a trap. */
+  area: string;
   title: string;
   blurb: string;
   go: string;
-  icon: string;
+  icon: IconName;
+  tone: 'navy' | 'gold' | 'green' | 'teal' | 'grey';
 }
 
 /**
- * The main screen: the three areas of the system.
- *
- * Three big targets and little else above the fold. This is the screen a
- * churchwarden lands on every time, and its only job is to get them into the
- * right place in one tap without having to read anything first.
+ * The main screen: the five areas of the system, and nothing else to wade
+ * through. Setting things up lives in the Admin Centre, for those who have it;
+ * gaps in the rota live under Rota → Unfilled roles. This is the screen
+ * everybody lands on, often on a phone, and its job is to get them into the
+ * right place in one tap.
  */
 const AREAS: Area[] = [
   {
-    href: '/app/rota',
-    title: 'Rota',
-    blurb: 'Who is serving, and when. Build the rota, fill the gaps, and let people say when they cannot make it.',
+    href: '/app/rota', area: 'rota', title: 'Rota', icon: 'clipboard', tone: 'navy',
+    blurb: 'Who is serving, and when — every Sunday at a glance.',
     go: 'Open the rota',
-    icon: '📋',
   },
   {
-    href: '/app/rooms',
-    title: 'Room booking',
-    blurb: 'Book the Church Centre, Prayer room, Sofa room or the main church — and check what is free before you promise it.',
-    go: 'Open room booking',
-    icon: '🗝️',
+    href: '/app/rooms', area: 'rooms', title: 'Room bookings', icon: 'house', tone: 'gold',
+    blurb: 'What is booked in each room, and what is free.',
+    go: 'Open room bookings',
   },
   {
-    href: '/app/events',
-    title: 'Events',
-    blurb: 'Put on an event, take bookings for it, and see how many are coming and how many places are left.',
+    href: '/app/events', area: 'events', title: 'Events', icon: 'ticket', tone: 'green',
+    blurb: 'What is on, who has booked, and how many places are left.',
     go: 'Open events',
-    icon: '🎉',
   },
-];
-
-const ADMIN_LINKS: { href: string; label: string; note: string }[] = [
-  { href: '/app/settings/newsletter', label: 'Newsletter', note: 'Create one, with the week ahead' },
-  { href: '/app/settings/people', label: 'People', note: 'Who can do what, and how often' },
-  { href: '/app/settings/keyholders', label: 'Keyholders', note: 'Who holds which keys — the buildings and the safe' },
-  { href: '/app/settings/people/merge', label: 'Merge duplicates', note: 'Andy, Andy E, Andy Ewens' },
-  { href: '/app/settings/profiles', label: 'What people can see', note: 'Profiles and permissions' },
-  { href: '/app/settings/people/new', label: 'Add a person', note: 'And give them a sign-in' },
-  { href: '/app/settings/roles', label: 'Roles', note: 'How many each service needs' },
-  { href: '/app/settings/combinations', label: 'Combination rules', note: 'Two roles, one person' },
-  { href: '/app/settings/pairs', label: 'Who works with whom', note: 'People who serve together' },
-  { href: '/app/settings/services', label: 'Services', note: 'The Sunday pattern and one-offs' },
-  { href: '/app/rota/readings', label: 'Readings', note: 'Readings and sermon titles' },
-  { href: '/app/settings/generate', label: 'Generate a rota', note: 'A first draft, ready to check' },
+  {
+    href: '/app/me', area: 'me', title: 'My dates', icon: 'myDates', tone: 'teal',
+    blurb: 'When you are on, when you are away, and asking to swap.',
+    go: 'Open my dates',
+  },
+  {
+    href: '/app/settings', area: 'settings', title: 'Admin Centre', icon: 'cog', tone: 'grey',
+    blurb: 'People, the rota’s rules, rooms and the newsletter — everything behind the scenes.',
+    go: 'Open the Admin Centre',
+  },
 ];
 
 export function homePage(opts: {
   ctx: ViewCtx;
-  /** Services in the next few weeks that are missing a required role. */
-  gapCount: number;
-  isAdmin: boolean;
   /** What has changed lately. Empty on a quiet week, which is fine. */
   activity?: ActivityItem[];
   /** Injected so the page renders identically every time it is tested. */
@@ -69,31 +58,39 @@ export function homePage(opts: {
   const firstName = opts.ctx.signedInAs.split(' ')[0] ?? opts.ctx.signedInAs;
   const now = opts.now ?? new Date();
   const activity = opts.activity ?? [];
+  const allowed = opts.ctx.areas;
+  // The same rule as the menu: the Admin Centre for administrators, and each
+  // area for a profile that opens it.
+  const areas = AREAS.filter((a) => (a.area !== 'settings' || opts.ctx.isAdmin)
+    && (!allowed || allowed.has(a.area)));
   return layout(
     {
       title: 'Home',
       eyebrow: 'Bream Church',
       heading: `Welcome, ${firstName}`,
-      intro: 'Rota and diary management. Choose an area to get started.',
+      intro: 'Choose where you want to go.',
       ...opts.ctx,
     },
     html`
-      ${opts.gapCount > 0
-        ? html`<div class="notice notice-warn" role="status">
-            <p style="margin:0">
-              <strong>${opts.gapCount}</strong>
-              ${opts.gapCount === 1 ? 'upcoming service has' : 'upcoming services have'}
-              a role with nobody at all on it.
-              <a href="/app/rota/gaps">See which ones</a>.
-            </p>
-          </div>`
-        : ''}
+      <ul class="areas areas-${areas.length}">
+        ${areas.map(
+          (a) => html`<li>
+            <a class="area area-${a.tone}" href="${a.href}">
+              <span class="area-icon" aria-hidden="true">${raw(icon(a.icon, 26))}</span>
+              <span class="area-text">
+                <h2>${a.title}</h2>
+                <p>${a.blurb}</p>
+              </span>
+              <span class="area-go"><span class="area-go-words">${a.go} </span>→</span>
+            </a>
+          </li>`,
+        )}
+      </ul>
 
-      <!-- What has changed since somebody last looked.
-           The case this exists for: a volunteer says on their own page that they
-           cannot preach on the 20th, and until now nobody found out until
-           somebody noticed the gap. The home page is the only screen everybody
-           opens, so it is where that has to surface. -->
+      <!-- What has changed since somebody last looked, already filtered to
+           what this person may open. The case this exists for: a volunteer
+           says on their own page that they cannot preach on the 20th, and
+           until now nobody found out until somebody noticed the gap. -->
       ${activity.length
         ? html`<section class="recent">
             <div class="recent-head">
@@ -120,33 +117,6 @@ export function homePage(opts: {
               </li>`)}
             </ul>
           </section>`
-        : ''}
-
-      <ul class="areas">
-        ${AREAS.map(
-          (a) => html`<li>
-            <a class="area" href="${a.href}">
-              <span class="area-icon" aria-hidden="true">${a.icon}</span>
-              <h2>${a.title}</h2>
-              <p>${a.blurb}</p>
-              <span class="area-go">${a.go} →</span>
-            </a>
-          </li>`,
-        )}
-      </ul>
-
-      ${opts.isAdmin
-        ? html`<h2 class="section-h2">Setting things up</h2>
-            <ul class="tiles">
-              ${ADMIN_LINKS.map(
-                (l) => html`<li>
-                  <a class="tile" href="${l.href}">
-                    <span class="tile-label">${l.label}</span>
-                    <span class="tile-note">${l.note}</span>
-                  </a>
-                </li>`,
-              )}
-            </ul>`
         : ''}
     `,
   );

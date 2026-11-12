@@ -192,32 +192,63 @@ a:hover { color: var(--navy-deep); }
 
 /* ---- The three areas ----------------------------------------------------- */
 
-.areas { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.25rem; }
-@media (min-width: 54rem) { .areas { grid-template-columns: repeat(3, 1fr); } }
+/* Up to five: on a wide screen the first three share a row and the last two
+   share the next, each row filling the width (a six-column grid, cards
+   spanning 2 or 3). Fewer cards just share one row. On a phone, one per row
+   as a compact strip — icon, name, a line, an arrow — so all five fit on the
+   first screen. */
+.areas { list-style: none; margin: 0 0 2rem; padding: 0; display: grid; gap: 1.1rem; }
+.areas > li { display: flex; }
+@media (min-width: 54rem) {
+  .areas { grid-template-columns: repeat(6, 1fr); }
+  .areas > li { grid-column: span 2; }
+  .areas-5 > li:nth-child(n+4) { grid-column: span 3; }
+  .areas-4 > li { grid-column: span 3; }
+  .areas-2 > li { grid-column: span 3; }
+  .areas-1 > li { grid-column: span 6; }
+}
 
 .area {
+  --tone: var(--navy); --tone-wash: var(--navy-wash);
+  flex: 1 1 auto;
   display: flex; flex-direction: column; gap: .6rem;
-  padding: 1.6rem 1.5rem 1.4rem;
+  padding: 1.5rem 1.5rem 1.3rem;
   border-radius: var(--radius);
   background: var(--paper);
   box-shadow: var(--shadow);
   text-decoration: none; color: inherit;
-  border-top: 5px solid var(--navy);
+  border-top: 5px solid var(--tone);
   transition: transform .15s ease, box-shadow .15s ease;
 }
-.area:nth-child(2) { border-top-color: var(--gold-warm); }
-.area:nth-child(3) { border-top-color: var(--ok); }
+.area-gold  { --tone: var(--gold-warm); --tone-wash: var(--gold-wash); }
+.area-green { --tone: var(--ok); --tone-wash: var(--ok-wash); }
+.area-teal  { --tone: #0f6e68; --tone-wash: #e3f3f1; }
+.area-grey  { --tone: #586072; --tone-wash: #eceef2; }
 .area:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 .area-icon {
-  width: 48px; height: 48px; border-radius: 12px;
-  display: grid; place-items: center; font-size: 1.5rem;
-  background: var(--navy-wash); color: var(--navy);
+  width: 52px; height: 52px; border-radius: 14px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  background: var(--tone-wash); color: var(--tone);
 }
-.area:nth-child(2) .area-icon { background: var(--gold-wash); color: var(--gold-ink); }
-.area:nth-child(3) .area-icon { background: var(--ok-wash); color: var(--ok); }
+.area-gold .area-icon { color: var(--gold-ink); }
+.area-text { display: flex; flex-direction: column; gap: .35rem; }
 .area h2 { margin: 0; font-size: 1.25rem; text-transform: uppercase; color: var(--navy); }
 .area p { margin: 0; color: var(--ink-2); font-size: 1rem; }
-.area-go { margin-top: auto; padding-top: .6rem; font-weight: 700; color: var(--navy); }
+.area-go { margin-top: auto; padding-top: .4rem; font-weight: 700; color: var(--navy); }
+
+@media (max-width: 40rem) {
+  .areas { gap: .7rem; }
+  .area {
+    flex-direction: row; align-items: center; gap: .9rem;
+    padding: .9rem 1rem; border-top: 0; border-left: 5px solid var(--tone);
+  }
+  .area-icon { width: 46px; height: 46px; border-radius: 12px; }
+  .area-text { flex: 1 1 auto; min-width: 0; gap: .15rem; }
+  .area h2 { font-size: 1.05rem; }
+  .area p { font-size: .9375rem; }
+  .area-go { margin: 0; padding: 0; font-size: 1.25rem; }
+  .area-go-words { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 
 /* ---- Tiles: the admin shortcuts ------------------------------------------ */
 
