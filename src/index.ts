@@ -285,6 +285,11 @@ app.post('/admin/setup', async (c) => {
 // Sign in / out
 // ---------------------------------------------------------------------------
 
+// The front door. There used to be a static landing page here that did
+// nothing but link to the sign-in; now the address goes straight there, or
+// straight in for somebody who is already signed in.
+app.get('/', async (c) => c.redirect((await personFromCookie(c)) ? '/app' : '/auth/sign-in', 302));
+
 app.get('/auth/sign-in', (c) => c.html(signInPage({ next: c.req.query('next') })));
 
 app.post('/auth/sign-in', async (c) => {
@@ -909,7 +914,7 @@ app.post('/app/settings/people/new', async (c) => {
       'Your sign-in for the Bream Church system',
       `Dear ${displayName},
 
-You have been given a sign-in for the Bream Church rota and diary system.
+You have been given a sign-in for the Bream Church Management System.
 
   Address:  ${origin}
   Username: ${username}
@@ -1093,7 +1098,7 @@ app.post('/app/settings/people/:id/give-login', async (c) => {
       'Your sign-in for the Bream Church system',
       `Dear ${person.display_name},
 
-You have been given a sign-in for the Bream Church rota and diary system.
+You have been given a sign-in for the Bream Church Management System.
 
   Address:  ${origin}
   Username: ${username}
@@ -1158,7 +1163,7 @@ app.post('/app/settings/people/:id/reset-password', async (c) => {
       'Your new password for the Bream Church system',
       `Dear ${person.display_name},
 
-Your password for the Bream Church rota and diary system has been reset.
+Your password for the Bream Church Management System has been reset.
 
   Address:  ${origin}
   Username: ${person.username ?? person.email}

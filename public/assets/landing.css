@@ -1,4 +1,4 @@
-/* The public front page.
+/* The sign-in page — the front door, which breamchurch.stack66.com now opens on.
 
    It shares app.css entirely — the same navy, gold, Montserrat and Nunito Sans —
    so that signing in does not feel like arriving at a different website. Only
@@ -73,3 +73,34 @@ body.landing { background: var(--paper); }
 }
 .landing-foot p { margin: 0; color: var(--ink-2); }
 .landing-foot p:first-child { color: var(--navy); font-family: var(--display); }
+
+/* The sign-in page: the welcome on the left, the form on a white panel to the
+   right. On a phone the panel drops under the welcome, and the long heading
+   loses its line breaks so it does not tower over the form. */
+.hero-split {
+  display: grid; gap: clamp(2rem, 5vw, 4rem);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: center;
+}
+.hero-words .hero-lead { margin-bottom: 1.25rem; }
+.signin-panel {
+  background: var(--paper); color: var(--ink);
+  border-radius: 14px; padding: clamp(1.25rem, 3vw, 2rem);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .22);
+  max-width: 28rem; width: 100%; justify-self: end;
+}
+.signin-h2 {
+  margin: 0 0 1rem; font-family: var(--display); font-weight: 700;
+  font-size: 1.25rem; letter-spacing: .08em; text-transform: uppercase; color: var(--navy);
+}
+.signin-panel .btn-big { background: var(--navy); color: #fff; }
+.signin-panel .btn-big:hover { background: var(--navy-deep); color: #fff; }
+.btn-wide { width: 100%; }
+.signin-note { display: none; margin: 1rem 0 0; font-size: .9375rem; color: var(--ink-2); }
+@media (max-width: 760px) {
+  .hero-split { grid-template-columns: 1fr; }
+  .signin-panel { justify-self: stretch; max-width: none; }
+  .hero h1 br { display: none; }
+  .hero-words .hero-note { display: none; }
+  .signin-note { display: block; }
+}

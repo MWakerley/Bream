@@ -10,14 +10,20 @@ import { addDays, WEEK_DAYS, type Block, type WeekItem } from './store.js';
  * mail program handles, and it narrows to fit a phone.
  */
 
+// Gentle on purpose, after breamchurch.org.uk: white and soft grey, the pale
+// butter gold of the website's bands, navy kept for words rather than for
+// great blocks of colour, and headings in widely spaced capitals.
 const NAVY = '#324158';
-const NAVY_DEEP = '#232f42';
-const GOLD = '#c9a94a';
-const GOLD_WASH = '#f7f1df';
-const INK = '#242a34';
-const INK_2 = '#586072';
+const NAVY_SOFT = '#47587a';
+const BUTTER = '#e8d78a';
+const BUTTER_WASH = '#fbf8ec';
+const BUTTER_LINE = '#efe6c4';
+const MIST = '#8b909a';
+const INK = '#2f3540';
+const INK_2 = '#5f6675';
 const PAPER = '#ffffff';
-const GROUND = '#f3f1ea';
+const GROUND = '#f5f4f0';
+const CAPS = `letter-spacing:.16em;text-transform:uppercase`;
 const FONT = `Georgia, 'Times New Roman', serif`;
 const SANS = `'Segoe UI', Helvetica, Arial, sans-serif`;
 
@@ -100,9 +106,10 @@ function weekHtml(items: WeekItem[], from: string): string {
   const head = `
     <tr><td style="padding:12px 40px 4px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td style="border-top:2px solid ${GOLD};padding-top:18px">
-          <p style="margin:0;font:700 12px/1 ${SANS};letter-spacing:.18em;text-transform:uppercase;color:${GOLD}">What’s on</p>
-          <h2 style="margin:6px 0 4px;font:700 26px/1.2 ${FONT};color:${NAVY}">The week ahead</h2>
+        <td align="center" style="padding-top:18px;text-align:center">
+          <div style="width:44px;height:3px;background:${BUTTER};margin:0 auto 14px;font-size:0;line-height:0">&nbsp;</div>
+          <p style="margin:0;font:700 11px/1 ${SANS};${CAPS};color:${MIST}">What’s on</p>
+          <h2 style="margin:8px 0 6px;font:700 19px/1.3 ${SANS};${CAPS};color:${NAVY}">The week ahead</h2>
           <p style="margin:0 0 6px;font:15px/1.5 ${SANS};color:${INK_2}">${esc(weekLabel(from))}</p>
         </td>
       </tr></table>
@@ -114,14 +121,14 @@ function weekHtml(items: WeekItem[], from: string): string {
   return head + days.map((d) => `
     <tr><td style="padding:12px 40px 0">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate">
-        <tr><td style="background:${NAVY};border-radius:6px 6px 0 0;padding:9px 16px;font:700 14px/1.2 ${SANS};letter-spacing:.06em;text-transform:uppercase;color:#ffffff">
+        <tr><td style="background:${BUTTER_WASH};border-radius:8px 8px 0 0;border-bottom:2px solid ${BUTTER};padding:10px 16px 8px;font:700 12px/1.2 ${SANS};letter-spacing:.14em;text-transform:uppercase;color:${NAVY}">
           ${esc(d.label)}
         </td></tr>
-        <tr><td style="background:${GOLD_WASH};border-radius:0 0 6px 6px;padding:6px 16px 8px">
+        <tr><td style="background:${PAPER};border:1px solid ${BUTTER_LINE};border-top:0;border-radius:0 0 8px 8px;padding:4px 16px 6px">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             ${d.items.map((i, n) => `<tr>
-              <td valign="top" width="118" style="padding:9px 10px 9px 0;font:700 15px/1.4 ${SANS};color:${NAVY};white-space:nowrap;${n ? `border-top:1px solid #e8dcb8;` : ''}">${esc(itemTime(i)) || '&nbsp;'}</td>
-              <td valign="top" style="padding:9px 0;font:16px/1.4 ${SANS};color:${INK};${n ? `border-top:1px solid #e8dcb8;` : ''}">
+              <td valign="top" width="118" style="padding:9px 10px 9px 0;font:700 15px/1.4 ${SANS};color:${NAVY_SOFT};white-space:nowrap;${n ? `border-top:1px solid ${BUTTER_LINE};` : ''}">${esc(itemTime(i)) || '&nbsp;'}</td>
+              <td valign="top" style="padding:9px 0;font:16px/1.4 ${SANS};color:${INK};${n ? `border-top:1px solid ${BUTTER_LINE};` : ''}">
                 <strong>${esc(i.title)}</strong>${i.note ? `<br><span style="font-size:14px;color:${INK_2}">${esc(i.note)}</span>` : ''}
               </td>
             </tr>`).join('')}
@@ -134,9 +141,9 @@ function weekHtml(items: WeekItem[], from: string): string {
 function blockHtml(b: Block, o: RenderOpts): string {
   switch (b.type) {
     case 'heading':
-      return b.text.trim() ? `<tr><td style="padding:22px 40px 0">
-        <div style="width:44px;height:3px;background:${GOLD};margin:0 0 12px"></div>
-        <h2 style="margin:0;font:700 26px/1.25 ${FONT};color:${NAVY}">${esc(b.text)}</h2>
+      return b.text.trim() ? `<tr><td align="center" style="padding:28px 40px 2px;text-align:center">
+        <div style="width:44px;height:3px;background:${BUTTER};margin:0 auto 14px;font-size:0;line-height:0">&nbsp;</div>
+        <h2 style="margin:0;font:700 19px/1.35 ${SANS};${CAPS};color:${NAVY}">${esc(b.text)}</h2>
       </td></tr>` : '';
     case 'text':
       return b.text.trim() ? `<tr><td style="padding:10px 40px 4px">
@@ -145,8 +152,8 @@ function blockHtml(b: Block, o: RenderOpts): string {
     case 'quote':
       return b.text.trim() ? `<tr><td style="padding:14px 40px">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td style="background:${GOLD_WASH};border-left:5px solid ${GOLD};border-radius:4px;padding:20px 24px">
-            <p style="margin:0;font:italic 21px/1.5 ${FONT};color:${NAVY_DEEP}">“${esc(b.text.trim())}”</p>
+          <td style="background:${BUTTER_WASH};border-left:3px solid ${BUTTER};border-radius:6px;padding:20px 24px">
+            <p style="margin:0;font:italic 20px/1.55 ${FONT};color:${NAVY_SOFT}">“${esc(b.text.trim())}”</p>
             ${b.cite.trim() ? `<p style="margin:10px 0 0;font:700 14px/1.4 ${SANS};letter-spacing:.04em;color:${INK_2}">— ${esc(b.cite.trim())}</p>` : ''}
           </td>
         </tr></table>
@@ -165,7 +172,7 @@ function blockHtml(b: Block, o: RenderOpts): string {
 export function newsletterHtml(o: RenderOpts): string {
   const footer = o.unsubscribeUrl
     ? `You are receiving this because you asked for the Bream Church newsletter.<br>
-       <a href="${esc(o.unsubscribeUrl)}" style="color:#ffffff;font-weight:700">Unsubscribe</a> — one click, and your details are deleted.`
+       <a href="${esc(o.unsubscribeUrl)}" style="color:${NAVY};font-weight:700">Unsubscribe</a> — one click, and your details are deleted.`
     : `Each subscriber’s copy has their own <strong>Unsubscribe</strong> link here.`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -173,20 +180,20 @@ export function newsletterHtml(o: RenderOpts): string {
 <body style="margin:0;padding:0;background:${GROUND}">
 ${o.banner ?? ''}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${GROUND}"><tr><td align="center" style="padding:24px 12px">
-  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:${PAPER};border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(36,42,52,.08)">
-    <tr><td align="center" style="padding:28px 40px 22px;background:${PAPER}">
-      <img src="${esc(o.origin)}/assets/logo-transparent.png" width="190" alt="Bream Church" style="display:block;width:190px;height:auto;border:0">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:${PAPER};border-radius:12px;overflow:hidden;box-shadow:0 1px 10px rgba(36,42,52,.06)">
+    <tr><td style="height:6px;background:${BUTTER};font-size:0;line-height:0">&nbsp;</td></tr>
+    <tr><td align="center" style="padding:30px 40px 6px;background:${PAPER}">
+      <img src="${esc(o.origin)}/assets/logo-transparent.png" width="180" alt="Bream Church" style="display:block;width:180px;height:auto;border:0">
     </td></tr>
-    <tr><td style="background:${NAVY};padding:30px 40px 28px;text-align:center">
-      <p style="margin:0;font:700 12px/1 ${SANS};letter-spacing:.24em;text-transform:uppercase;color:${GOLD}">Bream Church newsletter</p>
-      <h1 style="margin:12px 0 10px;font:700 34px/1.2 ${FONT};color:#ffffff">${esc(o.title)}</h1>
-      <p style="margin:0;font:15px/1.4 ${SANS};color:#d9dfe8">${esc(weekLabel(o.weekFrom))}</p>
+    <tr><td align="center" style="padding:14px 40px 26px;text-align:center;border-bottom:1px solid ${BUTTER_LINE}">
+      <p style="margin:0;font:700 11px/1 ${SANS};letter-spacing:.24em;text-transform:uppercase;color:${MIST}">Newsletter</p>
+      <h1 style="margin:12px 0 10px;font:700 24px/1.35 ${SANS};letter-spacing:.12em;text-transform:uppercase;color:${NAVY}">${esc(o.title)}</h1>
+      <p style="margin:0;font:15px/1.4 ${SANS};color:${INK_2}">${esc(weekLabel(o.weekFrom))}</p>
     </td></tr>
-    <tr><td style="height:5px;background:${GOLD};font-size:0;line-height:0">&nbsp;</td></tr>
     ${o.blocks.map((b) => blockHtml(b, o)).join('\n')}
     <tr><td style="height:26px"></td></tr>
-    <tr><td style="background:${NAVY_DEEP};padding:24px 40px;text-align:center;font:13px/1.6 ${SANS};color:#c4ccd8">
-      <p style="margin:0 0 6px;font:700 15px/1.4 ${FONT};color:#ffffff">Bream Church — making a difference</p>
+    <tr><td style="background:${GROUND};border-top:3px solid ${BUTTER};padding:24px 40px;text-align:center;font:13px/1.6 ${SANS};color:${INK_2}">
+      <p style="margin:0 0 6px;font:700 12px/1.4 ${SANS};${CAPS};color:${NAVY}">Bream Church · making a difference</p>
       <p style="margin:0">${footer}</p>
     </td></tr>
   </table>

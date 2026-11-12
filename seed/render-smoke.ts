@@ -187,7 +187,8 @@ await check('home: a volunteer sees only the areas their profile opens',
     ctx: CTX, now: NOW, activity: got,
   }), ['Action needed', 'class="action-mark"', 'recent-action', 'in the last 14 days']);
 }
-await check('sign in', () => signInPage({ error: 'Nope', next: '/app' }), ['Nope', 'password']);
+await check('sign in', () => signInPage({ error: 'Nope', next: '/app' }),
+  ['Nope', 'password', 'Church <br>Management <br>System', 'signin-panel', 'value="/app"'], ['Rota, Diary']);
 await check('setup', () => setupPage('tok'), ['Create administrator']);
 await check('people', () => peoplePage(
   [{ id: 1, display_name: 'Matt R', full_name: null, email: null, is_active: 1, is_admin: 0,

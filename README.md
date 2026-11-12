@@ -1,4 +1,4 @@
-# Bream Church Rota and Diary Management System
+# Bream Church Management System
 
 A Cloudflare Worker at **https://breamchurch.stack66.com**, backed by D1.
 
