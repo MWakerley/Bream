@@ -24,7 +24,7 @@ export function generateFormPage(opts: {
     html`
       <p class="page-intro">
         Produces a <strong>draft</strong> and shows it to you before anything is saved. You
-        can change any service in it by hand first. Nothing is written until you press Apply.
+        can change any service in it by hand first. Nothing is written until you press Make this draft live.
       </p>
 
       ${opts.notice
@@ -34,7 +34,7 @@ export function generateFormPage(opts: {
       ${r
         ? html`<div class="notice notice-warn" role="status">
             <p style="margin-top:0">${`You have a draft for ${formatDate(r.from)} to ${formatDate(r.to)} `
-              + 'that has not been applied yet'
+              + 'that has not been made live yet'
               + (r.edits > 0 ? `, with ${r.edits} ${plural(r.edits, 'change', 'changes')} by hand` : '')
               + '.'}
               ${r.edits > 0
@@ -89,7 +89,7 @@ export function generateFormPage(opts: {
               off and fills the place — and names each one before anything is saved. The only
               exception is a guest somebody put on a service by hand, who stays.</li>
           <li>Every choice comes with a sentence saying why.</li>
-          <li><strong>You can change any service before applying.</strong> Press Change on it,
+          <li><strong>You can change any service before it goes live.</strong> Press Change on it,
               pick somebody else, and the draft — and its downloads — show your choice.</li>
         </ul>
       </div>
@@ -167,7 +167,7 @@ export function previewPage(opts: {
       ? [`${released.length} ${plural(released.length, 'booking is', 'bookings are')} taken off`]
       : []),
   ];
-  const confirmText = `Apply this draft? ${joinAnd(facts)}. This cannot be undone from this page. Are you sure?`;
+  const confirmText = `Make this draft live? ${joinAnd(facts)}. This cannot be undone from this page. Are you sure?`;
   const byHand = view.services.reduce(
     (n, s) => n + s.rows.reduce((m, r) => m + r.people.filter((p) => p.byHand).length, 0), 0);
 
@@ -221,10 +221,10 @@ export function previewPage(opts: {
              and the same page then says "Saved your changes to ..." on that
              service. What has not happened is anything reaching the rota. -->
         <p style="margin-top:0"><strong>Nothing is on the rota yet.</strong>${view.edits > 0
-          ? ' Your changes are kept in this draft until you apply it.'
+          ? ' Your changes are kept in this draft until you make it live.'
           : ''} Check the services under <strong>The draft</strong> below — press
-          <strong>Change</strong> on any of them to put somebody else on — then apply it here.</p>
-        <p style="margin:0 0 .5rem"><strong>Applying puts this draft on the rota:</strong></p>
+          <strong>Change</strong> on any of them to put somebody else on — then make it live here.</p>
+        <p style="margin:0 0 .5rem"><strong>Making it live puts this draft on the rota:</strong></p>
         <ul style="padding-left:1.2rem;color:var(--ink-2)">
           <li><strong>${d.fresh}</strong> ${plural(d.fresh, 'placement goes', 'placements go')} on
               the rota, confirmed. A draft generated later for the same dates keeps them as they
@@ -253,13 +253,13 @@ export function previewPage(opts: {
           <input type="hidden" name="token" value="${token}">
           <input type="hidden" name="from" value="${opts.from}">
           <input type="hidden" name="to" value="${opts.to}">
-          <button class="btn-primary" type="submit">Apply this draft</button>
+          <button class="btn-primary" type="submit">Make this draft live</button>
         </form>
         <!-- The draft as it stands, in the same layout as the rota's own
              download, so it can be sent round for comments before it is
              applied. Marked DRAFT throughout so nobody mistakes it. Hand
              changes are in it: it is built from the same saved draft. -->
-        ${fileDownloads(`${base}/rota.pdf`, `${base}/rota.xlsx`, 'This draft, to send round before applying:')}
+        ${fileDownloads(`${base}/rota.pdf`, `${base}/rota.xlsx`, 'This draft, to send round before it goes live:')}
         <p class="draft-restart">
           ${view.edits > 0
             ? html`<a class="btn-quiet" href="/app/settings/generate"
@@ -466,7 +466,7 @@ export function draftServiceEditPage(opts: {
         : ''}
 
       <p style="color:var(--ink-2)">
-        Changes are saved into the draft only. Nothing reaches the rota until the draft is applied.
+        Changes are saved into the draft only. Nothing reaches the rota until the draft is made live.
       </p>
 
       <form method="post" action="${draftHref}/service/${s.id}">
@@ -486,7 +486,7 @@ export function draftServiceEditPage(opts: {
                       <strong>${p.name}</strong> ${chip('neutral', 'already set')}
                       <div style="font-size:.9375rem;color:var(--ink-2)">
                         A confirmed booking, so the draft leaves it alone. Once the draft is
-                        applied it can be changed on the service's own page.
+                        live it can be changed on the service's own page.
                       </div>
                     </div>`)}
 

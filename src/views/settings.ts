@@ -34,7 +34,7 @@ export const SETTINGS_GROUPS: { title: string; note: string; icon: IconName; ite
   {
     title: 'The rota', icon: 'calendar', note: 'Services, roles, and how a draft rota is put together.',
     items: [
-      { href: '/app/settings/generate', label: 'Generate a rota', icon: 'sparkle', area: 'rota.manage', note: 'A first draft of the rota, to check, send round and apply.' },
+      { href: '/app/settings/generate', label: 'Generate a rota', icon: 'sparkle', area: 'rota.manage', note: 'A first draft of the rota, to check, send round and make live.' },
       { href: '/app/settings/services', label: 'Services', icon: 'calendar', note: 'The Sunday pattern and one-off services.' },
       { href: '/app/settings/roles', label: 'Roles and numbers', icon: 'clipboard', note: 'Each role and how many it needs.' },
       { href: '/app/settings/draft-rules', label: 'Draft rota rules', icon: 'sliders', note: 'The rules a generated rota follows.' },

@@ -2250,7 +2250,7 @@ const draftUnavailable = (c: Context<{ Bindings: Env; Variables: Vars }>, text: 
   }), status);
 
 const draftMissing = (c: Context<{ Bindings: Env; Variables: Vars }>) => draftUnavailable(c,
-  'That draft is no longer available — it has been applied, or it was made by somebody else. Generate it again.',
+  'That draft is no longer available — it has been made live, or it was made by somebody else. Generate it again.',
   404);
 const draftTooOld = (c: Context<{ Bindings: Env; Variables: Vars }>) => draftUnavailable(c,
   'That draft was made before drafts could be changed by hand. Generate it again to check and change it.',
@@ -2445,7 +2445,7 @@ async function draftForExport(c: Context<{ Bindings: Env; Variables: Vars }>) {
 }
 
 const draftGone = (c: Context<{ Bindings: Env; Variables: Vars }>) => draftUnavailable(c,
-  'That draft is no longer available to download — it has been applied or replaced. Generate it again, or download the rota itself.',
+  'That draft is no longer available to download — it has been made live or replaced. Generate it again, or download the rota itself.',
   404);
 
 app.get('/app/settings/generate/draft/:token/rota.xlsx', async (c) => {

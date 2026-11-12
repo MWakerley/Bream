@@ -1842,10 +1842,10 @@ await check('and nothing at all on a quiet week', () => homePage({
   });
   await check('the draft offers the rota downloads, for this draft only', page,
     [`/app/settings/generate/draft/${TOKEN}/rota.xlsx`, `/app/settings/generate/draft/${TOKEN}/rota.pdf`,
-     'Download for Excel', 'btn-file btn-pdf', 'btn-file btn-xls', 'rota-downloads-label', 'Apply this draft']);
+     'Download for Excel', 'btn-file btn-pdf', 'btn-file btn-xls', 'rota-downloads-label', 'Make this draft live']);
   await check('the apply box comes before the services, not after them', async () => {
     const out = String(await page());
-    const apply = out.indexOf('Apply this draft');
+    const apply = out.indexOf('Make this draft live');
     const first = out.indexOf('id="svc-1"');
     if (apply < 0 || first < 0 || apply > first) throw new Error('Apply is not above the first service');
     return out;
@@ -1861,7 +1861,7 @@ await check('and nothing at all on a quiet week', () => homePage({
      'Sue Baker is away that day.', 'Settled for an amber combination 1 time', 'worked out when the draft was made',
      'nobody is marked as able to do this']);
   await check('applying asks "are you sure", saying what it will do', page,
-    ['data-confirm="Apply this draft? 2 placements go on the rota, confirmed and 1 Sunday is added to the diary.',
+    ['data-confirm="Make this draft live? 2 placements go on the rota, confirmed and 1 Sunday is added to the diary.',
      'Are you sure?"', 'onsubmit="return confirm(this.dataset.confirm)"', 'cannot be undone from this page',
      'name="token" value="tok_ABC-123xyz_tok_ABC-123"', 'name="from" value="2026-10-01"']);
   // Apply used to sit in the card at the top, next to Start again, and was
@@ -1884,7 +1884,7 @@ await check('and nothing at all on a quiet week', () => homePage({
   // same page once hand changes were saved into the draft, and read as though
   // they had been lost. What has not happened is anything reaching the rota.
   await check('the top card does not say a saved change was not saved', page,
-    ['Nothing is on the rota yet.', 'Your changes are kept in this draft until you apply it.'],
+    ['Nothing is on the rota yet.', 'Your changes are kept in this draft until you make it live.'],
     ['Nothing has been saved yet']);
   await check('an untouched draft does not talk about changes', () => previewPage({
     ctx: CTX, from: '2026-10-01', to: '2026-12-31', token: TOKEN, view: { ...DRAFT, edits: 0 },
@@ -1927,12 +1927,12 @@ await check('and nothing at all on a quiet week', () => homePage({
   const RESUME = { href: `/app/settings/generate/draft/${TOKEN}`, from: '2026-10-01', to: '2026-12-31', edits: 2 };
   await check('the generate form offers a way back to a draft not yet applied', () => generateFormPage({
     ctx: CTX, defaultFrom: '2026-10-02', defaultTo: '2026-12-31', resume: RESUME,
-  }), ['You have a draft for Thu 1 Oct 2026 to Thu 31 Dec 2026 that has not been applied yet, with 2 changes by hand.',
+  }), ['You have a draft for Thu 1 Oct 2026 to Thu 31 Dec 2026 that has not been made live yet, with 2 changes by hand.',
        'starts again from scratch, without your changes', `href="/app/settings/generate/draft/${TOKEN}"`, 'Carry on checking it',
        'Generate a draft']);
   await check('and says nothing of changes when none were made', () => generateFormPage({
     ctx: CTX, defaultFrom: '2026-10-02', defaultTo: '2026-12-31', resume: { ...RESUME, edits: 0 },
-  }), ['that has not been applied yet.', 'Carry on checking it'], ['by hand.', 'without your changes']);
+  }), ['that has not been made live yet.', 'Carry on checking it'], ['by hand.', 'without your changes']);
   await check('with no draft open, the form is just the form', () => generateFormPage({
     ctx: CTX, defaultFrom: '2026-10-02', defaultTo: '2026-12-31',
   }), ['Generate a draft'], ['Carry on checking it', 'You have a draft']);
@@ -1949,7 +1949,7 @@ await check('and nothing at all on a quiet week', () => homePage({
        // The confirmed booking is shown, and only the free place beside it offered.
        '<strong>Don</strong>', 'changed on the service', 'name="p_4_2"',
        'Nobody is ticked for Service leader', 'Save changes to this service', 'Cancel',
-       'Nothing reaches the rota until the draft is applied'],
+       'Nothing reaches the rota until the draft is made live'],
     ['name="p_4_1"']);
   await check('a refused change keeps what was chosen, and says why', () => draftServiceEditPage({
     ctx: CTX, token: TOKEN, view: DRAFT, service: DRAFT.services[0], candidates: EDIT_CANDIDATES,
