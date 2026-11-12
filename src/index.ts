@@ -1840,8 +1840,9 @@ app.post('/app/rota/readings', async (c) => {
 async function servicesView(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   notice?: { tone: 'ok' | 'bad'; text: string },
+  form?: Record<string, string>,
 ) {
-  const [{ results: services }, { results: types }] = await Promise.all([
+  const [{ results: services }, { results: types }, rooms] = await Promise.all([
     c.env.DB.prepare(
       `SELECT s.id, s.service_date, s.service_time, s.title, s.location, s.is_cancelled,
               st.name AS type_name
@@ -1851,8 +1852,9 @@ async function servicesView(
     c.env.DB.prepare(
       'SELECT id, name, is_communion, default_time FROM service_types WHERE is_active = 1 ORDER BY id',
     ).all<ServiceTypeOption>(),
+    listRooms(c.env.DB),
   ]);
-  return c.html(servicesPage({ services, types, ctx: viewCtx(c), notice }));
+  return c.html(servicesPage({ services, types, ctx: viewCtx(c), notice, rooms, form }));
 }
 
 app.get('/app/settings/services', (c) => servicesView(c));
@@ -1879,26 +1881,74 @@ app.post('/app/settings/services/add', async (c) => {
   const form = await c.req.formData();
   const date = String(form.get('date') ?? '');
   const time = String(form.get('time') ?? '');
+  const until = String(form.get('until') ?? '');
   const title = String(form.get('title') ?? '').trim();
-  const location = String(form.get('location') ?? '').trim() || null;
   const typeId = Number(form.get('service_type_id'));
+  const roomRaw = String(form.get('room_id') ?? '');
+  // Handed back with any refusal, so nothing has to be typed again.
+  const echo = Object.fromEntries(['date', 'time', 'until', 'title', 'service_type_id', 'room_id', 'location']
+    .map((k) => [k, String(form.get(k) ?? '')]));
+  const bad = (text: string) => servicesView(c, { tone: 'bad', text }, echo);
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time) || !title) {
-    return servicesView(c, { tone: 'bad', text: 'A date, a time and a title are all needed.' });
+    return bad('A date, a time and a title are all needed.');
+  }
+
+  // "Where" is one of the church's rooms — booked for the service — or, with
+  // "Somewhere else", whatever is written in.
+  let room: { id: number; name: string } | null = null;
+  if (roomRaw !== '') {
+    room = await c.env.DB.prepare('SELECT id, name FROM rooms WHERE id = ?1 AND is_active = 1')
+      .bind(Number(roomRaw)).first<{ id: number; name: string }>();
+    if (!room) return bad('That room is no longer in use. Choose another.');
+    // Booking a room is its own right; without it, choosing one would book
+    // through a side door.
+    if (!(c.get('areas') ?? new Set()).has('rooms.manage')) {
+      return bad('Your profile cannot book rooms, so choose "Somewhere else", or ask somebody who can.');
+    }
+    if (!/^\d{2}:\d{2}$/.test(until) || until <= time) {
+      return bad('Say until when the room is needed — a time after the service starts.');
+    }
+  }
+  const location = room ? room.name : (String(form.get('location') ?? '').trim() || null);
+
+  const exists = await c.env.DB.prepare(
+    'SELECT 1 FROM services WHERE service_date = ?1 AND service_time = ?2',
+  ).bind(date, time).first();
+  if (exists) return bad(`There is already a service at ${date} ${time}.`);
+
+  const startsAt = `${date}T${time}`;
+  const endsAt = `${date}T${until}`;
+  if (room) {
+    const clashes = await findClashes(c.env.DB, room.id, startsAt, endsAt);
+    if (clashes.length) {
+      return bad(`Nothing was added. ${clashNotice(clashes)} Choose another room or time, or move that booking first.`);
+    }
   }
 
   const type = await c.env.DB.prepare(
     'SELECT id, is_communion FROM service_types WHERE id = ?1',
   ).bind(typeId).first<{ id: number; is_communion: number }>();
 
-  const res = await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO services (service_date, service_time, service_type_id, title, location, is_communion)
+  // The service and its room together, in one batch: both or neither.
+  const stmts = [c.env.DB.prepare(
+    `INSERT INTO services (service_date, service_time, service_type_id, title, location, is_communion)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-  ).bind(date, time, type?.id ?? null, title, location, type?.is_communion ?? 0).run();
+  ).bind(date, time, type?.id ?? null, title, location, type?.is_communion ?? 0)];
+  if (room) {
+    stmts.push(c.env.DB.prepare(
+      `INSERT INTO room_bookings (room_id, title, starts_at, ends_at, booked_by, notes)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(room.id, title, startsAt, endsAt, c.get('person').id, 'Booked with the service on the rota.'));
+  }
+  await c.env.DB.batch(stmts);
 
-  return servicesView(c, (res.meta?.changes ?? 0) > 0
-    ? { tone: 'ok', text: `Added "${title}".` }
-    : { tone: 'bad', text: `There is already a service at ${date} ${time}.` });
+  return servicesView(c, {
+    tone: 'ok',
+    text: room
+      ? `Added "${title}", and booked the ${room.name} for it, ${time}–${until}.`
+      : `Added "${title}".`,
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -18,9 +18,18 @@ export function servicesPage(opts: {
   types: ServiceTypeOption[];
   ctx: ViewCtx;
   notice?: { tone: 'ok' | 'bad'; text: string };
+  /** The rooms that can be booked, for "Where". */
+  rooms?: { id: number; name: string }[];
+  /** A form handed back (a clash, a mistake), so nothing is retyped. */
+  form?: Record<string, string>;
 }) {
   const { services, types, ctx, notice } = opts;
   const today = new Date().toISOString().slice(0, 10);
+  const rooms = opts.rooms ?? [];
+  const f = opts.form ?? {};
+  // The main church, where most services are, when there is a room by that
+  // name; otherwise the first room.
+  const defaultRoom = (rooms.find((r) => /church/i.test(r.name) && !/centre/i.test(r.name)) ?? rooms[0])?.id ?? '';
 
   return layout(
     { title: 'Services', back: { href: '/app', label: 'All areas' }, ...ctx },
@@ -62,30 +71,74 @@ export function servicesPage(opts: {
         <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
           <div class="field" style="margin-bottom:0">
             <label for="date">Date</label>
-            <input id="date" name="date" type="date" required>
+            <input id="date" name="date" type="date" value="${f.date ?? ''}" required>
           </div>
           <div class="field" style="margin-bottom:0">
             <label for="time">Time</label>
-            <input id="time" name="time" type="time" value="10:30" required>
+            <input id="time" name="time" type="time" value="${f.time ?? '10:30'}" required>
           </div>
           <div class="field" style="margin-bottom:0">
             <label for="type">Type</label>
             <select id="type" name="service_type_id">
-              ${types.map((t) => html`<option value="${t.id}">${t.name}</option>`)}
+              ${types.map((t) => html`<option value="${t.id}" ${f.service_type_id === String(t.id) ? 'selected' : ''}>${t.name}</option>`)}
             </select>
           </div>
         </div>
         <div class="field" style="margin-top:1rem">
           <label for="title">Title</label>
           <span class="hint">What it is called on the rota, e.g. "Carols by Candlelight".</span>
-          <input id="title" name="title" type="text" required>
+          <input id="title" name="title" type="text" value="${f.title ?? ''}" required>
         </div>
-        <div class="field">
-          <label for="location">Where</label>
-          <span class="hint">Leave blank for the church.</span>
-          <input id="location" name="location" type="text" placeholder="Bream Cenotaph">
+        <!-- Where: one of the church's own rooms, which is then booked for it
+             in the room diary, or somewhere else written in. -->
+        <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
+          <div class="field" style="margin-bottom:0">
+            <label for="room_id">Where</label>
+            <span class="hint">Choosing a room books it for the service.</span>
+            <select id="room_id" name="room_id">
+              ${rooms.map((r) => html`<option value="${r.id}" ${String(f.room_id ?? defaultRoom) === String(r.id) ? 'selected' : ''}>${r.name}</option>`)}
+              <option value="" ${f.room_id === '' ? 'selected' : ''}>Somewhere else…</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:0" id="until-field">
+            <label for="until">Room needed until</label>
+            <span class="hint">When the room can be let go.</span>
+            <input id="until" name="until" type="time" value="${f.until ?? '12:00'}">
+          </div>
         </div>
-        <button class="btn-primary" type="submit">Add this service</button>
+        <div class="field" id="elsewhere-field" style="margin-top:1rem" ${f.room_id === '' ? '' : 'hidden'}>
+          <label for="location">Where, then</label>
+          <span class="hint">Not one of our rooms, so nothing is booked.</span>
+          <input id="location" name="location" type="text" placeholder="Bream Cenotaph" value="${f.location ?? ''}">
+        </div>
+        <script>
+          (function () {
+            var room = document.getElementById('room_id');
+            var until = document.getElementById('until-field');
+            var where = document.getElementById('elsewhere-field');
+            var time = document.getElementById('time');
+            var end = document.getElementById('until');
+            function sync() {
+              var elsewhere = room.value === '';
+              where.hidden = !elsewhere;
+              until.hidden = elsewhere;
+              end.required = !elsewhere;
+            }
+            // Start time moved: keep the room for the same length as before.
+            var last = time.value;
+            time.addEventListener('change', function () {
+              var a = last.split(':'), b = time.value.split(':'), e = end.value.split(':');
+              if (a.length === 2 && b.length === 2 && e.length === 2) {
+                var m = (+e[0] * 60 + +e[1]) + ((+b[0] * 60 + +b[1]) - (+a[0] * 60 + +a[1]));
+                if (m > 0 && m < 1440) end.value = ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + m % 60).slice(-2);
+              }
+              last = time.value;
+            });
+            room.addEventListener('change', sync);
+            sync();
+          }());
+        </script>
+        <button class="btn-primary" type="submit" style="margin-top:1rem">Add this service</button>
       </form>
 
       <h2 class="section-h2">All services (${services.length})</h2>

@@ -326,6 +326,25 @@ await check('services', () => servicesPage({
   ctx: CTX,
   notice: { tone: 'ok', text: '5 added' },
 }), ['Create the Sundays', 'Add this service', '5 added']);
+// "Where" is a room, booked with the service, or "Somewhere else" written in.
+{
+  const SVC_ROOMS = [{ id: 2, name: 'Church Centre' }, { id: 1, name: 'Main church' }];
+  const base = {
+    services: [], types: [{ id: 1, name: 'Worship', is_communion: 0, default_time: '10:30' }],
+    ctx: CTX, rooms: SVC_ROOMS,
+  };
+  await check('adding a service offers the rooms, the main church first chosen', () => servicesPage(base),
+    ['name="room_id"', '<option value="1" selected>Main church</option>', '>Church Centre</option>',
+     '>Somewhere else…</option>', 'name="until"', 'Choosing a room books it for the service',
+     'id="elsewhere-field" style="margin-top:1rem" hidden']);
+  await check('and a refused one comes back as it was typed, Somewhere else and all', () => servicesPage({
+    ...base, notice: { tone: 'bad', text: 'There is already a service' },
+    form: { date: '2026-12-24', time: '23:30', until: '00:45', title: 'Midnight Mass', service_type_id: '1',
+      room_id: '', location: 'Bream Cenotaph' },
+  }), ['value="2026-12-24"', 'value="23:30"', 'value="Midnight Mass"', '<option value="" selected>Somewhere else…</option>',
+    'value="Bream Cenotaph"', 'id="elsewhere-field" style="margin-top:1rem" >'],
+  ['<option value="1" selected>Main church']);
+}
 
 await check('settings has its own overview', () => settingsHomePage(CTX),
   ['/app/settings/people', '/app/settings/keyholders', 'Keyholders', 'Roles and numbers'],
