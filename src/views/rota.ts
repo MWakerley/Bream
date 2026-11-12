@@ -1,5 +1,5 @@
-import { html } from 'hono/html';
-import { layout, chip, type ViewCtx } from './layout.js';
+import { html, raw } from 'hono/html';
+import { layout, chip, icon, type ViewCtx } from './layout.js';
 import { viewTabs } from './calendar.js';
 import type { Candidate, ServiceDetail, ServiceSummary } from '../db.js';
 
@@ -289,8 +289,14 @@ export function rotaDashboard(
           <a class="btn-secondary" href="/app/rota/requests">People who cannot make it</a>
           <a class="btn-secondary" href="/app/rota/readings">Readings</a>` : ''}
         <span class="rota-downloads">
-          <a class="btn-quiet" href="/app/rota/export.pdf">Download PDF</a>
-          <a class="btn-quiet" href="/app/rota/export.xlsx">Download for Excel</a>
+          <a class="btn-file btn-pdf" href="/app/rota/export.pdf" download>
+            <span class="btn-file-icon">${raw(icon('filePdf', 22))}<span class="btn-file-tag">PDF</span></span>
+            <span>Download PDF</span>
+          </a>
+          <a class="btn-file btn-xls" href="/app/rota/export.xlsx" download>
+            <span class="btn-file-icon">${raw(icon('fileSheet', 22))}<span class="btn-file-tag">XLS</span></span>
+            <span>Download for Excel</span>
+          </a>
         </span>
       </div>
 

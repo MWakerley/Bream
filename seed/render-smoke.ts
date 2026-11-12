@@ -253,7 +253,8 @@ await check('rota dashboard (empty)', () => rotaDashboard([], CTX, null), ['No u
     new Map([[1, detail], [2, { ...critDetail, id: 2 }], [3, later]]));
   await check('the rota opens every service as a full card, under month tabs', full,
     ['href="#month-2027-01"', 'id="month-2027-01"', 'January 2027', 'next-up-later',
-     'Sun 10 Jan 2027 at 15:00', 'Jump to', '?view=condensed', 'href="#top"', '--topbar-h'],
+     'Sun 10 Jan 2027 at 15:00', 'Jump to', '?view=condensed', 'href="#top"', '--topbar-h',
+     'class="btn-file btn-pdf" href="/app/rota/export.pdf"', 'class="btn-file btn-xls" href="/app/rota/export.xlsx"', '>PDF</span>', '>XLS</span>'],
     ['<details class="svc-more">', 'Key roles are missing', 'have roles with nobody',
      'Generate a whole draft', 'has its required roles filled']);
   await check('with the buttons above everything else', async () => {

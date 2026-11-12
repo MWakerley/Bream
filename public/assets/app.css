@@ -525,6 +525,38 @@ input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
 
 .rota-actions { margin-bottom: 1rem; }
 .rota-downloads { display: inline-flex; flex-wrap: wrap; gap: .5rem; margin-left: auto; }
+
+/* Download buttons that say what they give you: a file icon with its type on
+   a tag, in the colour people associate with it — red for PDF, green for a
+   spreadsheet. Plain generic shapes, not anybody's logo. */
+.btn-file {
+  --c: #586072; --c-dark: #3f4553;
+  display: inline-flex; align-items: center; gap: .6rem;
+  padding: .55rem 1rem .55rem .65rem; min-height: 2.9rem;
+  border-radius: var(--radius); border: 0;
+  background: var(--c); color: #fff; text-decoration: none;
+  font-family: var(--display); font-weight: 700; font-size: .8125rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  box-shadow: var(--shadow); transition: background .12s ease, transform .12s ease;
+}
+.btn-file:hover { background: var(--c-dark); color: #fff; transform: translateY(-1px); }
+.btn-file:focus-visible { outline: 3px solid var(--gold-warm); outline-offset: 2px; }
+.btn-pdf { --c: #b3261e; --c-dark: #8c1d17; }
+.btn-xls { --c: #1d6f42; --c-dark: #155232; }
+.btn-file-icon {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; border-radius: 6px; background: #fff; color: var(--c);
+}
+.btn-file-tag {
+  position: absolute; right: -.45rem; bottom: -.3rem;
+  padding: .05rem .25rem; border-radius: 3px;
+  background: #fff; color: var(--c); box-shadow: 0 0 0 1.5px var(--c);
+  font-size: .5625rem; font-weight: 800; letter-spacing: .04em; line-height: 1.2;
+}
+@media (max-width: 40rem) {
+  .rota-downloads { width: 100%; }
+  .rota-downloads .btn-file { flex: 1 1 0; justify-content: center; }
+}
 @media (max-width: 40rem) { .rota-downloads { margin-left: 0; } }
 
 /* Stays in view, just under the page header, however far down the page is
