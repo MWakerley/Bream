@@ -1,6 +1,7 @@
-import { html } from 'hono/html';
-import { layout, chip, type ViewCtx } from './layout.js';
-import { formatDate } from './rota.js';
+import { html, raw } from 'hono/html';
+import { layout, chip, icon, type ViewCtx } from './layout.js';
+import { searchBox } from './search.js';
+import { fileDownloads, formatDate } from './rota.js';
 import { editableSlots, type DraftCandidate, type DraftDerived, type DraftPerson, type DraftService,
          type DraftView } from '../rota/draft.js';
 
@@ -122,6 +123,22 @@ function personLine(p: DraftPerson) {
   </div>`;
 }
 
+/** The kinds of thing "Worth knowing" lists, recognised from the generator's
+ *  own sentences (src/rota/generate.ts and draft.ts), so the list can be
+ *  narrowed to one kind. Anything not recognised is "Other", never lost. */
+const WORTH_KINDS = [
+  { key: 'nobody', label: 'Nobody can do it', test: /nobody is marked as able/ },
+  { key: 'short', label: 'Not enough people', test: /cannot cover more than/ },
+  { key: 'limit', label: 'Over their limit', test: /over the limit they asked for/ },
+  { key: 'sooner', label: 'Sooner than they asked', test: /sooner than they asked to be asked again/ },
+  { key: 'figures', label: 'Figures people gave', test: /left theirs blank/ },
+  { key: 'amber', label: 'Amber combinations', test: /^Settled for an amber combination/ },
+];
+const OTHER_KIND = { key: 'other', label: 'Other', test: /$^/ };
+function worthKind(text: string) {
+  return WORTH_KINDS.find((k) => k.test.test(text)) ?? OTHER_KIND;
+}
+
 const ROLE_TH = 'white-space:nowrap;text-transform:none;letter-spacing:0;font-size:1rem;border-bottom:1px solid var(--rule)';
 
 export function previewPage(opts: {
@@ -153,6 +170,15 @@ export function previewPage(opts: {
   const confirmText = `Apply this draft? ${joinAnd(facts)}. This cannot be undone from this page. Are you sure?`;
   const byHand = view.services.reduce(
     (n, s) => n + s.rows.reduce((m, r) => m + r.people.filter((p) => p.byHand).length, 0), 0);
+
+  const worth = d.worthKnowing.map((text) => ({
+    // A placement note starts with the ISO date; written out, it reads as the rest of the page does.
+    text: text.replace(/^(\d{4}-\d{2}-\d{2}): /, (_, day: string) => `${formatDate(day)}: `),
+    kind: worthKind(text),
+  }));
+  const kinds = WORTH_KINDS.concat([OTHER_KIND])
+    .map((k) => ({ ...k, n: worth.filter((w) => w.kind.key === k.key).length }))
+    .filter((k) => k.n > 0);
 
   return layout(
     { title: 'Draft rota', back: { href: '/app/settings/generate', label: 'Generate' }, ...opts.ctx },
@@ -186,54 +212,76 @@ export function previewPage(opts: {
         <strong>${d.empty}</strong> place${d.empty === 1 ? '' : 's'} still empty.
       </p>
 
-      <!-- Deliberately no Apply here. It used to sit beside Start again, where
-           it was far too easy to press by mistake on the way to checking the
-           draft. It is now the last thing on the page, after every service. -->
-      <div class="card" style="border-top:3px solid var(--brass)">
+      <!-- The apply box, at the top so it can be found without scrolling past
+           every service. Applying still asks once more before anything is
+           written, and the button sits apart from Start again. -->
+      <h2 class="section-h2">When the draft is right</h2>
+      <div class="card draft-apply">
         <!-- Not "nothing has been saved": a hand change IS saved, into the draft,
              and the same page then says "Saved your changes to ..." on that
              service. What has not happened is anything reaching the rota. -->
         <p style="margin-top:0"><strong>Nothing is on the rota yet.</strong>${view.edits > 0
           ? ' Your changes are kept in this draft until you apply it.'
-          : ''}</p>
-        <p>
-          Check each service below. Press <strong>Change</strong> on any of them to put somebody
-          else on, and apply the draft at the bottom of this page when it is right.
-        </p>
-        <p class="btn-row" style="margin:1rem 0 0">
-          ${view.edits > 0
-            ? html`<a class="btn-secondary" href="/app/settings/generate"
-                  data-confirm="Start again? The changes you have made to this draft by hand will not be kept."
-                  onclick="return confirm(this.dataset.confirm)">Start again</a>`
-            : html`<a class="btn-secondary" href="/app/settings/generate">Start again</a>`}
-        </p>
+          : ''} Check the services under <strong>The draft</strong> below — press
+          <strong>Change</strong> on any of them to put somebody else on — then apply it here.</p>
+        <p style="margin:0 0 .5rem"><strong>Applying puts this draft on the rota:</strong></p>
+        <ul style="padding-left:1.2rem;color:var(--ink-2)">
+          <li><strong>${d.fresh}</strong> ${plural(d.fresh, 'placement goes', 'placements go')} on
+              the rota, confirmed. A draft generated later for the same dates keeps them as they
+              are.</li>
+          ${byHand > 0
+            ? html`<li>${byHand === 1
+                ? 'The place you changed by hand goes on confirmed like the rest.'
+                : `The ${byHand} places you changed by hand go on confirmed like the rest.`}</li>`
+            : ''}
+          ${made > 0
+            ? html`<li><strong>${made}</strong> Sunday ${plural(made, 'service is', 'services are')}
+                added to the diary.</li>`
+            : ''}
+          ${released.length
+            ? html`<li><strong>${released.length}</strong>
+                ${plural(released.length, 'booking is', 'bookings are')} taken off, as listed at the
+                top of this page.</li>`
+            : ''}
+          <li>Anything somebody has booked by hand on a service's own page since this draft was
+              made is left as it is.</li>
+          <li>It cannot be undone from this page.</li>
+        </ul>
+        <form method="post" action="/app/settings/generate/apply" style="margin:0"
+              data-confirm="${confirmText}"
+              onsubmit="return confirm(this.dataset.confirm)">
+          <input type="hidden" name="token" value="${token}">
+          <input type="hidden" name="from" value="${opts.from}">
+          <input type="hidden" name="to" value="${opts.to}">
+          <button class="btn-primary" type="submit">Apply this draft</button>
+        </form>
         <!-- The draft as it stands, in the same layout as the rota's own
              download, so it can be sent round for comments before it is
              applied. Marked DRAFT throughout so nobody mistakes it. Hand
              changes are in it: it is built from the same saved draft. -->
-        <p class="btn-row" style="margin:1rem 0 0">
-          <span style="color:var(--ink-2);align-self:center">This draft, to send round before applying:</span>
-          <a class="btn-quiet" href="${base}/rota.xlsx">Download for Excel</a>
-          <a class="btn-quiet" href="${base}/rota.pdf">Download PDF</a>
+        ${fileDownloads(`${base}/rota.pdf`, `${base}/rota.xlsx`, 'This draft, to send round before applying:')}
+        <p class="draft-restart">
+          ${view.edits > 0
+            ? html`<a class="btn-quiet" href="/app/settings/generate"
+                  data-confirm="Start again? The changes you have made to this draft by hand will not be kept."
+                  onclick="return confirm(this.dataset.confirm)">Start again</a>`
+            : html`<a class="btn-quiet" href="/app/settings/generate">Start again</a>`}
         </p>
       </div>
 
-      ${d.worthKnowing.length
-        ? html`<h2 class="section-h2">Worth knowing</h2>
-            <div class="notice notice-warn">
-              ${view.edits > 0
-                ? html`<p style="font-size:.9375rem">
-                    These were worked out when the draft was made. Anything you change by hand
-                    is checked as you save it, and shown on that service.
-                  </p>`
-                : ''}
-              <ul style="margin:0;padding-left:1.2rem">
-                ${d.worthKnowing.map((w) => html`<li>${w}</li>`)}
-              </ul>
-            </div>`
-        : ''}
+      ${worth.length
+        ? html`<div class="tabs room-tabs draft-tabs" role="tablist">
+            <span class="room-tabs-main">
+              <a class="tab tab-main tab-view is-on" href="#tab-draft" data-tab="draft" role="tab"
+                 aria-selected="true"><span class="tab-icon">${raw(icon('list', 17))}</span>The draft</a>
+              <a class="tab tab-main tab-view" href="#tab-worth" data-tab="worth" role="tab"
+                 aria-selected="false"><span class="tab-icon">${raw(icon('alert', 17))}</span>Worth knowing
+                 <span class="tab-count">${worth.length}</span></a>
+            </span>
+          </div>`
+        : html`<h2 class="section-h2">The draft</h2>`}
 
-      <h2 class="section-h2">The draft</h2>
+      <div id="tab-draft" role="tabpanel">
       ${view.services.map((s) => {
         const saved = opts.saved && opts.saved.serviceId === s.id ? opts.saved : null;
         return html`<div class="card" id="svc-${s.id}">
@@ -301,44 +349,63 @@ export function previewPage(opts: {
           </tbody>
         </table>
       </div>
-
-      <!-- Last on the page, and well apart from everything above it, so it is
-           reached only by somebody who has scrolled past every service — and
-           then it asks once more. -->
-      <h2 class="section-h2" style="margin-top:3.5rem">When the draft is right</h2>
-      <div class="card" style="border-top:3px solid var(--brass)">
-        <p style="margin-top:0"><strong>Applying puts this draft on the rota.</strong></p>
-        <ul style="padding-left:1.2rem;color:var(--ink-2)">
-          <li><strong>${d.fresh}</strong> ${plural(d.fresh, 'placement goes', 'placements go')} on
-              the rota, confirmed. A draft generated later for the same dates keeps them as they
-              are.</li>
-          ${byHand > 0
-            ? html`<li>${byHand === 1
-                ? 'The place you changed by hand goes on confirmed like the rest.'
-                : `The ${byHand} places you changed by hand go on confirmed like the rest.`}</li>`
-            : ''}
-          ${made > 0
-            ? html`<li><strong>${made}</strong> Sunday ${plural(made, 'service is', 'services are')}
-                added to the diary.</li>`
-            : ''}
-          ${released.length
-            ? html`<li><strong>${released.length}</strong>
-                ${plural(released.length, 'booking is', 'bookings are')} taken off, as listed at the
-                top of this page.</li>`
-            : ''}
-          <li>Anything somebody has booked by hand on a service's own page since this draft was
-              made is left as it is.</li>
-          <li>It cannot be undone from this page.</li>
-        </ul>
-        <form method="post" action="/app/settings/generate/apply" style="margin:0"
-              data-confirm="${confirmText}"
-              onsubmit="return confirm(this.dataset.confirm)">
-          <input type="hidden" name="token" value="${token}">
-          <input type="hidden" name="from" value="${opts.from}">
-          <input type="hidden" name="to" value="${opts.to}">
-          <button class="btn-primary" type="submit">Apply this draft</button>
-        </form>
       </div>
+
+      ${worth.length
+        ? html`<div id="tab-worth" role="tabpanel">
+            <p class="page-intro" style="margin-top:0">
+              Things the generator noticed while making this draft — places it could not fill,
+              people it had to ask more often than they wanted, and combinations it settled for.
+              ${view.edits > 0
+                ? 'They were worked out when the draft was made; anything you change by hand is checked as you save it, and shown on that service.'
+                : ''}
+            </p>
+            <div class="btn-row">
+              <label class="people-filter">
+                <span class="people-filter-label">Show</span>
+                <select data-filter-for="worth-list" aria-label="Show only one kind of note">
+                  <option value="">Everything (${worth.length})</option>
+                  ${kinds.map((k) => html`<option value="kind:${k.key}">${k.label} (${k.n})</option>`)}
+                </select>
+              </label>
+            </div>
+            ${searchBox({
+              target: 'worth-list', label: 'Search these notes', placeholder: 'A name, a role or a date…',
+              noun: 'notes',
+            })}
+            <ul class="worth-list" id="worth-list">
+              ${worth.map((w) => html`<li class="worth-item worth-${w.kind.key}" data-search="${w.text} ${w.kind.label}"
+                  data-filter="kind:${w.kind.key}">
+                <span class="worth-kind">${w.kind.label}</span>
+                <span>${w.text}</span>
+              </li>`)}
+            </ul>
+          </div>
+          <script>
+          (function () {
+            var tabs = document.querySelectorAll('.draft-tabs [data-tab]');
+            function show(key) {
+              for (var i = 0; i < tabs.length; i++) {
+                var k = tabs[i].getAttribute('data-tab');
+                var on = k === key;
+                tabs[i].classList.toggle('is-on', on);
+                tabs[i].setAttribute('aria-selected', on ? 'true' : 'false');
+                document.getElementById('tab-' + k).hidden = !on;
+              }
+            }
+            for (var i = 0; i < tabs.length; i++) {
+              tabs[i].addEventListener('click', function (e) {
+                e.preventDefault();
+                var k = this.getAttribute('data-tab');
+                show(k);
+                if (history.replaceState) history.replaceState(null, '', '#tab-' + k);
+              });
+            }
+            show(location.hash === '#tab-worth' ? 'worth' : 'draft');
+          })();
+          </script>`
+        : ''}
+
     `,
   );
 }

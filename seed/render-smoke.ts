@@ -1842,7 +1842,18 @@ await check('and nothing at all on a quiet week', () => homePage({
   });
   await check('the draft offers the rota downloads, for this draft only', page,
     [`/app/settings/generate/draft/${TOKEN}/rota.xlsx`, `/app/settings/generate/draft/${TOKEN}/rota.pdf`,
-     'Download for Excel', 'Apply this draft']);
+     'Download for Excel', 'btn-file btn-pdf', 'btn-file btn-xls', 'rota-downloads-label', 'Apply this draft']);
+  await check('the apply box comes before the services, not after them', async () => {
+    const out = String(await page());
+    const apply = out.indexOf('Apply this draft');
+    const first = out.indexOf('id="svc-1"');
+    if (apply < 0 || first < 0 || apply > first) throw new Error('Apply is not above the first service');
+    return out;
+  }, ['When the draft is right']);
+  await check('worth knowing is its own tab, sorted into kinds to filter by', page,
+    ['data-tab="worth"', 'id="tab-worth"', 'data-filter-for="worth-list"', 'value="kind:nobody"',
+     'Nobody can do it (1)', 'data-filter="kind:nobody"', 'value="kind:amber"', 'worth-amber'],
+    ['class="notice notice-warn">\n              <ul']);
   await check('every service of the draft can be changed by hand', page,
     [`/app/settings/generate/draft/${TOKEN}/service/1`, `/app/settings/generate/draft/${TOKEN}/service/-1`,
      'id="svc-1"', 'id="svc--1"', 'Change', 'changed by hand', 'chip-amber">away that day', 'chip-navy">guest',
@@ -1855,21 +1866,19 @@ await check('and nothing at all on a quiet week', () => homePage({
      'name="token" value="tok_ABC-123xyz_tok_ABC-123"', 'name="from" value="2026-10-01"']);
   // Apply used to sit in the card at the top, next to Start again, and was
   // pressed by mistake. It must now be the last thing, after every service.
-  await check('Apply is at the bottom of the draft, not beside Start again', () => {
+  await check('Apply is at the top, once, and not beside Start again', () => {
     const out = String(page());
-    const top = out.indexOf('Nothing is on the rota yet.');
-    const topEnd = out.indexOf('<h2 class="section-h2"', top);
     const apply = out.indexOf('action="/app/settings/generate/apply"');
-    const load = out.indexOf('How the load falls');
+    const downloads = out.indexOf('class="rota-downloads"', apply);
+    const restart = out.indexOf('>Start again<', apply);
     const where = [
-      top > 0 && topEnd > top ? '' : 'no top card',
-      apply > load && load > 0 ? '' : 'apply before the load',
-      apply > top && apply < topEnd ? 'apply in the top card' : '',
-      out.slice(top, topEnd).includes('Apply this draft') ? 'apply named in the top card' : '',
+      apply > 0 ? '' : 'no apply form',
+      apply < out.indexOf('id="tab-draft"') ? '' : 'apply below the services',
+      downloads > apply && restart > downloads ? '' : 'start again not set apart from apply',
       out.indexOf('action="/app/settings/generate/apply"', apply + 1) === -1 ? '' : 'two apply forms',
     ].filter(Boolean);
-    return where.length ? where.join('; ') : 'apply is last';
-  }, ['apply is last']);
+    return where.length ? where.join('; ') : 'apply is at the top';
+  }, ['apply is at the top']);
 
   // "Nothing has been saved yet" sat above "Saved your changes to ..." on the
   // same page once hand changes were saved into the draft, and read as though

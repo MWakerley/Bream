@@ -270,6 +270,22 @@ function byMonth<T extends { service_date: string }>(list: T[]): { key: string; 
   return out;
 }
 
+/** The red PDF and green Excel buttons, each with its file icon. Shared by the
+ *  rota and a generated draft, so a download looks the same wherever it is. */
+export function fileDownloads(pdfHref: string, xlsHref: string, label = '') {
+  return html`<div class="rota-downloads">
+      ${label ? html`<span class="rota-downloads-label">${label}</span>` : ''}
+      <a class="btn-file btn-pdf" href="${pdfHref}" download>
+        <span class="btn-file-icon">${raw(icon('filePdf', 22))}<span class="btn-file-tag">PDF</span></span>
+        <span>Download PDF</span>
+      </a>
+      <a class="btn-file btn-xls" href="${xlsHref}" download>
+        <span class="btn-file-icon">${raw(icon('fileSheet', 22))}<span class="btn-file-tag">XLS</span></span>
+        <span>Download for Excel</span>
+      </a>
+    </div>`;
+}
+
 export function rotaDashboard(
   services: ServiceSummary[],
   ctx: ViewCtx,
@@ -302,16 +318,7 @@ export function rotaDashboard(
           <a class="btn-secondary" href="/app/rota/readings">Readings</a>` : ''}
       </div>
 
-      <div class="rota-downloads">
-          <a class="btn-file btn-pdf" href="/app/rota/export.pdf" download>
-            <span class="btn-file-icon">${raw(icon('filePdf', 22))}<span class="btn-file-tag">PDF</span></span>
-            <span>Download PDF</span>
-          </a>
-          <a class="btn-file btn-xls" href="/app/rota/export.xlsx" download>
-            <span class="btn-file-icon">${raw(icon('fileSheet', 22))}<span class="btn-file-tag">XLS</span></span>
-            <span>Download for Excel</span>
-          </a>
-      </div>
+      ${fileDownloads('/app/rota/export.pdf', '/app/rota/export.xlsx')}
 
       ${services.length
         ? html`<div class="rota-search">${searchBox({
