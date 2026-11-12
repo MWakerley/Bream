@@ -149,7 +149,11 @@ function worshipCard(
               return html`<div class="field" data-kinds="${asks.join(' ')}"
                                 ${asks.includes(kind) ? '' : 'hidden'}>
                 <label for="${id}">${pos.label}</label>
-                <select id="${id}" name="p_${pos.key}">
+                <!-- The name box is only for somebody not on the list, so it
+                     stays out of the way until that is chosen: under every
+                     position it doubled the length of each week on a phone. -->
+                <select id="${id}" name="p_${pos.key}"
+                        onchange="this.nextElementSibling.hidden = this.value !== 'other'">
                   <option value="">— nobody —</option>
                   ${people.map((p) => html`<option value="${p.id}"
                     ${cur?.person_id === p.id ? 'selected' : ''}>${p.display_name}</option>`)}
@@ -159,6 +163,7 @@ function worshipCard(
                 </select>
                 <input type="text" name="n_${pos.key}" class="worship-other"
                        placeholder="Their name"
+                       ${cur && cur.person_id == null ? '' : 'hidden'}
                        value="${cur && cur.person_id == null ? (cur.name ?? '') : ''}"
                        aria-label="Name for ${pos.label}, if they are not on the list">
               </div>`;

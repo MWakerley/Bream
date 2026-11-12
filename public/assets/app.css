@@ -1845,3 +1845,70 @@ a.cal-item[class*="cal-c-"]:hover strong { color: #fff; }
 .worth-figures, .worth-other { border-left-color: var(--navy-soft); }
 .worth-figures .worth-kind, .worth-other .worth-kind { background: var(--navy-wash); color: var(--navy); }
 #tab-worth .people-filter { margin-left: 0; }
+
+/* ---- "How this works" folded away ------------------------------------------
+   An explanation that is only needed once, closed by default so the page's
+   buttons and list come first — on a phone they were a screen further down. */
+.howto {
+  background: var(--navy-wash); border-left: 4px solid var(--navy-soft);
+  border-radius: var(--radius); padding: 0 1rem; margin: 0 0 1.25rem;
+}
+.howto > summary {
+  display: flex; align-items: center; gap: .5rem; min-height: 2.75rem;
+  cursor: pointer; list-style: none; font-weight: 700; color: var(--navy);
+}
+.howto > summary::-webkit-details-marker { display: none; }
+.howto > summary::before {
+  content: "+"; display: inline-flex; align-items: center; justify-content: center;
+  width: 1.25rem; height: 1.25rem; border-radius: 50%; flex: none;
+  background: var(--navy); color: #fff; font-size: .875rem; line-height: 1;
+}
+.howto[open] > summary::before { content: "−"; }
+.howto[open] { padding-bottom: .75rem; }
+
+/* ---- Phones: a last pass -------------------------------------------------- */
+@media (max-width: 40rem) {
+  /* A labelled value on a stacked card: the label keeps a column of its own,
+     so a value's second line ("19:00", "19 bookings") sits under the value
+     rather than wrapping back under the label. */
+  table.grid.stack > tbody > tr > td[data-label]:not([data-label=""]) {
+    position: relative; padding-left: calc(.9rem + 6.5rem + .75rem);
+  }
+  table.grid.stack > tbody > tr > td[data-label]:not([data-label=""])::before {
+    position: absolute; left: .9rem; top: .55rem;
+    width: 6.5rem; min-width: 0; max-width: none; margin: 0; line-height: 1.3;
+  }
+
+  /* Big numbers: two to a row, and an odd one out across the whole row
+     rather than stranded on the left; exactly three sit in one row. */
+  .stat-row { grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .stat-row > .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .stat-row:has(> .stat:nth-child(3):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stat-row:has(> .stat:nth-child(3):last-child) > .stat { grid-column: auto; padding: .85rem .8rem; }
+  .stat-row:has(> .stat:nth-child(3):last-child) .stat-n { font-size: 1.75rem; }
+  .stat-row:has(> .stat:nth-child(3):last-child) .stat-l { font-size: .6875rem; letter-spacing: .05em; }
+
+  /* Small things to tap, brought up to a fingertip. */
+  .month-tab, .layout-switch a { display: inline-flex; align-items: center; min-height: 2.5rem; }
+  .check input { width: 1.375rem; height: 1.375rem; }
+
+  /* The smallest words, a little larger. */
+  .chip { font-size: .75rem; }
+  .tab-quiet { font-size: .8125rem; }
+}
+@media (max-width: 40rem) {
+  /* At a glance: its three numbers in one row on a phone. */
+  .glance-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; }
+  .glance-stat { padding: .75rem .7rem; }
+  .glance-n { font-size: 1.6rem; }
+  .glance-l { font-size: .8125rem; line-height: 1.35; }
+}
+@media (max-width: 40rem) {
+  /* People: the buttons two to a row, as on the rota, and the Show filter
+     across the whole width under them. */
+  .people-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .people-actions > .btn-primary, .people-actions > .btn-secondary {
+    justify-content: center; text-align: center; padding-inline: .6rem;
+  }
+  .people-actions > .people-filter { grid-column: 1 / -1; }
+}

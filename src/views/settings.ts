@@ -218,7 +218,10 @@ export function peoplePage(
         they want to do it.
       </p>
 
-      <div class="notice notice-info">
+      <!-- Folded away: on a phone this explanation stood between the page's
+           title and its buttons and list, and it is only needed once. -->
+      <details class="howto">
+        <summary>How this list works</summary>
         <p style="margin-top:0">
           Each person's own record is where the draft rota learns what they can do, how often
           and when. To see everybody who can do a role, choose it under <strong>Show</strong>
@@ -229,7 +232,7 @@ export function peoplePage(
           September–November rota — but that is only a starting point. Somebody who has not
           read this quarter may be perfectly willing to read, so open them and tick it.
         </p>
-      </div>
+      </details>
 
       ${needsReview.length
         ? html`<div class="notice notice-warn">
