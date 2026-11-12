@@ -1,11 +1,29 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
+import { BOOKING_COLOURS, bookingColour } from '../rooms.js';
+
+/**
+ * A room's colour on the "All rooms" calendar, as a dropdown with a swatch
+ * beside it that follows the choice. The same palette a booking can be given.
+ */
+function colourPicker(name: string, value: string | null | undefined, label: string, id = "") {
+  const c = bookingColour(value) ?? 'navy';
+  return html`<span class="room-colour">
+    <span class="room-swatch cal-c-${c}" aria-hidden="true"></span>
+    <select name="${name}" id="${id || name}" aria-label="${label}"
+            onchange="this.previousElementSibling.className='room-swatch cal-c-'+this.value">
+      ${BOOKING_COLOURS.map((x) => html`<option value="${x.key}" ${x.key === c ? 'selected' : ''}>${x.label}</option>`)}
+    </select>
+  </span>`;
+}
 
 export interface RoomSettingRow {
   id: number;
   name: string;
   capacity: number | null;
   notes: string | null;
+  /** Its colour on the "All rooms" calendar, from BOOKING_COLOURS. */
+  colour: string | null;
   sort_order: number;
   is_active: number;
   /** Bookings still to come, which decides whether it is safe to retire. */
@@ -19,6 +37,9 @@ export function roomSettingsPage(opts: {
   notice?: { tone: 'ok' | 'bad'; text: string };
 }) {
   const { rooms, ctx, notice } = opts;
+  // A new room starts on the first colour no room in use has yet.
+  const taken = new Set(rooms.filter((r) => r.is_active).map((r) => bookingColour(r.colour)));
+  const nextColour = BOOKING_COLOURS.find((x) => !taken.has(x.key))?.key ?? 'navy';
   return layout(
     {
       title: 'Rooms',
@@ -49,7 +70,7 @@ export function roomSettingsPage(opts: {
                the top. -->
           <table class="grid stack">
             <thead>
-              <tr><th>Name</th><th class="num">Holds</th><th>Note</th>
+              <tr><th>Name</th><th class="num">Holds</th><th>Calendar colour</th>
                   <th class="num">Bookings</th><th>In use</th></tr>
             </thead>
             <tbody>
@@ -64,9 +85,8 @@ export function roomSettingsPage(opts: {
                            min="1" max="2000" style="width:6rem" placeholder="—"
                            aria-label="Capacity of ${r.name}">
                   </td>
-                  <td data-label="Note">
-                    <input type="text" name="notes_${r.id}" value="${r.notes ?? ''}"
-                           aria-label="Note about ${r.name}">
+                  <td data-label="Calendar colour">
+                    ${colourPicker(`colour_${r.id}`, r.colour, `Calendar colour for ${r.name}`)}
                   </td>
                   <td class="num" data-label="Bookings">
                     ${r.upcoming} <span style="color:var(--ink-2)">to come, ${r.total} total</span>
@@ -108,6 +128,11 @@ export function roomSettingsPage(opts: {
             <label for="new_notes">Anything worth knowing</label>
             <span class="hint">Optional — where it is, what is in it.</span>
             <input id="new_notes" name="notes" type="text">
+          </div>
+          <div class="field">
+            <label for="new_colour">Calendar colour</label>
+            <span class="hint">How its bookings show on the "All rooms" calendar.</span>
+            ${colourPicker("colour", nextColour, "Calendar colour for the new room", "new_colour")}
           </div>
         </div>
         <button class="btn-primary" type="submit">Add this room</button>

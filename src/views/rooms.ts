@@ -1,13 +1,13 @@
 import { html } from 'hono/html';
 import { layout, chip, type ViewCtx } from './layout.js';
 import { formatDate, formatSpan, lastDay } from './rota.js';
-import { viewTabs } from './calendar.js';
+
 import { FREQUENCIES, describeSeries } from '../recurrence.js';
 import { BOOKING_COLOURS, BOOKING_FONTS, bookingColour, bookingFont, type SeriesRow } from '../rooms.js';
 import { requestsDashboard } from './roomRequests.js';
 import type { RequestRow } from '../roomRequests.js';
 
-export interface RoomRow { id: number; name: string; capacity: number | null; notes: string | null }
+export interface RoomRow { id: number; name: string; capacity: number | null; notes: string | null; colour?: string | null }
 export interface BookingRow {
   id: number;
   room_id: number;
@@ -164,6 +164,26 @@ function byDay(bookings: BookingRow[], from: string, windowDays = 28) {
   return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 
+/** Which part of the Rooms page is showing. */
+export type RoomsTab = 'list' | 'book' | 'repeating';
+
+/**
+ * List, Calendar, Make a booking, Repeating bookings. "Make a booking" is
+ * offered only to somebody whose profile has "Book rooms" — the same right the
+ * server checks before saving one — so nobody is shown a form that refuses them.
+ */
+export function roomTabs(current: RoomsTab | 'calendar', canBook: boolean, calendarHref = '/app/rooms/calendar') {
+  const tab = (key: RoomsTab | 'calendar', href: string, label: string) => html`<a
+    class="tab ${current === key ? 'is-on' : ''}" href="${href}" role="tab"
+    aria-selected="${current === key ? 'true' : 'false'}">${label}</a>`;
+  return html`<div class="tabs" role="tablist">
+    ${tab('list', '/app/rooms', 'List')}
+    ${tab('calendar', calendarHref, 'Calendar')}
+    ${canBook ? tab('book', '/app/rooms/book', 'Make a booking') : ''}
+    ${tab('repeating', '/app/rooms/repeating', 'Repeating bookings')}
+  </div>`;
+}
+
 export function roomsPage(opts: {
   rooms: RoomRow[];
   bookings: BookingRow[];
@@ -175,9 +195,14 @@ export function roomsPage(opts: {
   notice?: { tone: 'ok' | 'bad'; text: string };
   /** Repopulates the form when a booking clashed, so nothing is retyped. */
   form?: Record<string, string>;
+  tab?: RoomsTab;
 }) {
   const { rooms, bookings, series, ctx, notice, weekFrom } = opts;
   const canDecide = !ctx.areas || ctx.areas.has('rooms.manage');
+  // Somebody without "Book rooms" who arrives with a booking half filled in
+  // (a link from the calendar) is shown the list instead.
+  const asked: RoomsTab = opts.tab ?? (opts.form ? 'book' : 'list');
+  const tab: RoomsTab = asked === 'book' && !canDecide ? 'list' : asked;
   const f = opts.form ?? {};
   const days = byDay(bookings, weekFrom);
   // On a phone each booking in the list becomes a card ("stack" in app.css),
@@ -194,15 +219,14 @@ export function roomsPage(opts: {
       ...ctx,
     },
     html`
-      ${viewTabs('list', '/app/rooms', '/app/rooms/calendar')}
+      ${roomTabs(tab, canDecide)}
 
       ${notice
         ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
         : ''}
 
-      ${requestsDashboard(opts.requests ?? [], canDecide)}
-
-      <h2 class="section-h2" id="book">Make a booking</h2>
+      ${tab === 'book' ? html`
+      
       <form method="post" action="/app/rooms/book" class="card">
         <div class="grid-fields">
           <div class="field">
@@ -289,6 +313,9 @@ export function roomsPage(opts: {
         }());
       </script>
 
+` : ''}
+
+      ${tab === 'repeating' ? html`
       ${series.length
         ? html`<h2 class="section-h2">Repeating bookings</h2>
             <div class="table-scroll">
@@ -316,10 +343,13 @@ export function roomsPage(opts: {
             </div>
             <p style="color:var(--ink-2);font-size:.9375rem">
               Cancelling a series removes the bookings still to come and leaves the ones that
-              have already happened. A single week can be cancelled on its own below.
+              have already happened. A single week can be cancelled on its own from the List tab.
             </p>`
         : ''}
 
+` : ''}
+
+      ${tab === 'list' ? html`
       <h2 class="section-h2">What is booked</h2>
       <form method="get" action="/app/rooms" class="card" style="padding-block:1rem">
         <div class="grid-fields" style="align-items:end">
@@ -361,7 +391,7 @@ export function roomsPage(opts: {
                             ${b.is_tentative && b.request_id
                               // A request still being decided: approve or decline it
                               // above, not by editing or cancelling the hold.
-                              ? html`<a class="linkish" href="#request-${b.request_id}">Waiting — decide above</a>`
+                              ? html`<a class="linkish" href="#request-${b.request_id}">Waiting — decide below</a>`
                               : b.event_id
                               // Held for an event: the event owns it. A Cancel
                               // here, under the Sunday of a weekend, would cancel
@@ -385,6 +415,9 @@ export function roomsPage(opts: {
             </div>`,
           )}
 
+
+      ${requestsDashboard(opts.requests ?? [], canDecide)}
+
       <h2 class="section-h2">The rooms</h2>
       <ul class="tiles" style="margin-bottom:1.25rem">
         ${rooms.map(
@@ -396,7 +429,7 @@ export function roomsPage(opts: {
       </ul>
       ${ctx.isAdmin
         ? html`<p><a class="btn-secondary" href="/app/settings/rooms">Add or rename a room</a></p>`
-        : ''}
+        : ''}` : ''}
     `,
   );
 }

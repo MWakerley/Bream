@@ -261,9 +261,9 @@ ok('one room shows only that room', parlour.length === 3 && parlour.every((r) =>
   JSON.stringify(parlour));
 
 const rooms = await listDiaryRooms(d1);
-ok('the tabs are the rooms in use, by id and name only',
+ok('the tabs are the rooms in use, by id, name and calendar colour only',
   rooms.some((r) => r.name === 'Diary Hall') && !rooms.some((r) => r.name === 'Diary Old Vestry')
-  && rooms.every((r) => JSON.stringify(Object.keys(r)) === '["id","name"]'), JSON.stringify(rooms));
+  && rooms.every((r) => JSON.stringify(Object.keys(r)) === '["id","name","colour"]'), JSON.stringify(rooms));
 
 // ---- the months it may show --------------------------------------------------
 const w = (view: 'calendar' | 'list', m: string | undefined, today = TODAY) => {

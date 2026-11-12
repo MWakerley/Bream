@@ -12,7 +12,7 @@ export const AREAS = [
   { key: 'rota', label: 'See the rota', note: 'Who is serving and when, read-only.' },
   { key: 'rota.manage', label: 'Build the rota', note: 'Generate it, edit services, readings, and handle swap requests.' },
   { key: 'rooms', label: 'See room bookings', note: 'The room diary, read-only.' },
-  { key: 'rooms.manage', label: 'Book rooms', note: 'Make, change and cancel bookings.' },
+  { key: 'rooms.manage', label: 'Book rooms', note: 'The Make a booking tab: make, change and cancel bookings.' },
   { key: 'events', label: 'See events', note: 'What is on and who has booked.' },
   { key: 'events.manage', label: 'Run events', note: 'Create events, take bookings, send acknowledgements.' },
   { key: 'me', label: 'Their own dates', note: 'Say when they are away and ask to swap.' },

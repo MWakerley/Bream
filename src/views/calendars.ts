@@ -3,7 +3,7 @@ import { layout, type ViewCtx } from './layout.js';
 import { monthCalendar, monthLabel, viewTabs, type CalendarEntry } from './calendar.js';
 import { describeUnder, formatSpan } from './rota.js';
 import type { ServiceSummary } from '../db.js';
-import { daysCovered, timeOnDay, type BookingRow, type RoomRow } from './rooms.js';
+import { daysCovered, roomTabs, timeOnDay, type BookingRow, type RoomRow } from './rooms.js';
 import { bookingColour, bookingFont } from '../rooms.js';
 
 
@@ -19,6 +19,7 @@ export function roomsCalendarPage(opts: {
 }) {
   const { rooms, roomId, bookings, counts, month, ctx } = opts;
   const current = rooms.find((r) => r.id === roomId);
+  const roomColour = new Map(rooms.map((r) => [r.id, bookingColour(r.colour)]));
   // No + button for somebody who could only be refused by it.
   const canBook = ctx.areas?.has('rooms.manage') ?? false;
 
@@ -32,10 +33,10 @@ export function roomsCalendarPage(opts: {
     lead: timeOnDay(b, day),
     label: `${b.is_tentative ? 'Tentative: ' : ''}${b.title}${b.is_private ? ' (private)' : ''}`,
     // With every room shown at once the colour is the only thing separating
-    // them, so it follows the room rather than being decorative.
-    tone: roomId ? 'navy' : (['navy', 'gold', 'green', 'red'] as const)[(b.room_id - 1) % 4],
-    // Unless the booking was given a look of its own when it was made.
-    colour: bookingColour(b.colour),
+    // them, so it follows the room (its calendar colour, set under Admin
+    // Centre > Rooms) — unless the booking was given a look of its own.
+    tone: 'navy',
+    colour: bookingColour(b.colour) ?? (roomId ? null : roomColour.get(b.room_id) ?? null),
     font: bookingFont(b.font),
     title: `${b.room_name}: ${b.title}, ${formatSpan(b.starts_at, b.ends_at)}`
       + (b.is_private ? ' — private: the website shows just "Private booking"' : ''),
@@ -53,7 +54,7 @@ export function roomsCalendarPage(opts: {
       ...ctx,
     },
     html`
-      ${viewTabs('calendar', '/app/rooms', `/app/rooms/calendar?month=${month}${roomId ? `&room=${roomId}` : ''}`)}
+      ${roomTabs('calendar', canBook, `/app/rooms/calendar?month=${month}${roomId ? `&room=${roomId}` : ''}`)}
 
       <div class="pills">
         <a class="pill ${roomId === null ? 'is-on' : ''}"
@@ -79,7 +80,7 @@ export function roomsCalendarPage(opts: {
           ? {
               // The fragment must come last in a URL; monthCalendar appends
               // ?on=DATE, so the anchor is added by the page instead.
-              href: `/app/rooms${roomId ? `?room=${roomId}` : ''}`,
+              href: `/app/rooms/book${roomId ? `?room=${roomId}` : ''}`,
               label: current ? `Book the ${current.name}` : 'Make a booking',
             }
           : undefined,

@@ -12,7 +12,7 @@ import { shiftMonth } from './views/calendar.js';
 
 export async function listRooms(db: D1Database): Promise<RoomRow[]> {
   const { results } = await db
-    .prepare('SELECT id, name, capacity, notes FROM rooms WHERE is_active = 1 ORDER BY sort_order, name')
+    .prepare('SELECT id, name, capacity, notes, colour FROM rooms WHERE is_active = 1 ORDER BY sort_order, name')
     .all<RoomRow>();
   return results;
 }
@@ -458,11 +458,12 @@ export async function loadDiarySettings(db: D1Database): Promise<DiarySettings> 
   return row ?? { is_public: 0, show_titles: 0 };
 }
 
-/** The rooms the website's diary has a tab for: the active ones, by name only. */
-export async function listDiaryRooms(db: D1Database): Promise<{ id: number; name: string }[]> {
+/** The rooms the website's diary has a tab for: the active ones, by name and
+ *  calendar colour only. */
+export async function listDiaryRooms(db: D1Database): Promise<{ id: number; name: string; colour: string | null }[]> {
   const { results } = await db
-    .prepare('SELECT id, name FROM rooms WHERE is_active = 1 ORDER BY sort_order, name')
-    .all<{ id: number; name: string }>();
+    .prepare('SELECT id, name, colour FROM rooms WHERE is_active = 1 ORDER BY sort_order, name')
+    .all<{ id: number; name: string; colour: string | null }>();
   return results;
 }
 

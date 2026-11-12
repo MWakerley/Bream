@@ -3,7 +3,7 @@ import { layout, chip, type Html } from './layout.js';
 import { formatDate, formatSpan } from './rota.js';
 import { monthCalendar, monthHead, monthLabel, type CalendarEntry } from './calendar.js';
 import { daysCovered, timeOnDay } from './rooms.js';
-import type { PublicDiaryRow } from '../rooms.js';
+import { bookingColour, type PublicDiaryRow } from '../rooms.js';
 
 /**
  * The room diary, for the church's website.
@@ -20,7 +20,7 @@ import type { PublicDiaryRow } from '../rooms.js';
  */
 
 export interface DiaryPageOpts {
-  rooms: { id: number; name: string }[];
+  rooms: { id: number; name: string; colour?: string | null }[];
   /** Null means every room at once. */
   roomId: number | null;
   bookings: PublicDiaryRow[];
@@ -110,7 +110,8 @@ export function publicDiaryCalendarPage(o: DiaryPageOpts) {
       // told apart by its words.
       tone: room
         ? (b.is_tentative ? 'gold' as const : 'navy' as const)
-        : (['navy', 'gold', 'green', 'red'] as const)[(b.room_id - 1) % 4],
+        : 'navy' as const,
+      colour: room ? null : bookingColour(o.rooms.find((r) => r.id === b.room_id)?.colour),
       title: `${b.room_name}: ${what}, ${formatSpan(b.starts_at, b.ends_at)}`,
     };
   }));

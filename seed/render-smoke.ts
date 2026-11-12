@@ -13,7 +13,7 @@ import { homePage } from '../src/views/home.js';
 import { signInPage, setupPage } from '../src/views/signin.js';
 import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage,
          keyholdersPage } from '../src/views/settings.js';
-import { gapsPage, readingsPage, rotaDashboard, servicePage, formatDate, formatSpan } from '../src/views/rota.js';
+import { gapsPage, glancePage, readingsPage, rotaDashboard, servicePage, formatDate, formatSpan } from '../src/views/rota.js';
 import { servicesPage } from '../src/views/services.js';
 import { personPage, mergePage } from '../src/views/person.js';
 import { roomsPage, editBookingPage, editSeriesPage, daysCovered, timeOnDay } from '../src/views/rooms.js';
@@ -203,12 +203,12 @@ const critDetail = { ...detail, id: 2, roles: detail.roles.map((r) =>
   r.role_id === 2 ? { ...r, is_critical: 1 } : r) };
 await check('a missing critical role is flagged in red', () => rotaDashboard(
   [service(), service({ id: 2, gaps: ['Service leader', 'Steward'], critical: ['Service leader'] })],
-  CTX, null, new Map([[2, critDetail]])),
+  CTX, null, new Map([[2, critDetail]]), undefined, 'condensed'),
   ['Key roles missing', 'crit-dot', 'svc-critical', 'Still to book: Service leader',
    'also nobody on Steward', 'is-critical', 'nobody yet — critical']);
 await check('every service can open out to show its roster', () => rotaDashboard(
   [service({ id: 1 }), service({ id: 2 })], CTX, null,
-  new Map([[1, detail], [2, { ...detail, id: 2 }]])),
+  new Map([[1, detail], [2, { ...detail, id: 2 }]]), undefined, 'condensed'),
   ['<details class="svc-more">', 'Who is on what', 'Prayer ministry', 'Don, Christine']);
 // After Apply: what went on, and what was left alone because somebody had
 // booked it by hand while the draft was open. Said where the person lands.
@@ -228,6 +228,36 @@ await check('one of two is short-handed, not unfilled', () => rotaDashboard(
   ['Short-handed', 'Reader 1 of 2', 'svc-under'],
   ['unfilled', 'with nobody', 'nobody at all']);
 await check('rota dashboard (empty)', () => rotaDashboard([], CTX, null), ['No upcoming services']);
+
+// November 2026 tidy-up: actions at the top, a tab per month, every service as
+// an open card by default, and none of the banners — Unfilled roles has those.
+{
+  const later = { ...detail, id: 3, service_date: '2027-01-10' };
+  const svcs = [service(), service({ id: 2, gaps: ['Service leader'], critical: ['Service leader'] }),
+    service({ id: 3, service_date: '2027-01-10' })];
+  const full = () => rotaDashboard(svcs, CTX, detail,
+    new Map([[1, detail], [2, { ...critDetail, id: 2 }], [3, later]]));
+  await check('the rota opens every service as a full card, under month tabs', full,
+    ['href="#month-2027-01"', 'id="month-2027-01"', 'January 2027', 'next-up-later',
+     'Sun 10 Jan 2027 at 15:00', 'Jump to', '?view=condensed'],
+    ['<details class="svc-more">', 'Key roles are missing', 'have roles with nobody',
+     'Generate a whole draft', 'has its required roles filled']);
+  await check('with the buttons above everything else', async () => {
+    const out = String(await full());
+    return out.indexOf('Add a service') < out.indexOf('Next service')
+      && out.indexOf('Unfilled roles') < out.indexOf('Next service') ? 'in order' : 'out of order';
+  }, ['in order']);
+  await check('and the condensed list is still there to choose', () => rotaDashboard(svcs, CTX, detail,
+    new Map([[1, detail], [3, later]]), undefined, 'condensed'),
+  ['<details class="svc-more">', 'svc-list', 'href="#month-2027-01"', 'class="is-on" href="/app/rota?view=condensed"']);
+  await check('a volunteer is not shown buttons that would refuse them', () => rotaDashboard(svcs,
+    { ...CTX, path: '/app/rota', areas: VOLUNTEER_AREAS }, detail),
+  ['Unfilled roles'], ['People who cannot make it', 'href="/app/rota/readings"']);
+  await check('at a glance: preachers and leaders first, then the whole spreadsheet', () => glancePage(
+    [detail, later], roles.map((r) => ({ id: r.id, name: r.name })), CTX),
+  ['The next 2 services', 'At a glance', 'glance-card', 'Every service', 'table-scroll matrix',
+   'January 2027', 'roles still to fill', 'href="/app/rota/service/3"']);
+}
 await check('gaps', () => gapsPage([service({ gaps: ['Steward', 'Computer'] })], CTX),
   ['Steward, Computer', 'Nobody on it']);
 await check('gaps (none)', () => gapsPage([service()], CTX),
@@ -472,7 +502,24 @@ const BOOKING = {
 await check('rooms', () => roomsPage({
   rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18',
   notice: { tone: 'ok', text: 'Booked: Home group.' },
-}), ['Church Centre', 'Home group', '19:00–21:00', 'Book this room', 'Cancel']);
+}), ['Church Centre', 'Home group', '19:00–21:00', 'Cancel'], ['Book this room', 'Repeating bookings</h2>']);
+// November 2026: booking and repeating bookings are tabs of their own, and the
+// List opens on what is booked.
+await check('rooms: the List opens on what is booked, with tabs for the rest', async () => {
+  const out = String(await roomsPage({ rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18' }));
+  return out.indexOf('What is booked') < out.indexOf('The rooms') ? out : 'out of order';
+}, ['href="/app/rooms/book"', '>Make a booking</a>', 'href="/app/rooms/repeating"', '>Repeating bookings</a>',
+    'tab is-on" href="/app/rooms"']);
+await check('rooms: the Make a booking tab is the form alone', () => roomsPage({
+  rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18', tab: 'book',
+}), ['Book this room', 'tab is-on" href="/app/rooms/book"'], ['What is booked', 'Every Monday']);
+await check('rooms: the Repeating bookings tab lists the series', () => roomsPage({
+  rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18', tab: 'repeating',
+}), ['Every Monday', 'Change or cancel'], ['Book this room', 'What is booked']);
+await check('rooms: no Make a booking tab without "Book rooms", and no way round it', () => roomsPage({
+  rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: { ...CTX, areas: VOLUNTEER_AREAS },
+  weekFrom: '2026-11-18', tab: 'book',
+}), ['What is booked', 'Repeating bookings'], ['Make a booking', 'Book this room']);
 await check('rooms (nothing booked)', () => roomsPage({
   rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
 }), ['Nothing booked in this period']);
@@ -491,7 +538,7 @@ const TICK = ['name="is_private" value="1"', '<span class="check-label">Private 
 const TICKED = 'name="is_private" value="1" checked';
 const PRIV_BOOKING = { ...BOOKING, title: 'Counselling', is_private: 1 };
 await check('the new-booking form has the private tick, clear to start with', () => roomsPage({
-  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
+  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18', tab: 'book',
 }), [...TICK, 'For a repeating booking, every date it books.'], [TICKED]);
 await check('and a booking refused for a clash comes back still ticked', () => roomsPage({
   rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
@@ -528,7 +575,7 @@ await check('the room calendar says "(private)" after a private booking', () => 
 // A booking's own colour and lettering: chosen on every booking form, drawn on
 // the room calendar, and winning over the room's colour on "All rooms".
 await check('the new-booking form offers the palette, set to usual', () => roomsPage({
-  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18',
+  rooms: ROOMS, bookings: [], series: [], ctx: CTX, weekFrom: '2026-11-18', tab: 'book',
 }), ['How it looks on the calendar', 'name="colour" value="" checked', 'name="colour" value="teal"',
      'class="swatch cal-c-purple"', 'name="font"', '<option value="caps"', 'booking-sample']);
 await check('and a refused booking comes back with its look kept', () => roomsPage({
@@ -545,11 +592,16 @@ await check('one week of a series says how far its look reaches', () => editBook
 await check('a series page offers the look for every week', () => editSeriesPage({
   series: { ...SERIES[0]!, colour: 'orange', font: null }, rooms: ROOMS, ctx: CTX,
 }), ['name="colour" value="orange" checked', 'Every week of it, including any changed on its own.']);
-await check('the room calendar draws a booking in its own colour and lettering', () => roomsCalendarPage({
-  rooms: ROOMS, roomId: null,
+await check('the room calendar draws a booking in its own colour, else its room colour', () => roomsCalendarPage({
+  rooms: ROOMS.map((r) => ({ ...r, colour: 'teal' })), roomId: null,
   bookings: [{ ...BOOKING, colour: 'purple', font: 'caps' }, { ...BOOKING, id: 2, title: 'Choir', colour: 'nonsense' }],
   counts: new Map(), month: '2026-11', ctx: CTX,
-}), ['class="cal-item cal-c-purple cal-f-caps"', 'class="cal-item cal-gold"'], ['cal-c-nonsense']);
+}), ['class="cal-item cal-c-purple cal-f-caps"', 'class="cal-item cal-c-teal"'], ['cal-c-nonsense']);
+await check('admin centre rooms: a calendar colour where the note was', () => roomSettingsPage({
+  rooms: [{ id: 1, name: 'Church', capacity: 200, notes: 'Main building', colour: 'gold', sort_order: 10,
+    is_active: 1, upcoming: 3, total: 9 }], ctx: CTX,
+}), ['<th>Calendar colour</th>', 'name="colour_1"', '<option value="gold" selected>', 'room-swatch cal-c-gold',
+  'id="new_colour"', '<option value="navy" selected>'], ['<th>Note</th>', 'name="notes_1"']);
 
 // ---- events --------------------------------------------------------------
 const EVENT = {

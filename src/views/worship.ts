@@ -30,9 +30,9 @@ export function worshipPage(opts: {
 
   return layout(
     {
-      title: 'Worship',
+      title: 'Worship Rota',
       eyebrow: 'Rota',
-      heading: 'Worship',
+      heading: 'Worship Rota',
       intro: 'Who is playing and singing each week. This is the worship team\'s own list — '
         + 'nothing here is compulsory, and a week with nobody down yet is perfectly normal.',
       back: { href: '/app/rota', label: 'The rota' },

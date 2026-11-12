@@ -40,7 +40,8 @@ import { draftRulesPage } from './views/draftrules.js';
 import { worshipPage } from './views/worship.js';
 import { recentActivity } from './activity.js';
 import { listWorshipSundays, saveWorshipPlan, POSITIONS } from './worship.js';
-import { gapsPage, readingsPage, rotaDashboard, servicePage } from './views/rota.js';
+import { gapsPage, glancePage, readingsPage, rotaDashboard, servicePage, type RotaLayout } from './views/rota.js';
+import { getCookie, setCookie } from 'hono/cookie';
 import { servicesPage, type ServiceListRow, type ServiceTypeOption } from './views/services.js';
 import { generateFormPage, previewPage, draftServiceEditPage } from './views/generate.js';
 import { buildDraftView, derive, editService, editableSlots, type DraftCandidate,
@@ -52,7 +53,7 @@ import { noAccessPage } from './views/noaccess.js';
 import { AREA_KEYS, areaForPath, areasForPerson, listProfiles, mayAccess,
          suggestUsername, temporaryPassword } from './access.js';
 import { readUnitPair, readWhen } from './frequency.js';
-import { roomsPage, editBookingPage, editSeriesPage, clashNotice } from './views/rooms.js';
+import { roomsPage, editBookingPage, editSeriesPage, clashNotice, type RoomsTab } from './views/rooms.js';
 import { roomSettingsPage, type RoomSettingRow } from './views/roomsettings.js';
 import { listRooms, listBookings, getBooking, findClashes, readBooking, instants,
          listSeries, planSeries, getSeries, applySeriesEdit, type BookingInput,
@@ -1554,6 +1555,16 @@ app.post('/app/settings/pairs/new', async (c) => {
 // ---------------------------------------------------------------------------
 
 app.get('/app/rota', async (c) => {
+  // Full cards or the condensed list. Chosen with ?view= and remembered, so the
+  // page opens the way each person last left it.
+  const asked = c.req.query('view');
+  let mode: RotaLayout = getCookie(c, 'rota_view') === 'condensed' ? 'condensed' : 'full';
+  if (asked === 'full' || asked === 'condensed') {
+    mode = asked;
+    setCookie(c, 'rota_view', mode, {
+      path: '/app/rota', maxAge: 60 * 60 * 24 * 365, httpOnly: true, secure: true, sameSite: 'Lax',
+    });
+  }
   const services = await listUpcomingServices(c.env.DB);
   // Every service in full: the first is shown open at the top, and each of the
   // rest can be opened out to the same view. One batch, however many there are.
@@ -1572,7 +1583,17 @@ app.get('/app/rota', async (c) => {
         text: appliedNotice(count('applied'), count('kept'), count('dropped')),
       }
     : undefined;
-  return c.html(rotaDashboard(services, viewCtx(c), next, details, notice));
+  return c.html(rotaDashboard(services, viewCtx(c), next, details, notice, mode));
+});
+
+/** Every upcoming service as one table, like the spreadsheet, with who is
+ *  preaching and leading over the next few weeks above it. */
+app.get('/app/rota/glance', async (c) => {
+  const services = await listUpcomingServices(c.env.DB);
+  const [details, roles] = await Promise.all([
+    getServiceDetails(c.env.DB, services.map((s) => s.id)), listRoles(c.env.DB),
+  ]);
+  return c.html(glancePage(details, roles, viewCtx(c)));
 });
 
 /**
@@ -2451,6 +2472,9 @@ async function roomsView(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   notice?: { tone: 'ok' | 'bad'; text: string },
   form?: Record<string, string>,
+  /** Which tab. A form being handed back (a clash, a mistake) is always the
+   *  booking tab, so what was typed is there to fix. */
+  tab: RoomsTab = form ? 'book' : 'list',
 ) {
   // An emptied or mistyped date box sends ?from= with nothing usable in it,
   // which used to reach new Date(NaN) and fail the whole page.
@@ -2463,10 +2487,14 @@ async function roomsView(
     listSeries(c.env.DB),
     listPendingRequests(c.env.DB),
   ]);
-  return c.html(roomsPage({ rooms, bookings, series, requests, ctx: viewCtx(c), weekFrom, notice, form }));
+  return c.html(roomsPage({ rooms, bookings, series, requests, ctx: viewCtx(c), weekFrom, notice, form, tab }));
 }
 
-app.get('/app/rooms', (c) => {
+app.get('/app/rooms', (c) => roomsView(c));
+
+app.get('/app/rooms/repeating', (c) => roomsView(c, undefined, undefined, 'repeating'));
+
+app.get('/app/rooms/book', (c) => {
   // Arriving from a day in the calendar: ?on=YYYY-MM-DD&room=N. Both are
   // prefilled rather than assumed, so the form still shows what it is about to
   // do and can still be changed before anything is saved.
@@ -2481,6 +2509,7 @@ app.get('/app/rooms', (c) => {
       ? { tone: 'ok', text: `Making a booking for ${formatDate(prefill.on_date)}. Fill in the rest below.` }
       : undefined,
     Object.keys(prefill).length ? prefill : undefined,
+    'book',
   );
 });
 
@@ -2972,7 +3001,7 @@ async function roomSettingsView(
 ) {
   const today = new Date().toISOString().slice(0, 10);
   const { results } = await c.env.DB.prepare(
-    `SELECT r.id, r.name, r.capacity, r.notes, r.sort_order, r.is_active,
+    `SELECT r.id, r.name, r.capacity, r.notes, r.colour, r.sort_order, r.is_active,
             (SELECT COUNT(*) FROM room_bookings b
               WHERE b.room_id = r.id AND b.status = 'booked') AS total,
             (SELECT COUNT(*) FROM room_bookings b
@@ -3004,10 +3033,12 @@ app.post('/app/settings/rooms', async (c) => {
 
     const cap = Number(form.get(`capacity_${r.id}`));
     stmts.push(c.env.DB.prepare(
-      'UPDATE rooms SET name = ?2, capacity = ?3, notes = ?4, is_active = ?5 WHERE id = ?1',
+      // The note is no longer on this table (its column became the calendar
+      // colour), so it is left exactly as it was rather than blanked.
+      'UPDATE rooms SET name = ?2, capacity = ?3, colour = ?4, is_active = ?5 WHERE id = ?1',
     ).bind(r.id, name,
       Number.isInteger(cap) && cap > 0 ? cap : null,
-      String(form.get(`notes_${r.id}`) ?? '').trim() || null,
+      bookingColour(form.get(`colour_${r.id}`)),
       form.get(`active_${r.id}`) ? 1 : 0));
   }
 
@@ -3037,11 +3068,12 @@ app.post('/app/settings/rooms/new', async (c) => {
 
   try {
     await c.env.DB.prepare(
-      'INSERT INTO rooms (name, capacity, notes, sort_order) VALUES (?1, ?2, ?3, ?4)',
+      'INSERT INTO rooms (name, capacity, notes, sort_order, colour) VALUES (?1, ?2, ?3, ?4, ?5)',
     ).bind(name,
       Number.isInteger(cap) && cap > 0 ? cap : null,
       String(form.get('notes') ?? '').trim() || null,
-      (maxOrder?.m ?? 0) + 10).run();
+      (maxOrder?.m ?? 0) + 10,
+      bookingColour(form.get('colour'))).run();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return roomSettingsView(c, {

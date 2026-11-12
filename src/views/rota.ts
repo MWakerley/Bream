@@ -206,15 +206,15 @@ function roster(s: ServiceDetail) {
  * here, including the roles nobody is on, because an empty slot is the part
  * worth seeing.
  */
-function nextServiceCard(next: ServiceDetail) {
+function nextServiceCard(next: ServiceDetail, isNext = true) {
   const below = next.roles.filter((r) => r.people.length < r.min_needed);
   const critical = below.filter((r) => r.is_critical);
   return html`
-    <section class="next-up">
+    <section class="next-up${isNext ? '' : ' next-up-later'}">
       <div class="next-up-head">
         <div>
-          <p class="next-up-when">Next service · ${formatDate(next.service_date)} at ${next.service_time}</p>
-          <h2 class="next-up-title">${next.title ?? 'Worship'}</h2>
+          <p class="next-up-when">${isNext ? 'Next service · ' : ''}${formatDate(next.service_date)} at ${next.service_time}</p>
+          <h3 class="next-up-title">${next.title ?? 'Worship'}</h3>
           ${next.location ? html`<p class="next-up-where">${next.location}</p>` : ''}
         </div>
         <div class="next-up-status">
@@ -234,6 +234,30 @@ function nextServiceCard(next: ServiceDetail) {
     </section>`;
 }
 
+/** How the rota page lays out the services after the next one. */
+export type RotaLayout = 'full' | 'condensed';
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+const monthKey = (iso: string) => iso.slice(0, 7);
+const monthLabel = (key: string, short = false) => {
+  const [y, m] = key.split('-').map(Number);
+  const name = MONTH_NAMES[(m ?? 1) - 1] ?? '';
+  return `${short ? name.slice(0, 3) : name} ${y}`;
+};
+
+/** Services in date order, cut into months. */
+function byMonth<T extends { service_date: string }>(list: T[]): { key: string; items: T[] }[] {
+  const out: { key: string; items: T[] }[] = [];
+  for (const s of list) {
+    const key = monthKey(s.service_date);
+    const last = out[out.length - 1];
+    if (last && last.key === key) last.items.push(s);
+    else out.push({ key, items: [s] });
+  }
+  return out;
+}
+
 export function rotaDashboard(
   services: ServiceSummary[],
   ctx: ViewCtx,
@@ -242,16 +266,46 @@ export function rotaDashboard(
   details?: Map<number, ServiceDetail>,
   /** What a draft just applied did, including anything it left alone. */
   notice?: { tone: 'ok' | 'warn'; text: string },
+  /** Every service as an open card (the default), or the compact list. */
+  mode: RotaLayout = 'full',
 ) {
-  const withCritical = services.filter((s) => (s.critical ?? []).length);
-  const withGaps = services.filter((s) => s.gaps.length);
-  // Short-handed but with nobody actually missing. Kept apart from withGaps so
-  // the headline number means one thing only: services needing somebody found.
-  const underOnly = services.filter((s) => !s.gaps.length && s.under.length);
+  // The next service is always the open card at the top; the months below
+  // hold everything after it.
+  const rest = next ? services.filter((s) => s.id !== next.id) : services;
+  const months = byMonth(rest);
+  // Filtered as the menu is: a button that leads to a refusal is a trap.
+  const may = (area: string) => !ctx.areas || ctx.areas.has(area);
+  const here = (m: RotaLayout) => (m === mode ? 'is-on' : '');
+
   return layout(
     { title: 'The rota', back: BACK, ...ctx },
     html`
       ${viewTabs('list', '/app/rota', '/app/rota/calendar')}
+
+      <div class="btn-row rota-actions">
+        <a class="btn-primary" href="/app/settings/services#add-one">Add a service</a>
+        <a class="btn-secondary" href="/app/rota/gaps">Unfilled roles</a>
+        ${may('rota.manage') ? html`
+          <a class="btn-secondary" href="/app/rota/requests">People who cannot make it</a>
+          <a class="btn-secondary" href="/app/rota/readings">Readings</a>` : ''}
+        <span class="rota-downloads">
+          <a class="btn-quiet" href="/app/rota/export.pdf">Download PDF</a>
+          <a class="btn-quiet" href="/app/rota/export.xlsx">Download for Excel</a>
+        </span>
+      </div>
+
+      ${months.length
+        ? html`<nav class="month-jump" aria-label="Jump to a month">
+            <span class="month-jump-label">Jump to</span>
+            ${months.map((m) => html`<a class="month-tab" href="#month-${m.key}">${monthLabel(m.key, true)}</a>`)}
+            <span class="layout-switch" role="group" aria-label="Layout">
+              <a class="${here('full')}" href="/app/rota?view=full"
+                 aria-current="${mode === 'full' ? 'true' : 'false'}">Full</a>
+              <a class="${here('condensed')}" href="/app/rota?view=condensed"
+                 aria-current="${mode === 'condensed' ? 'true' : 'false'}">Condensed</a>
+            </span>
+          </nav>`
+        : ''}
 
       ${notice
         ? html`<div class="notice notice-${notice.tone}" role="status"><p style="margin:0">${notice.text}</p></div>`
@@ -259,63 +313,107 @@ export function rotaDashboard(
 
       ${next ? nextServiceCard(next) : ''}
 
-      <p class="page-intro">Everything coming up. Click a date to see who is on what.</p>
-
-      <div class="btn-row" style="margin-bottom:1.5rem">
-        <a class="btn-primary" href="/app/settings/services#add-one">Add a service</a>
-        <a class="btn-secondary" href="/app/rota/gaps">Unfilled roles</a>
-        <a class="btn-secondary" href="/app/rota/requests">People who cannot make it</a>
-        <a class="btn-secondary" href="/app/rota/readings">Readings</a>
-        <a class="btn-secondary" href="/app/settings/generate">Generate a whole draft</a>
-      </div>
-
-      <div class="btn-row" style="margin:-.75rem 0 1.5rem">
-        <span style="color:var(--ink-2);align-self:center">Every future service, to send or print:</span>
-        <a class="btn-quiet" href="/app/rota/export.pdf">Download PDF</a>
-        <a class="btn-quiet" href="/app/rota/export.xlsx">Download for Excel</a>
-      </div>
-
-      ${withCritical.length
-        ? html`<div class="notice notice-bad" role="alert">
-            <p style="margin:0">
-              <span class="crit-dot" aria-hidden="true"></span>
-              <strong>Key roles are missing.</strong>
-              ${withCritical.length} of the next ${services.length} services
-              ${withCritical.length === 1 ? 'is' : 'are'} missing a role marked critical to the
-              service: ${withCritical.map((s) => `${formatDate(s.service_date)} (${(s.critical ?? []).join(', ')})`).join('; ')}.
-            </p>
-          </div>`
-        : ''}
-
-      ${withGaps.length
-        ? html`<div class="notice notice-warn" role="status">
-            <p style="margin:0">
-              <strong>${withGaps.length}</strong> of the next ${services.length} services
-              ${withGaps.length === 1 ? 'has a role' : 'have roles'} with nobody at all on it.
-              <a href="/app/rota/gaps">See just those</a>.
-            </p>
-          </div>`
-        : underOnly.length
-          ? html`<div class="notice notice-warn" role="status">
-              <p style="margin:0">
-                Every role on every upcoming service has somebody on it.
-                <strong>${underOnly.length}</strong>
-                ${underOnly.length === 1 ? 'service is' : 'services are'} short-handed —
-                fewer people than you would like, but nobody missing.
-                <a href="/app/rota/gaps">See which</a>.
-              </p>
-            </div>`
-          : services.length
-            ? html`<div class="notice notice-ok"><p style="margin:0">Every upcoming service has its required roles filled.</p></div>`
-            : ''}
-
       ${services.length === 0
         ? html`<div class="card"><p style="margin:0">
             No upcoming services yet.
             <a href="/app/settings/services#add-one">Add one</a>, or
             <a href="/app/settings/services">set up the Sunday pattern</a>.
           </p></div>`
-        : html`<ul class="svc-list">${services.map((s) => serviceCard(s, details?.get(s.id)))}</ul>`}
+        : months.map((m) => html`
+            <h2 class="section-h2 month-h" id="month-${m.key}">${monthLabel(m.key)}</h2>
+            ${mode === 'full'
+              ? m.items.map((s) => {
+                  const d = details?.get(s.id);
+                  return d ? nextServiceCard(d, false) : html`<ul class="svc-list">${serviceCard(s)}</ul>`;
+                })
+              : html`<ul class="svc-list">${m.items.map((s) => serviceCard(s, details?.get(s.id)))}</ul>`}`)}
+    `,
+  );
+}
+
+/**
+ * At a glance: the rota as the church's spreadsheet always showed it — a row
+ * per service, a column per role — with a short summary above of who is
+ * preaching and leading over the next few weeks.
+ */
+export function glancePage(
+  services: ServiceDetail[],
+  roles: { id: number; name: string }[],
+  ctx: ViewCtx,
+) {
+  // Only roles some service in the range actually has.
+  const used = roles.filter((r) => services.some((s) => s.roles.some((x) => x.role_id === r.id)));
+  // The roles that say who is running the service: preaching and leading.
+  const headline = used.filter((r) => /preach|lead/i.test(r.name));
+  const soon = services.slice(0, 6);
+  const names = (s: ServiceDetail, roleId: number) => {
+    const here = s.roles.find((x) => x.role_id === roleId);
+    if (!here) return null;
+    return here.people.map((p) => p.display_name);
+  };
+  const cell = (s: ServiceDetail, roleId: number, key: boolean) => {
+    const who = names(s, roleId);
+    if (who === null) return html`<td class="g-na">—</td>`;
+    if (!who.length) return html`<td class="g-empty">—</td>`;
+    return html`<td class="${key ? 'g-key' : ''}">${who.map((n, i) => html`${i ? html`<br>` : ''}${n}`)}</td>`;
+  };
+  const full = services.filter((s) => s.roles.every((r) => r.people.length >= r.min_needed)).length;
+  const openRoles = services.reduce((n, s) => n + s.roles.filter((r) => r.people.length === 0).length, 0);
+
+  return layout(
+    { title: 'At a glance', back: { href: '/app/rota', label: 'The rota' }, ...ctx },
+    html`
+      ${services.length === 0
+        ? html`<div class="card"><p style="margin:0">No upcoming services yet.</p></div>`
+        : html`
+          <div class="glance-stats">
+            <div class="glance-stat"><span class="glance-n">${services.length}</span>
+              <span class="glance-l">services to ${formatDate(services[services.length - 1]!.service_date)}</span></div>
+            <div class="glance-stat"><span class="glance-n">${full}</span>
+              <span class="glance-l">fully staffed</span></div>
+            <div class="glance-stat"><span class="glance-n">${openRoles}</span>
+              <span class="glance-l"><a href="/app/rota/gaps">roles still to fill</a></span></div>
+          </div>
+
+          <h2 class="section-h2">The next ${soon.length === 1 ? 'service' : `${soon.length} services`}</h2>
+          <div class="glance-soon">
+            ${soon.map((s) => html`<a class="glance-card" href="/app/rota/service/${s.id}">
+              <span class="glance-when">${formatDate(s.service_date)} · ${s.service_time}</span>
+              <span class="glance-title">${s.title ?? 'Worship'}</span>
+              ${s.sermon_title ? html`<span class="glance-sermon">${s.sermon_title}</span>` : ''}
+              <dl class="glance-who">
+                ${headline.map((r) => {
+                  const who = names(s, r.id);
+                  if (who === null) return '';
+                  return html`<dt>${r.name}</dt>
+                    <dd class="${who.length ? '' : 'is-empty'}">${who.length ? who.join(', ') : 'nobody yet'}</dd>`;
+                })}
+              </dl>
+            </a>`)}
+          </div>
+
+          <h2 class="section-h2">Every service</h2>
+          <div class="table-scroll matrix glance-grid">
+            <table class="grid">
+              <thead><tr>
+                <th>Date</th>
+                ${used.map((r) => html`<th class="${headline.includes(r) ? 'g-head' : ''}">${r.name}</th>`)}
+              </tr></thead>
+              <tbody>
+                ${byMonth(services).map((m) => html`
+                  <tr class="g-month"><th scope="rowgroup" colspan="${used.length + 1}">${monthLabel(m.key)}</th></tr>
+                  ${m.items.map((s) => html`<tr>
+                    <th scope="row">
+                      <a href="/app/rota/service/${s.id}">${formatDate(s.service_date).replace(/ \d{4}$/, '')}</a>
+                      <span class="g-time">${s.service_time}${s.title && s.title !== 'Worship' ? ` · ${s.title}` : ''}</span>
+                    </th>
+                    ${used.map((r) => cell(s, r.id, headline.includes(r)))}
+                  </tr>`)}`)}
+              </tbody>
+            </table>
+          </div>
+          <p class="hint" style="margin-top:.75rem">A dash in grey means the role is not needed at
+            that service. A dash on red means nobody is on it yet.</p>`}
     `,
   );
 }
