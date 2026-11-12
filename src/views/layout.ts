@@ -1,4 +1,4 @@
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 
 /**
@@ -8,7 +8,11 @@ import type { HtmlEscapedString } from 'hono/utils/html';
  */
 export type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
-export interface NavItem { href: string; label: string; match?: string; area?: string }
+export interface NavItem {
+  href: string; label: string; match?: string; area?: string;
+  /** A small icon before the label, to make an item stand out. */
+  icon?: IconName;
+}
 
 /** What every page needs to draw the chrome: who is signed in, whether Settings
  *  belongs in the menu, and which item is current. Threaded through each view
@@ -54,7 +58,7 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
       { href: '/app/rota', label: 'The rota', match: '^/app/rota$', area: 'rota' },
       { href: '/app/rota/glance', label: 'At a glance', match: '^/app/rota/glance', area: 'rota' },
       { href: '/app/rota/calendar', label: 'Calendar', match: '^/app/rota/calendar', area: 'rota' },
-      { href: '/app/rota/worship', label: 'Worship Rota', match: '^/app/rota/worship', area: 'rota' },
+      { href: '/app/rota/worship', label: 'Worship Rota', match: '^/app/rota/worship', area: 'rota', icon: 'music' },
       { href: '/app/rota/readings', label: 'Readings and sermons', match: '^/app/rota/readings', area: 'rota.manage' },
       { href: '/app/rota/requests', label: 'Change requests', match: '^/app/rota/requests', area: 'rota.manage' },
     ],
@@ -77,13 +81,13 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
   {
     prefix: '/app/settings',
     items: [
-      // In the same order as the groups on the overview: people, the rota,
-      // rooms, newsletter.
+      // In the same order as the groups on the overview: people, regulation,
+      // the rota, rooms, newsletter.
       { href: '/app/settings', label: 'Overview', match: '^/app/settings$', area: 'settings' },
       { href: '/app/settings/people', label: 'People', match: '^/app/settings/people', area: 'settings' },
       { href: '/app/settings/profiles', label: 'What people can see', match: '^/app/settings/profiles', area: 'settings' },
-      { href: '/app/settings/keyholders', label: 'Keyholders', match: '^/app/settings/keyholders', area: 'settings' },
-      { href: '/app/settings/safeguarding', label: 'Safeguarding', match: '^/app/settings/safeguarding', area: 'settings' },
+      { href: '/app/settings/keyholders', label: 'Keyholders', match: '^/app/settings/keyholders', area: 'regulation' },
+      { href: '/app/settings/safeguarding', label: 'Safeguarding', match: '^/app/settings/safeguarding', area: 'regulation' },
       { href: '/app/settings/generate', label: 'Generate a rota', match: '^/app/settings/generate', area: 'rota.manage' },
       { href: '/app/settings/services', label: 'Services', match: '^/app/settings/services', area: 'settings' },
       { href: '/app/settings/roles', label: 'Roles', match: '^/app/settings/roles', area: 'settings' },
@@ -201,7 +205,8 @@ export function layout(o: LayoutOptions, body: Html) {
   const navLink = (i: NavItem) => {
     const active = isActive(i);
     return html`<a href="${i.href}" class="${active ? 'is-active' : ''}"
-                       ${active ? html`aria-current="page"` : ''}>${i.label}</a>`;
+                       ${active ? html`aria-current="page"` : ''}>${i.icon
+      ? html`<span class="nav-icon">${raw(icon(i.icon, 15))}</span>` : ''}${i.label}</a>`;
   };
 
   return html`<!doctype html>
@@ -335,6 +340,7 @@ const ICON_PATHS = {
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
   house: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
   ticket: '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
   myDates: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><circle cx="12" cy="15" r="2"/><path d="M8.5 21a3.5 3.5 0 0 1 7 0"/>',
   cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',

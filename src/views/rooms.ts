@@ -173,14 +173,20 @@ export type RoomsTab = 'list' | 'book' | 'repeating';
  * server checks before saving one — so nobody is shown a form that refuses them.
  */
 export function roomTabs(current: RoomsTab | 'calendar', canBook: boolean, calendarHref = '/app/rooms/calendar') {
-  const tab = (key: RoomsTab | 'calendar', href: string, label: string) => html`<a
-    class="tab ${current === key ? 'is-on' : ''}" href="${href}" role="tab"
+  const tab = (key: RoomsTab | 'calendar', href: string, label: string, cls = '') => html`<a
+    class="tab ${cls} ${current === key ? 'is-on' : ''}" href="${href}" role="tab"
     aria-selected="${current === key ? 'true' : 'false'}">${label}</a>`;
-  return html`<div class="tabs" role="tablist">
-    ${tab('list', '/app/rooms', 'List')}
-    ${tab('calendar', calendarHref, 'Calendar')}
-    ${canBook ? tab('book', '/app/rooms/book', 'Make a booking') : ''}
-    ${tab('repeating', '/app/rooms/repeating', 'Repeating bookings')}
+  // The two things people come here to do — see what is booked, and book —
+  // side by side and prominent; the other two views quieter, to the right.
+  return html`<div class="tabs room-tabs" role="tablist">
+    <span class="room-tabs-main">
+      ${tab('list', '/app/rooms', 'List', 'tab-main')}
+      ${canBook ? tab('book', '/app/rooms/book', '+ Make a booking', 'tab-main tab-book') : ''}
+    </span>
+    <span class="room-tabs-more">
+      ${tab('calendar', calendarHref, 'Calendar', 'tab-quiet')}
+      ${tab('repeating', '/app/rooms/repeating', 'Repeating bookings', 'tab-quiet')}
+    </span>
   </div>`;
 }
 

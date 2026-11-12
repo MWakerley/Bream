@@ -18,12 +18,17 @@ const SETTINGS = { href: '/app/settings', label: 'Admin Centre' };
 interface Section { href: string; label: string; note: string; icon: IconName; area?: string }
 export const SETTINGS_GROUPS: { title: string; note: string; icon: IconName; items: Section[] }[] = [
   {
-    title: 'People', icon: 'people', note: 'Who is here, what they can open, and what they hold.',
+    title: 'People', icon: 'people', note: 'Who is here, and what they can open.',
     items: [
       { href: '/app/settings/people', label: 'People', icon: 'people', note: 'Everyone on the roster: what each can do, how often, and finding somebody.' },
       { href: '/app/settings/profiles', label: 'What people can see', icon: 'eye', note: 'Profiles, and which areas each one opens — including who can book rooms.' },
-      { href: '/app/settings/keyholders', label: 'Keyholders', icon: 'key', note: 'The register of who holds which keys — the buildings and the safe.' },
-      { href: '/app/settings/safeguarding', label: 'Safeguarding', icon: 'shield', note: 'Which courses each safeguarding role needs.' },
+    ],
+  },
+  {
+    title: 'Regulation', icon: 'shield', note: 'Keys and safeguarding — seen only by profiles given Regulation.',
+    items: [
+      { href: '/app/settings/keyholders', label: 'Keyholders', icon: 'key', area: 'regulation', note: 'The register of who holds which keys — the buildings and the safe.' },
+      { href: '/app/settings/safeguarding', label: 'Safeguarding', icon: 'shield', area: 'regulation', note: 'Which courses each safeguarding role needs, and who has done them.' },
     ],
   },
   {

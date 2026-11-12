@@ -341,6 +341,15 @@ await check('the admin centre is sorted into groups, every card with an icon', a
 await check('and a card is offered only to somebody it would let in', () => settingsHomePage(
   { ...CTX, areas: new Set(['settings']) }),
 ['/app/settings/people', '/app/settings/combinations'], ['/app/settings/generate', '/app/rooms/booking-form']);
+// Regulation: its own group after People, offered only to a profile with it.
+await check('regulation is a group of its own, after People', async () => {
+  const out = String(await settingsHomePage({ ...CTX, areas: new Set([...ADMIN_AREAS, 'regulation']) }));
+  const order = ['>People<span', '>Regulation<span', '>The rota<span'].map((t) => out.indexOf(t));
+  return order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1]!)) ? out : 'out of order ' + order.join(',');
+}, ['/app/settings/keyholders', '/app/settings/safeguarding']);
+await check('and an administrator without Regulation is not offered it', () => settingsHomePage({ ...CTX, areas: ADMIN_AREAS }),
+  ['/app/settings/people'], ['>Regulation<span', '/app/settings/keyholders', '/app/settings/safeguarding']);
+
 // The two website links, kept on Settings too, so they are found again later.
 const DIARY_LINKS = { calendarLink: 'https://x.test/rooms/calendar', listLink: 'https://x.test/rooms/list' };
 await check('settings keeps the two room diary links in a box', () => settingsHomePage(CTX, { ...DIARY_LINKS, showing: true }),
@@ -393,6 +402,16 @@ await check('a keyholder is ticked on their record', () => personPage({
 }), ['name="is_keyholder" value="1" checked', 'icon-key', 'keyholder register', 'Which keys',
      'value="centre" checked', 'Church Office', 'value="safe"', 'Safe', 'Not known'],
   ['id="keyholder-note" hidden']);
+await check('and hidden from somebody without Regulation', () => personPage({
+  person: {
+    id: 7, display_name: 'Sue', full_name: null, email: null, needs_review: 0, review_note: null,
+    is_active: 1, is_admin: 0, on_break: 0, on_break_since: null, is_guest: 0,
+    is_keyholder: 1, keyholder_since: '2026-09-01 09:00:00', keyholder_note: null,
+    keyholder_keys: '["centre"]',
+    settings: new Map(),
+  },
+  roles, ctx: { ...CTX, areas: ADMIN_AREAS },
+}), ['name="is_guest"'], ['name="is_keyholder"', 'Which keys', 'keyholder register']);
 // ---- safeguarding ----------------------------------------------------------
 const SG_GRID = {
   roles: [{ id: 1, name: 'PCC member' }, { id: 2, name: 'Churchwarden' }, { id: 4, name: 'Working with children or vulnerable adults' }],
@@ -534,11 +553,11 @@ await check('rooms', () => roomsPage({
 await check('rooms: the List opens on what is booked, with tabs for the rest', async () => {
   const out = String(await roomsPage({ rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18' }));
   return out.indexOf('What is booked') < out.indexOf('The rooms') ? out : 'out of order';
-}, ['href="/app/rooms/book"', '>Make a booking</a>', 'href="/app/rooms/repeating"', '>Repeating bookings</a>',
-    'tab is-on" href="/app/rooms"']);
+}, ['href="/app/rooms/book"', '>+ Make a booking</a>', 'href="/app/rooms/repeating"', '>Repeating bookings</a>',
+    'tab tab-main is-on" href="/app/rooms"', 'class="tab tab-main tab-book "', 'class="tab tab-quiet " href="/app/rooms/calendar"']);
 await check('rooms: the Make a booking tab is the form alone', () => roomsPage({
   rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18', tab: 'book',
-}), ['Book this room', 'tab is-on" href="/app/rooms/book"'], ['What is booked', 'Every Monday']);
+}), ['Book this room', 'tab tab-main tab-book is-on" href="/app/rooms/book"'], ['What is booked', 'Every Monday']);
 await check('rooms: the Repeating bookings tab lists the series', () => roomsPage({
   rooms: ROOMS, bookings: [BOOKING], series: SERIES, ctx: CTX, weekFrom: '2026-11-18', tab: 'repeating',
 }), ['Every Monday', 'Change or cancel'], ['Book this room', 'What is booked']);
@@ -1181,7 +1200,7 @@ await check('the worship roster', () => worshipPage({
   ctx: CTX,
   savedId: 1,
 }), [
-  'Worship', 'Sun 20 Sep 2026', 'led by', 'Nat Dix',
+  'Worship', 'Sun 20 Sep 2026', 'class="worship-leader "', 'Worship leader', 'worship-leader-name">Nat Dix',
   'Live worship', 'Worship lyrics',
   // Every position is offered, and the singers-only ones too.
   'Drums', 'Bass', 'Guitar', 'Keyboards', 'Singer 1', 'Singer 2', 'Singer 3',
@@ -1190,7 +1209,7 @@ await check('the worship roster', () => worshipPage({
   'Somebody not on the list', 'A friend of Stu',
   'Two new songs',
   // A week with nothing down is normal and must not read as a problem.
-  'Nothing down yet', 'no worship leader on the rota yet',
+  'Nothing down yet', 'worship-leader is-empty', 'Nobody on the rota yet',
   'Saved',
 ]);
 

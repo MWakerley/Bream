@@ -672,6 +672,34 @@ input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
 .tab:hover { background: var(--navy-wash); color: var(--navy); }
 .tab.is-on { color: var(--navy); border-bottom-color: var(--gold-warm); background: var(--paper); }
 
+/* Rooms: List and Make a booking up front and prominent, Calendar and
+   Repeating bookings quieter at the right. Make a booking reads as a button,
+   gold, so it is the obvious thing to press; it turns navy while it is the
+   page you are on, like every other tab's underline. */
+.room-tabs { align-items: flex-end; justify-content: space-between; gap: .5rem 1rem; }
+.room-tabs-main, .room-tabs-more { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .35rem; }
+.tab-main { font-size: .9375rem; padding: .7rem 1.25rem; color: var(--navy); }
+.tab-book {
+  background: var(--gold-warm); color: var(--navy);
+  border-radius: var(--radius); margin-bottom: .35rem; border-bottom: 0;
+  box-shadow: var(--shadow);
+}
+.tab-book:hover { background: var(--navy); color: #fff; }
+.tab-book.is-on { background: var(--navy); color: #fff; }
+.tab-quiet {
+  font-size: .75rem; padding: .5rem .8rem; color: var(--ink-2);
+  font-weight: 600; opacity: .9;
+}
+.tab-quiet.is-on { opacity: 1; font-weight: 700; }
+@media (max-width: 40rem) {
+  /* A phone: the main pair across the top, the quiet pair on their own line
+     under it, smaller. */
+  .room-tabs { flex-direction: column; align-items: stretch; }
+  .room-tabs-main { gap: .5rem; }
+  .room-tabs-main .tab-main { flex: 1 1 auto; text-align: center; }
+  .room-tabs-more { justify-content: flex-start; }
+}
+
 /* The room / service-type switcher above a calendar. */
 .pills { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
 .pill {
@@ -1050,6 +1078,31 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
 
 .worship-card { padding-block: 1.1rem; }
 .worship-saved { border-left: 4px solid var(--ok); }
+/* The worship leader, across the top of each week's card. */
+.worship-leader {
+  display: flex; align-items: center; gap: .85rem;
+  margin: -.1rem 0 1rem; padding: .7rem .9rem;
+  background: var(--navy); color: #fff; border-radius: 10px;
+}
+.worship-leader-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 2.5rem; height: 2.5rem; border-radius: 50%;
+  background: var(--gold-warm); color: var(--navy);
+}
+.worship-leader-text { display: flex; flex-direction: column; min-width: 0; }
+.worship-leader-label {
+  font-family: var(--display); font-weight: 700; font-size: .6875rem;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--gold-warm);
+}
+.worship-leader-name { font-family: var(--display); font-weight: 800; font-size: 1.25rem; line-height: 1.2; }
+.worship-leader.is-empty { background: var(--warn-wash); color: var(--warn); }
+.worship-leader.is-empty .worship-leader-label { color: var(--warn); }
+.worship-leader.is-empty .worship-leader-name { font-size: 1rem; font-weight: 700; }
+.worship-leader.is-empty .worship-leader-icon { background: #fff; color: var(--warn); }
+
+/* An icon before a menu label (Worship Rota's note). */
+.nav-icon { display: inline-flex; vertical-align: -2px; margin-right: .35rem; color: var(--gold-warm); }
+.subnav a.is-active .nav-icon, .phone-menu .is-active .nav-icon { color: inherit; }
 .worship-head {
   display: flex; flex-wrap: wrap; gap: .5rem 1rem;
   align-items: flex-start; justify-content: space-between;

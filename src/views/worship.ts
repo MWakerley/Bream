@@ -1,5 +1,5 @@
-import { html } from 'hono/html';
-import { layout, chip, type ViewCtx } from './layout.js';
+import { html, raw } from 'hono/html';
+import { layout, chip, icon, type ViewCtx } from './layout.js';
 import { formatDate } from './rota.js';
 import { KINDS, POSITIONS, positionsFor, type WorshipSunday } from '../worship.js';
 
@@ -84,6 +84,17 @@ function worshipCard(
   const byPosition = new Map(s.slots.map((x) => [x.position, x]));
 
   return html`<div class="card worship-card ${justSaved ? 'worship-saved' : ''}">
+    <!-- The worship leader first, large: it is the first thing the team looks
+         for on each week. From the main rota, so it is changed there. -->
+    <div class="worship-leader ${s.leaders.length ? '' : 'is-empty'}">
+      <span class="worship-leader-icon" aria-hidden="true">${raw(icon('music', 22))}</span>
+      <span class="worship-leader-text">
+        <span class="worship-leader-label">Worship leader</span>
+        <span class="worship-leader-name">${s.leaders.length
+          ? s.leaders.join(', ')
+          : 'Nobody on the rota yet'}</span>
+      </span>
+    </div>
     <div class="worship-head">
       <div>
         <h2 style="margin:0;font-size:1.15rem">
@@ -92,9 +103,6 @@ function worshipCard(
         </h2>
         <p style="margin:.2rem 0 0;color:var(--ink-2);font-size:.9375rem">
           ${s.title ?? 'Worship'}${s.is_communion ? ' · Communion' : ''}
-          ${s.leaders.length
-            ? html` · led by <strong>${s.leaders.join(', ')}</strong>`
-            : html` · <span style="color:var(--warn)">no worship leader on the rota yet</span>`}
         </p>
       </div>
       <div>

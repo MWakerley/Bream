@@ -144,5 +144,20 @@ ok('an empty name still gives something', suggestUsername('!!!') === 'user');
   ok('and is not the same every time', many.size > 190, `${many.size} distinct of 200`);
 }
 
+// Regulation: keyholders and safeguarding, behind the Admin Centre AND its
+// own tick, so an administrator without it is kept out of both.
+{
+  const ADMIN = new Set(['settings', 'rota', 'rooms', 'events', 'me']);
+  const REGULATOR = new Set([...ADMIN, 'regulation']);
+  ok('an administrator without Regulation cannot open keyholders', !mayAccess(ADMIN, '/app/settings/keyholders', 'GET'));
+  ok('nor safeguarding, nor its report', !mayAccess(ADMIN, '/app/settings/safeguarding', 'GET')
+    && !mayAccess(ADMIN, '/app/settings/safeguarding/report.xlsx', 'GET'));
+  ok('but still everything else in the Admin Centre', mayAccess(ADMIN, '/app/settings/people', 'GET')
+    && mayAccess(ADMIN, '/app/settings/people/4', 'POST'));
+  ok('with Regulation they can open and save both', mayAccess(REGULATOR, '/app/settings/keyholders', 'GET')
+    && mayAccess(REGULATOR, '/app/settings/safeguarding', 'POST'));
+  ok('Regulation alone does not open the Admin Centre', !mayAccess(new Set(['regulation']), '/app/settings/people', 'GET'));
+}
+
 console.log(failures === 0 ? '\nAccess control OK.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1206,16 +1206,19 @@ app.post('/app/settings/people/:id', async (c) => {
               ELSE on_break_since
             END,
             is_guest = ?8,
-            is_keyholder = ?9,
+            -- ?11 = 0: somebody without Regulation, who was never shown the
+            -- keyholder boxes, so every keyholder column stays as it was.
+            is_keyholder = CASE WHEN ?11 = 1 THEN ?9 ELSE is_keyholder END,
             -- Stamped the same way as on_break_since, for the same reasons.
             keyholder_since = CASE
+              WHEN ?11 = 0 THEN keyholder_since
               WHEN ?9 = 1 AND is_keyholder = 0 THEN datetime('now')
               WHEN ?9 = 0 THEN NULL
               ELSE keyholder_since
             END,
-            keyholder_keys = CASE WHEN ?9 = 1 THEN ?10 ELSE NULL END,
+            keyholder_keys = CASE WHEN ?11 = 0 THEN keyholder_keys WHEN ?9 = 1 THEN ?10 ELSE NULL END,
             -- No longer asked for, but an old note still goes when the tick does.
-            keyholder_note = CASE WHEN ?9 = 1 THEN keyholder_note ELSE NULL END,
+            keyholder_note = CASE WHEN ?11 = 0 OR ?9 = 1 THEN keyholder_note ELSE NULL END,
             updated_at = datetime('now')
       WHERE id = ?1`,
   ).bind(
@@ -1223,6 +1226,7 @@ app.post('/app/settings/people/:id', async (c) => {
     form.get('is_active') ? 1 : 0, form.get('clear_review') ? 1 : 0,
     form.get('on_break') ? 1 : 0, form.get('is_guest') ? 1 : 0,
     form.get('is_keyholder') ? 1 : 0, JSON.stringify(readKeys(form)),
+    c.get('areas')?.has('regulation') ? 1 : 0,
   ).run();
 
   const roles = await listRoles(c.env.DB);
@@ -1264,7 +1268,8 @@ app.post('/app/settings/people/:id', async (c) => {
   });
   for (let i = 0; i < stmts.length; i += 50) await c.env.DB.batch(stmts.slice(i, i + 50));
 
-  await saveSgPerson(c.env.DB, id, await loadSgGrid(c.env.DB), form);
+  // Their safeguarding boxes were only on the page for somebody with Regulation.
+  if (c.get('areas')?.has('regulation')) await saveSgPerson(c.env.DB, id, await loadSgGrid(c.env.DB), form);
 
   return c.redirect(`/app/settings/people/${id}?saved=1`, 303);
 });

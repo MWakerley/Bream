@@ -157,6 +157,9 @@ export function personPage(opts: {
   const { person: p, roles, ctx } = opts;
   const today = opts.today ?? new Date();
   const held = parseKeys(p.keyholder_keys);
+  // Keys and safeguarding are Regulation's: hidden, not just read-only, from
+  // a profile without it (and the save leaves them exactly as they were).
+  const regulated = !ctx.areas || ctx.areas.has('regulation');
   // A confirmed place is a promise somebody made and needs a person to unmake.
   // A draft one the generator will drop by itself, and asking a churchwarden to
   // action it would be wasting their Saturday.
@@ -278,7 +281,7 @@ export function personPage(opts: {
                 <span class="check-note">A visiting preacher or worship leader. You can still put
                   them on a service yourself; the rota will never pick them on its own.</span></span>
             </label>
-            <label class="check">
+            ${regulated ? html`<label class="check">
               <input type="checkbox" id="is_keyholder" name="is_keyholder" value="1" ${p.is_keyholder ? 'checked' : ''}>
               <span><span class="check-label">${raw(KEY_ICON)} Keyholder</span>
                 <span class="check-note">Has a key to one of the buildings or the safe${p.is_keyholder && p.keyholder_since
@@ -320,7 +323,7 @@ export function personPage(opts: {
                   });
                 }
               }());
-            </script>
+            </script>` : ''}
             ${p.needs_review
               ? html`<label class="check">
                   <input type="checkbox" name="clear_review" value="1">
@@ -453,7 +456,7 @@ export function personPage(opts: {
           </p>
         </div>
 
-        ${opts.safeguarding ? personSafeguardingCard(opts.safeguarding.grid, opts.safeguarding.person) : ''}
+        ${opts.safeguarding && regulated ? personSafeguardingCard(opts.safeguarding.grid, opts.safeguarding.person) : ''}
 
         <div class="btn-row">
           <button class="btn-primary" type="submit">Save this person</button>

@@ -17,6 +17,7 @@ export const AREAS = [
   { key: 'events.manage', label: 'Run events', note: 'Create events, take bookings, send acknowledgements.' },
   { key: 'me', label: 'Their own dates', note: 'Say when they are away and ask to swap.' },
   { key: 'settings', label: 'Admin Centre', note: 'People, roles, profiles — everything behind the scenes.' },
+  { key: 'regulation', label: 'Regulation', note: 'Keyholders and safeguarding, in the Admin Centre (so it needs that too).' },
 ] as const;
 
 export type Area = (typeof AREAS)[number]['key'];
@@ -31,6 +32,11 @@ export const AREA_KEYS: Area[] = AREAS.map((a) => a.key);
  */
 const RULES: { prefix: string; area: Area }[] = ([
   { prefix: '/app/settings', area: 'settings' },
+  // Inside the Admin Centre, and still behind it (requireAdmin checks for the
+  // Admin Centre on every settings route), but only for a profile that also
+  // has Regulation.
+  { prefix: '/app/settings/keyholders', area: 'regulation' },
+  { prefix: '/app/settings/safeguarding', area: 'regulation' },
   { prefix: '/app/rota/generate', area: 'rota.manage' },
   // Generating lives under Settings but still needs the right to build the
   // rota, as it did before it moved.
@@ -67,9 +73,10 @@ export function mayAccess(areas: Set<string>, path: string, method: string): boo
 
   if (method !== 'GET' && method !== 'HEAD') {
     const managed = `${needed.split('.')[0]}.manage`;
-    // 'me' and 'settings' have no separate manage right: being in them is the
-    // right. Everything else needs the manage area to change anything.
-    if (needed !== 'me' && needed !== 'settings' && !needed.endsWith('.manage')) {
+    // 'me', 'settings' and 'regulation' have no separate manage right: being
+    // in them is the right. Everything else needs the manage area to change
+    // anything.
+    if (needed !== 'me' && needed !== 'settings' && needed !== 'regulation' && !needed.endsWith('.manage')) {
       return areas.has(managed);
     }
   }
