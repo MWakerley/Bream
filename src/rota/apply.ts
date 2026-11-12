@@ -33,19 +33,20 @@ export const CLEAR_DRAFT_PLACES_SQL = `
  * which can only be a confirmed booking — keeps it, and the statement reports
  * no change, which is how Apply counts what it left alone.
  *
- * Drafted, generated = 1, whether the generator chose them or somebody changed
- * them by hand while checking: they all belong to this draft, and the next
- * draft applied over the same dates replaces them all alike.
+ * Confirmed, because pressing Apply IS the decision: the draft was checked,
+ * changed where it needed changing, and accepted. generated = 1 still records
+ * that the generator made it, but from here on it is the rota like any other
+ * booking — the next draft keeps it as a pin rather than replacing it.
  */
 export const PLACE_SQL = `
   INSERT OR IGNORE INTO assignments
     (service_id, role_id, slot, person_id, status, generated, reason)
-  VALUES (?1, ?2, ?3, ?4, 'draft', 1, ?5)`;
+  VALUES (?1, ?2, ?3, ?4, 'confirmed', 1, ?5)`;
 
 /** What Apply says once it is done, in the rota's own words. */
 export function appliedNotice(placed: number, kept: number, dropped: number): string {
   const parts = [
-    `${placed} place${placed === 1 ? '' : 's'} from the draft ${placed === 1 ? 'is' : 'are'} now on the rota, marked as draft.`,
+    `${placed} place${placed === 1 ? '' : 's'} from the draft ${placed === 1 ? 'is' : 'are'} now on the rota.`,
   ];
   if (kept) {
     parts.push(`${kept} ${kept === 1 ? 'was' : 'were'} left as ${kept === 1 ? 'it was' : 'they were'}, `

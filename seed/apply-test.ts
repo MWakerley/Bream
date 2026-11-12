@@ -76,13 +76,13 @@ ok('and the write for that place reports no change, which is how Apply counts it
   `changes ${changes.join(',')}`);
 
 const s2 = row(2)!;
-ok('a place that is not confirmed is replaced by the draft', s2.person_id === c && s2.status === 'draft' && s2.generated === 1,
+ok('a place that is not confirmed is replaced by the draft, confirmed', s2.person_id === c && s2.status === 'confirmed' && s2.generated === 1,
   JSON.stringify(s2));
 ok("and the old person's \"I cannot make it\" goes with their row rather than moving to the new one",
   one<{ n: number }>('SELECT COUNT(*) AS n FROM change_requests').n === 0);
 
 const s3 = row(3)!;
-ok('an empty place is filled, as draft, with its reason', s3.person_id === b && s3.status === 'draft'
+ok('an empty place is filled, confirmed, with its reason', s3.person_id === b && s3.status === 'confirmed'
   && s3.reason.startsWith('Put on by '), JSON.stringify(s3));
 ok('so two of the three went on', changes.filter((n) => n > 0).length === 2);
 
@@ -90,11 +90,14 @@ ok('so two of the three went on', changes.filter((n) => n > 0).length === 2);
 db.prepare(CLEAR_DRAFT_PLACES_SQL).run(JSON.stringify([[svc, role, 1]]));
 ok('the clear never deletes a confirmed booking', row(1)?.status === 'confirmed');
 
-// Nor a place it was not given.
-db.prepare(`INSERT INTO assignments (service_id, role_id, slot, person_id, status, generated)
-            VALUES (?, ?, 4, ?, 'draft', 0)`).run(svc, role, a);
-db.prepare(CLEAR_DRAFT_PLACES_SQL).run(JSON.stringify([[svc, role, 3]]));
-ok('and touches only the places it is given', row(4)?.person_id === a && row(3) === undefined);
+// Nor a place it was not given. (Two unconfirmed rows, from before Apply
+// confirmed what it wrote, so either one could be cleared.)
+const loose = db.prepare(`INSERT INTO assignments (service_id, role_id, slot, person_id, status, generated)
+            VALUES (?, ?, ?, ?, 'draft', 1)`);
+loose.run(svc, role, 4, a);
+loose.run(svc, role, 5, b);
+db.prepare(CLEAR_DRAFT_PLACES_SQL).run(JSON.stringify([[svc, role, 5]]));
+ok('and touches only the places it is given', row(4)?.person_id === a && row(5) === undefined);
 
 // ---- merging two records keeps what each said about how often -------------
 // The draft goes by each person's own figures now, so a merge that drops the
@@ -137,7 +140,7 @@ ok('the notice says what was left alone, and why',
   appliedNotice(12, 1, 2).includes('12 places from the draft are now on the rota')
   && appliedNotice(12, 1, 2).includes('1 was left as it was, because somebody booked that place by hand')
   && appliedNotice(12, 1, 2).includes('2 could not go on'));
-ok('and says nothing extra when nothing was', appliedNotice(1, 0, 0) === '1 place from the draft is now on the rota, marked as draft.');
+ok('and says nothing extra when nothing was', appliedNotice(1, 0, 0) === '1 place from the draft is now on the rota.');
 
 console.log(failures === 0 ? '\nApply OK.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

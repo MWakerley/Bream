@@ -1651,7 +1651,7 @@ await check('and nothing at all on a quiet week', () => homePage({
      'Sue Baker is away that day.', 'Settled for an amber combination 1 time', 'worked out when the draft was made',
      'nobody is marked as able to do this']);
   await check('applying asks "are you sure", saying what it will do', page,
-    ['data-confirm="Apply this draft? 2 placements go on the rota as draft and 1 Sunday is added to the diary.',
+    ['data-confirm="Apply this draft? 2 placements go on the rota, confirmed and 1 Sunday is added to the diary.',
      'Are you sure?"', 'onsubmit="return confirm(this.dataset.confirm)"', 'cannot be undone from this page',
      'name="token" value="tok_ABC-123xyz_tok_ABC-123"', 'name="from" value="2026-10-01"']);
   // Apply used to sit in the card at the top, next to Start again, and was
@@ -1683,15 +1683,13 @@ await check('and nothing at all on a quiet week', () => homePage({
     derived: derive({ ...DRAFT, edits: 0 }),
   }), ['Nothing is on the rota yet.'], ['Your changes are kept']);
 
-  // There is no step that confirms a draft place, so a hand change is replaced
-  // by the next draft over the same dates like everything else from this one.
-  // The Apply card says so, and how to keep somebody for certain.
+  // Applying confirms everything it puts on, hand changes included, and the
+  // Apply card says so rather than calling any of it draft.
   await check('applying says what becomes of the places changed by hand', page,
-    ['The place you changed by hand goes on as draft like the rest.',
-     'If a later draft for the same dates is applied, it is',
-     'To keep somebody for certain,', 'own page once this is applied',
+    ['The place you changed by hand goes on confirmed like the rest.',
+     'A draft generated later for the same dates keeps them as they',
      'Anything somebody has booked by hand on a service', 'is left as it is.'],
-    ['until someone confirms them']);
+    ['until someone confirms them', 'goes on as draft', 'marked as <em>draft</em>']);
 
   // "Tell me about every empty place" in Draft rota rules. The generator reports
   // a place between a role's minimum and its ideal only when that is ticked; the

@@ -144,7 +144,7 @@ export function previewPage(opts: {
   // What Apply will do, in one place: the card at the bottom says it, and the
   // "are you sure" box says it again in the same words.
   const facts = [
-    `${d.fresh} ${plural(d.fresh, 'placement goes', 'placements go')} on the rota as draft`,
+    `${d.fresh} ${plural(d.fresh, 'placement goes', 'placements go')} on the rota, confirmed`,
     ...(made > 0 ? [`${made} ${plural(made, 'Sunday is', 'Sundays are')} added to the diary`] : []),
     ...(released.length
       ? [`${released.length} ${plural(released.length, 'booking is', 'bookings are')} taken off`]
@@ -310,19 +310,12 @@ export function previewPage(opts: {
         <p style="margin-top:0"><strong>Applying puts this draft on the rota.</strong></p>
         <ul style="padding-left:1.2rem;color:var(--ink-2)">
           <li><strong>${d.fresh}</strong> ${plural(d.fresh, 'placement goes', 'placements go')} on
-              the rota, marked as <em>draft</em> so they are visibly different from the confirmed
-              rota.</li>
-          <!-- Said plainly, because nothing on the page would tell them: a place
-               changed by hand is not kept any more surely than the rest. There
-               is no step that confirms a draft place, so the next draft applied
-               over these dates replaces it. -->
+              the rota, confirmed. A draft generated later for the same dates keeps them as they
+              are.</li>
           ${byHand > 0
             ? html`<li>${byHand === 1
-                ? 'The place you changed by hand goes on as draft like the rest.'
-                : `The ${byHand} places you changed by hand go on as draft like the rest.`}
-                If a later draft for the same dates is applied, ${byHand === 1 ? 'it is' : 'they are'}
-                replaced along with everything else from this one. To keep somebody for certain,
-                put them on from the service's own page once this is applied.</li>`
+                ? 'The place you changed by hand goes on confirmed like the rest.'
+                : `The ${byHand} places you changed by hand go on confirmed like the rest.`}</li>`
             : ''}
           ${made > 0
             ? html`<li><strong>${made}</strong> Sunday ${plural(made, 'service is', 'services are')}
@@ -333,8 +326,6 @@ export function previewPage(opts: {
                 ${plural(released.length, 'booking is', 'bookings are')} taken off, as listed at the
                 top of this page.</li>`
             : ''}
-          <li>Anything still marked draft from an earlier generated rota between
-              ${formatDate(opts.from)} and ${formatDate(opts.to)} is replaced by this one.</li>
           <li>Anything somebody has booked by hand on a service's own page since this draft was
               made is left as it is.</li>
           <li>It cannot be undone from this page.</li>

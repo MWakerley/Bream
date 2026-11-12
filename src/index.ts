@@ -2386,8 +2386,9 @@ app.post('/app/settings/generate/apply', async (c) => {
   // earlier draft deleted and only some of the new one written.
   const stmts: D1PreparedStatement[] = [];
 
-  // Replace only previously GENERATED drafts in the window; confirmed rows were
-  // pins and are never touched.
+  // Clears any generated drafts left in the window from before Apply confirmed
+  // what it wrote (0032 converted those, so normally there are none). Confirmed
+  // rows were pins and are never touched.
   stmts.push(c.env.DB.prepare(
     `DELETE FROM assignments
       WHERE generated = 1 AND status = 'draft'
@@ -2408,12 +2409,10 @@ app.post('/app/settings/generate/apply', async (c) => {
     ).bind(...chunk));
   }
 
-  // Places somebody changed by hand while checking the draft go in exactly as
-  // the generated ones do — draft, and generated = 1. They belong to this draft,
-  // and the next draft applied over these dates replaces them with the rest; to
-  // keep somebody for certain, put them on from the service's own page, which
-  // confirms them. Their reason starts "Put on by", so a guest chosen here is
-  // not taken off by a later draft once confirmed (see load.ts).
+  // Every place goes on confirmed — applying the draft is accepting it — and
+  // places somebody changed by hand while checking go in exactly as the
+  // generated ones do. Their reason starts "Put on by", so a guest chosen here
+  // is not taken off by a later draft (see load.ts).
   //
   // A confirmed booking is never written over, whoever made it and whenever.
   // The editor never offers a place confirmed when the draft was made, but one
