@@ -77,19 +77,21 @@ const SUB_NAV: { prefix: string; items: NavItem[] }[] = [
   {
     prefix: '/app/settings',
     items: [
+      // In the same order as the groups on the overview: people, newsletter,
+      // the rota, rooms.
       { href: '/app/settings', label: 'Overview', match: '^/app/settings$', area: 'settings' },
-      { href: '/app/settings/newsletter', label: 'Newsletter', match: '^/app/settings/newsletter', area: 'settings' },
       { href: '/app/settings/people', label: 'People', match: '^/app/settings/people', area: 'settings' },
+      { href: '/app/settings/profiles', label: 'What people can see', match: '^/app/settings/profiles', area: 'settings' },
       { href: '/app/settings/keyholders', label: 'Keyholders', match: '^/app/settings/keyholders', area: 'settings' },
       { href: '/app/settings/safeguarding', label: 'Safeguarding', match: '^/app/settings/safeguarding', area: 'settings' },
-      { href: '/app/settings/roles', label: 'Roles', match: '^/app/settings/roles', area: 'settings' },
-      { href: '/app/settings/combinations', label: 'Combination rules', match: '^/app/settings/combinations', area: 'settings' },
+      { href: '/app/settings/newsletter', label: 'Newsletter', match: '^/app/settings/newsletter', area: 'settings' },
       { href: '/app/settings/generate', label: 'Generate a rota', match: '^/app/settings/generate', area: 'rota.manage' },
-      { href: '/app/settings/draft-rules', label: 'Draft rota rules', match: '^/app/settings/draft-rules', area: 'settings' },
-      { href: '/app/settings/pairs', label: 'Who works with whom', match: '^/app/settings/pairs', area: 'settings' },
       { href: '/app/settings/services', label: 'Services', match: '^/app/settings/services', area: 'settings' },
+      { href: '/app/settings/roles', label: 'Roles', match: '^/app/settings/roles', area: 'settings' },
+      { href: '/app/settings/draft-rules', label: 'Draft rota rules', match: '^/app/settings/draft-rules', area: 'settings' },
+      { href: '/app/settings/combinations', label: 'Combination rules', match: '^/app/settings/combinations', area: 'settings' },
+      { href: '/app/settings/pairs', label: 'Who works with whom', match: '^/app/settings/pairs', area: 'settings' },
       { href: '/app/settings/rooms', label: 'Rooms', match: '^/app/settings/rooms', area: 'settings' },
-      { href: '/app/settings/profiles', label: 'What people can see', match: '^/app/settings/profiles', area: 'settings' },
     ],
   },
 ];
@@ -314,3 +316,29 @@ export function chip(tone: 'green' | 'amber' | 'red' | 'neutral' | 'navy', label
  * screen readers, because the word "Keyholder" always sits next to it.
  */
 export const KEY_ICON = `<svg class="icon-key" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;color:var(--navy)"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2"/><path d="m16 7 3 3"/><path d="m19 4 2 2"/></svg>`;
+
+/**
+ * Line icons in the same hand as the key: 24px grid, 2px stroke, round ends,
+ * drawn in the current colour. Inline SVG for the same reason as the key —
+ * emoji differ on every device. Always decorative: a word sits beside each.
+ */
+const ICON_PATHS = {
+  key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2"/><path d="m16 7 3 3"/><path d="m19 4 2 2"/>',
+  people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+  mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
+  sparkle: '<path d="M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2z"/><path d="M19 16v5"/><path d="M16.5 18.5h5"/>',
+  sliders: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
+  clipboard: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+  grid: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+  house: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+} as const;
+export type IconName = keyof typeof ICON_PATHS;
+
+export function icon(name: IconName, size = 18): string {
+  return `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name]}</svg>`;
+}

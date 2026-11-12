@@ -116,6 +116,13 @@ async function check(
 ) {
   try {
     const out = String(await render());
+    // SMOKE_DUMP=dir saves every whole page rendered here, so each can be
+    // opened in a browser (at phone width, say) and looked at.
+    if (process.env.SMOKE_DUMP && /^\s*<!DOCTYPE/i.test(out)) {
+      const { mkdirSync, writeFileSync } = await import('node:fs');
+      mkdirSync(process.env.SMOKE_DUMP, { recursive: true });
+      writeFileSync(`${process.env.SMOKE_DUMP}/${name.replace(/[^a-z0-9]+/gi, '-').slice(0, 80)}.html`, out);
+    }
     const missing = mustContain.filter((m) => !out.includes(m));
     const present = mustNotContain.filter((m) => out.includes(m));
     if (missing.length) {
@@ -239,7 +246,7 @@ await check('rota dashboard (empty)', () => rotaDashboard([], CTX, null), ['No u
     new Map([[1, detail], [2, { ...critDetail, id: 2 }], [3, later]]));
   await check('the rota opens every service as a full card, under month tabs', full,
     ['href="#month-2027-01"', 'id="month-2027-01"', 'January 2027', 'next-up-later',
-     'Sun 10 Jan 2027 at 15:00', 'Jump to', '?view=condensed'],
+     'Sun 10 Jan 2027 at 15:00', 'Jump to', '?view=condensed', 'href="#top"', '--topbar-h'],
     ['<details class="svc-more">', 'Key roles are missing', 'have roles with nobody',
      'Generate a whole draft', 'has its required roles filled']);
   await check('with the buttons above everything else', async () => {
@@ -315,6 +322,18 @@ await check('services', () => servicesPage({
 await check('settings has its own overview', () => settingsHomePage(CTX),
   ['/app/settings/people', '/app/settings/keyholders', 'Keyholders', 'Roles and numbers'],
   ['Room diary links']);
+// November 2026: four groups, each card with its own icon, People first.
+await check('the admin centre is sorted into groups, every card with an icon', async () => {
+  const out = String(await settingsHomePage(CTX));
+  const order = ['>People<span', '>Newsletter<span', '>The rota<span', '>Rooms<span'].map((t) => out.indexOf(t));
+  const cards = (out.match(/class="admin-card"/g) ?? []).length;
+  const icons = (out.match(/class="admin-card-icon"><svg class="icon"/g) ?? []).length;
+  return order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1]!)) && cards === icons && cards >= 12
+    ? 'grouped' : `order ${order.join(',')} cards ${cards} icons ${icons}`;
+}, ['grouped']);
+await check('and a card is offered only to somebody it would let in', () => settingsHomePage(
+  { ...CTX, areas: new Set(['settings']) }),
+['/app/settings/people', '/app/settings/combinations'], ['/app/settings/generate', '/app/rooms/booking-form']);
 // The two website links, kept on Settings too, so they are found again later.
 const DIARY_LINKS = { calendarLink: 'https://x.test/rooms/calendar', listLink: 'https://x.test/rooms/list' };
 await check('settings keeps the two room diary links in a box', () => settingsHomePage(CTX, { ...DIARY_LINKS, showing: true }),

@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { layout, chip, KEY_ICON, type ViewCtx } from './layout.js';
+import { layout, chip, icon, KEY_ICON, type IconName, type ViewCtx } from './layout.js';
 import { searchBox } from './search.js';
 import { formatDate } from './rota.js';
 import { parseKeys, keyLabels } from '../keyholders.js';
@@ -9,21 +9,47 @@ import type { CombinationRow, PairingRow, PersonWithRoles, RoleRow } from '../db
 const BACK = { href: '/app', label: 'All areas' };
 const SETTINGS = { href: '/app/settings', label: 'Admin Centre' };
 
-/** Everything behind the scenes, one card each, so People is one choice among
- *  them rather than the page every other setting hangs off. */
-const SECTIONS: { href: string; label: string; note: string }[] = [
-  { href: '/app/settings/newsletter', label: 'Newsletter', note: 'Create a newsletter with the week ahead, send it to subscribers, and the archive.' },
-  { href: '/app/settings/people', label: 'People', note: 'Everyone on the roster: what each can do, how often, and finding somebody.' },
-  { href: '/app/settings/keyholders', label: 'Keyholders', note: 'The register of who holds which keys — the buildings and the safe.' },
-  { href: '/app/settings/safeguarding', label: 'Safeguarding', note: 'Which courses each safeguarding role needs.' },
-  { href: '/app/settings/roles', label: 'Roles and numbers', note: 'Each role and how many it needs.' },
-  { href: '/app/settings/combinations', label: 'Combination rules', note: 'Which roles one person can do together on the same day.' },
-  { href: '/app/settings/generate', label: 'Generate a rota', note: 'A first draft of the rota, to check, send round and apply.' },
-  { href: '/app/settings/draft-rules', label: 'Draft rota rules', note: 'The rules a generated rota follows.' },
-  { href: '/app/settings/pairs', label: 'Who works with whom', note: 'People who serve together, or should be kept apart.' },
-  { href: '/app/settings/services', label: 'Services', note: 'The Sunday pattern and one-off services.' },
-  { href: '/app/settings/rooms', label: 'Rooms', note: 'Adding and renaming rooms.' },
-  { href: '/app/settings/profiles', label: 'What people can see', note: 'Profiles, and which areas each one opens.' },
+/**
+ * Everything behind the scenes, sorted into what it is about, so twelve cards
+ * are four short groups rather than one block. Each has its icon, as
+ * Keyholders always had its key. `area` is the right the page itself needs,
+ * so nobody is offered a card that would refuse them.
+ */
+interface Section { href: string; label: string; note: string; icon: IconName; area?: string }
+export const SETTINGS_GROUPS: { title: string; note: string; icon: IconName; items: Section[] }[] = [
+  {
+    title: 'People', icon: 'people', note: 'Who is here, what they can open, and what they hold.',
+    items: [
+      { href: '/app/settings/people', label: 'People', icon: 'people', note: 'Everyone on the roster: what each can do, how often, and finding somebody.' },
+      { href: '/app/settings/profiles', label: 'What people can see', icon: 'eye', note: 'Profiles, and which areas each one opens — including who can book rooms.' },
+      { href: '/app/settings/keyholders', label: 'Keyholders', icon: 'key', note: 'The register of who holds which keys — the buildings and the safe.' },
+      { href: '/app/settings/safeguarding', label: 'Safeguarding', icon: 'shield', note: 'Which courses each safeguarding role needs.' },
+    ],
+  },
+  {
+    title: 'Newsletter', icon: 'mail', note: 'The weekly newsletter and who it goes to.',
+    items: [
+      { href: '/app/settings/newsletter', label: 'Newsletter', icon: 'mail', note: 'Create a newsletter with the week ahead, send it to subscribers, and the archive.' },
+    ],
+  },
+  {
+    title: 'The rota', icon: 'calendar', note: 'Services, roles, and how a draft rota is put together.',
+    items: [
+      { href: '/app/settings/generate', label: 'Generate a rota', icon: 'sparkle', area: 'rota.manage', note: 'A first draft of the rota, to check, send round and apply.' },
+      { href: '/app/settings/services', label: 'Services', icon: 'calendar', note: 'The Sunday pattern and one-off services.' },
+      { href: '/app/settings/roles', label: 'Roles and numbers', icon: 'clipboard', note: 'Each role and how many it needs.' },
+      { href: '/app/settings/draft-rules', label: 'Draft rota rules', icon: 'sliders', note: 'The rules a generated rota follows.' },
+      { href: '/app/settings/combinations', label: 'Combination rules', icon: 'grid', note: 'Which roles one person can do together on the same day.' },
+      { href: '/app/settings/pairs', label: 'Who works with whom', icon: 'link', note: 'People who serve together, or should be kept apart.' },
+    ],
+  },
+  {
+    title: 'Rooms', icon: 'house', note: 'The spaces that can be booked, and booking from the website.',
+    items: [
+      { href: '/app/settings/rooms', label: 'Rooms', icon: 'house', note: 'Adding and renaming rooms, and each one’s calendar colour.' },
+      { href: '/app/rooms/booking-form', label: 'Website booking form', icon: 'globe', area: 'rooms.manage', note: 'Whether the public can ask for a room, and the room diary on the website.' },
+    ],
+  },
 ];
 
 export function settingsHomePage(
@@ -38,13 +64,26 @@ export function settingsHomePage(
   return layout(
     { title: 'Admin Centre', heading: 'Admin Centre', back: BACK, ...ctx },
     html`
-      <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))">
-        ${SECTIONS.map((x) => html`<a class="card" href="${x.href}"
-              style="display:block;text-decoration:none;color:inherit;margin:0">
-            <h2 style="margin:0 0 .35rem">${x.href.endsWith('keyholders') ? raw(KEY_ICON) : ''} ${x.label}</h2>
-            <p style="margin:0;color:var(--ink-2)">${x.note}</p>
-          </a>`)}
-      </div>
+      ${SETTINGS_GROUPS.map((g) => {
+        const items = g.items.filter((x) => !x.area || !ctx.areas || ctx.areas.has(x.area));
+        if (!items.length) return '';
+        return html`<section class="admin-group" aria-labelledby="ag-${g.icon}">
+          <h2 class="admin-group-h" id="ag-${g.icon}">
+            <span class="admin-group-icon">${raw(icon(g.icon, 20))}</span>
+            <span>${g.title}<span class="admin-group-note">${g.note}</span></span>
+          </h2>
+          <div class="admin-cards">
+            ${items.map((x) => html`<a class="admin-card" href="${x.href}">
+                <span class="admin-card-icon">${raw(icon(x.icon, 22))}</span>
+                <span class="admin-card-body">
+                  <span class="admin-card-label">${x.label}</span>
+                  <span class="admin-card-note">${x.note}</span>
+                </span>
+                <span class="admin-card-go" aria-hidden="true">→</span>
+              </a>`)}
+          </div>
+        </section>`;
+      })}
 
       ${diary
         ? html`<section class="card" id="website-links" aria-labelledby="links-h" style="margin-top:1.5rem">

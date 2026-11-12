@@ -297,6 +297,7 @@ export function rotaDashboard(
       ${months.length
         ? html`<nav class="month-jump" aria-label="Jump to a month">
             <span class="month-jump-label">Jump to</span>
+            <a class="month-tab month-top" href="#top">↑ Top</a>
             ${months.map((m) => html`<a class="month-tab" href="#month-${m.key}">${monthLabel(m.key, true)}</a>`)}
             <span class="layout-switch" role="group" aria-label="Layout">
               <a class="${here('full')}" href="/app/rota?view=full"
@@ -304,7 +305,29 @@ export function rotaDashboard(
               <a class="${here('condensed')}" href="/app/rota?view=condensed"
                  aria-current="${mode === 'condensed' ? 'true' : 'false'}">Condensed</a>
             </span>
-          </nav>`
+          </nav>
+          <!-- The bar sticks just under the page header, which is sticky on a
+               computer and not on a phone, and is taller or shorter with the
+               window. Their heights are measured rather than guessed, so the
+               bar sits flush under the header and a month jumped to lands
+               clear of both. Plain ES5, as elsewhere, for the oldest iPad. -->
+          <script>
+          (function () {
+            var root = document.documentElement;
+            var head = document.querySelector('.topbar');
+            var bar = document.querySelector('.month-jump');
+            function measure() {
+              var stuck = head && window.getComputedStyle(head).position === 'sticky';
+              root.style.setProperty('--topbar-h', (stuck ? head.offsetHeight : 0) + 'px');
+              if (bar) root.style.setProperty('--jump-h', bar.offsetHeight + 'px');
+            }
+            measure();
+            // Again once the fonts are in, which makes the header taller.
+            window.addEventListener('load', measure);
+            window.addEventListener('resize', measure);
+            if (window.ResizeObserver && head) new ResizeObserver(measure).observe(head);
+          }());
+          </script>`
         : ''}
 
       ${notice

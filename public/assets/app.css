@@ -496,10 +496,21 @@ input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
 .rota-downloads { display: inline-flex; flex-wrap: wrap; gap: .5rem; margin-left: auto; }
 @media (max-width: 40rem) { .rota-downloads { margin-left: 0; } }
 
+/* Stays in view, just under the page header, however far down the page is
+   scrolled. --topbar-h is measured by the page (0 where the header is not
+   sticky, as on a phone). */
 .month-jump {
   display: flex; flex-wrap: wrap; align-items: center; gap: .4rem;
   margin: 0 0 1.5rem; padding: .6rem .75rem;
   background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow);
+  position: sticky; top: var(--topbar-h, 0px); z-index: 15;
+}
+.month-top { background: var(--gold-wash); color: var(--ink); }
+/* On a phone one row that scrolls sideways, so the bar never takes a third
+   of the screen while it follows you down. */
+@media (max-width: 40rem) {
+  .month-jump { flex-wrap: nowrap; overflow-x: auto; top: 0; border-radius: 0 0 var(--radius) var(--radius); }
+  .month-jump > * { flex: 0 0 auto; }
 }
 .month-jump-label {
   font-family: var(--display); font-weight: 700; font-size: .75rem;
@@ -523,10 +534,52 @@ input:hover, select:hover, textarea:hover { border-color: var(--navy-soft); }
 @media (max-width: 40rem) { .layout-switch { margin-left: 0; } }
 
 /* Clear of the sticky header when a month tab jumps here. */
-.month-h { scroll-margin-top: 9rem; }
+.month-h { scroll-margin-top: calc(var(--topbar-h, 0px) + var(--jump-h, 4rem) + 1.5rem); }
 /* Later services in full: the same card as the next one, a quieter edge. */
 .next-up-later { border-top-color: var(--navy-soft); margin-bottom: 1.25rem; }
 .next-up-later .next-up-title { font-size: 1.25rem; }
+
+/* ---- Admin Centre: groups of cards, each with its icon ------------------- */
+
+.icon { flex: 0 0 auto; }
+.admin-group { margin-bottom: 2rem; }
+.admin-group-h {
+  display: flex; align-items: center; gap: .75rem; margin: 0 0 .85rem;
+  font-size: 1.05rem; text-transform: uppercase; letter-spacing: .06em; color: var(--navy);
+}
+.admin-group-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.4rem; height: 2.4rem; border-radius: 50%;
+  background: var(--navy); color: #fff; flex: 0 0 auto;
+}
+.admin-group-note {
+  display: block; margin-top: .1rem;
+  font-family: var(--body, inherit); font-size: .9375rem; font-weight: 400;
+  text-transform: none; letter-spacing: 0; color: var(--ink-2);
+}
+.admin-cards { display: grid; gap: .85rem; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
+.admin-card {
+  display: flex; align-items: flex-start; gap: .85rem;
+  background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow);
+  border-top: 3px solid var(--gold-warm);
+  padding: 1rem 1.1rem; text-decoration: none; color: inherit;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.admin-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.admin-card-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.6rem; height: 2.6rem; border-radius: 10px; flex: 0 0 auto;
+  background: var(--navy-wash); color: var(--navy);
+}
+.admin-card-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.admin-card-label { font-family: var(--display); font-weight: 700; font-size: 1.0625rem; color: var(--navy); }
+.admin-card-note { color: var(--ink-2); font-size: .9375rem; }
+.admin-card-go { align-self: center; font-weight: 700; color: var(--navy-soft); }
+.admin-card:hover .admin-card-go { color: var(--navy); }
+@media (max-width: 40rem) {
+  .admin-cards { grid-template-columns: 1fr; gap: .6rem; }
+  .admin-card { padding: .85rem .9rem; }
+}
 
 /* ---- At a glance --------------------------------------------------------- */
 
