@@ -434,6 +434,7 @@ app.use('/app/rota/readings', requireAdmin);
 app.use('/app/rota/requests', requireAdmin);
 app.use('/app/rota/requests/*', requireAdmin);
 app.use('/app/rota/service/:id/role/*', requireAdmin);
+app.use('/app/rota/service/:id/delete', requireAdmin);
 
 app.get('/app/settings', async (c) => {
   // The same two addresses the Booking form card shows, built the same way.
@@ -1587,12 +1588,15 @@ app.get('/app/rota', async (c) => {
     const n = Number(c.req.query(k) ?? 0);
     return Number.isInteger(n) && n > 0 ? n : 0;
   };
+  const deleted = c.req.query('deleted') ?? '';
   const notice = c.req.query('applied') != null
     ? {
         tone: (count('kept') || count('dropped') ? 'warn' : 'ok') as 'ok' | 'warn',
         text: appliedNotice(count('applied'), count('kept'), count('dropped')),
       }
-    : undefined;
+    : /^\d{4}-\d{2}-\d{2}$/.test(deleted)
+      ? { tone: 'ok' as const, text: `The service on ${formatDate(deleted)} was deleted.` }
+      : undefined;
   return c.html(rotaDashboard(services, viewCtx(c), next, details, notice, mode));
 });
 
@@ -1706,6 +1710,36 @@ app.post('/app/rota/service/:id/role/:roleId/add', async (c) => {
   ).bind(id, roleId, slot, personId, `Put on by ${c.get('person').display_name}`).run();
 
   return c.redirect(`/app/rota/service/${id}`, 303);
+});
+
+/**
+ * Rename a service — "Worship" to "Holy Communion", say. Open to anybody who
+ * can see the rota (see OPEN_WRITES in access.ts): it is only the label, and
+ * whoever spots it is wrong should be able to put it right.
+ */
+app.post('/app/rota/service/:id/title', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+  const title = String((await c.req.formData()).get('title') ?? '').trim().slice(0, 80);
+  if (title) {
+    await c.env.DB.prepare('UPDATE services SET title = ?2 WHERE id = ?1').bind(id, title).run();
+  }
+  return c.redirect(`/app/rota/service/${id}`, 303);
+});
+
+/**
+ * Delete a service outright, with everybody on it. Administrators only: it
+ * takes the whole morning's rota with it, and cannot be undone. The people,
+ * cascaded off by the schema, stay on the roster.
+ */
+app.post('/app/rota/service/:id/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+  const svc = await c.env.DB.prepare('SELECT service_date FROM services WHERE id = ?1')
+    .bind(id).first<{ service_date: string }>();
+  if (!svc) return c.redirect('/app/rota', 303);
+  await c.env.DB.prepare('DELETE FROM services WHERE id = ?1').bind(id).run();
+  return c.redirect(`/app/rota?deleted=${encodeURIComponent(svc.service_date)}`, 303);
 });
 
 /** Take somebody off a role at one service. The person stays on the roster. */

@@ -54,6 +54,10 @@ const RULES: { prefix: string; area: Area }[] = ([
   { prefix: '/app/me', area: 'me' },
 ] as { prefix: string; area: Area }[]).sort((a, b) => b.prefix.length - a.prefix.length);
 
+/** Paths that need only the area itself, even to write. Exact patterns, so
+ *  nothing else under the same prefix comes along with them. */
+const OPEN_WRITES: RegExp[] = [/^\/app\/rota\/service\/\d+\/title$/];
+
 /** The area a path needs, or null when it needs only a sign-in. */
 export function areaForPath(path: string): Area | null {
   return RULES.find((r) => path === r.prefix || path.startsWith(`${r.prefix}/`))?.area ?? null;
@@ -70,6 +74,11 @@ export function mayAccess(areas: Set<string>, path: string, method: string): boo
   const needed = areaForPath(path);
   if (!needed) return true;
   if (!areas.has(needed)) return false;
+
+  // The few writes anybody who can see the area may make. Renaming a service
+  // ("Worship" to "Holy Communion") is asked for by whoever notices it is
+  // wrong, and is no more than a label — nobody is put on or taken off.
+  if (OPEN_WRITES.some((re) => re.test(path))) return true;
 
   if (method !== 'GET' && method !== 'HEAD') {
     const managed = `${needed.split('.')[0]}.manage`;

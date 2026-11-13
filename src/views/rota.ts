@@ -586,6 +586,25 @@ export function servicePage(
         ${s.is_communion ? html` · ${chip('neutral', 'Communion')}` : ''}
       </p>
 
+      <!-- Anybody who can see the rota can put the name right; folded away so
+           it does not crowd the page people open on a Sunday morning. -->
+      <details class="card" style="padding-top:.75rem;padding-bottom:.75rem">
+        <summary style="cursor:pointer">Change the service name</summary>
+        <form method="post" action="/app/rota/service/${s.id}/title"
+              style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.75rem">
+          <label style="flex:1 1 14rem">
+            <span class="sr-only">Service name</span>
+            <input type="text" name="title" value="${s.title ?? 'Worship'}" required maxlength="80"
+                   list="service-names-${s.id}" style="width:100%">
+            <datalist id="service-names-${s.id}">
+              <option value="Worship"></option>
+              <option value="Holy Communion"></option>
+            </datalist>
+          </label>
+          <button class="btn-secondary" type="submit">Save name</button>
+        </form>
+      </details>
+
       ${empty.length
         ? html`<div class="notice notice-bad" role="status">
             <p style="margin:0">
@@ -733,6 +752,16 @@ export function servicePage(
                 </tbody>
               </table>
             </div>`
+        : ''}
+
+      <!-- Administrators only, and the server checks again: deleting takes the
+           whole service's rota with it and cannot be undone. -->
+      ${ctx.isAdmin
+        ? html`<form method="post" action="/app/rota/service/${s.id}/delete" style="margin-top:2rem"
+              data-confirm="Delete the ${s.title ?? 'Worship'} service on ${formatDate(s.service_date)} at ${s.service_time}, and everybody on its rota? This cannot be undone."
+              onsubmit="return confirm(this.dataset.confirm)">
+            <button class="linkish" type="submit" style="color:var(--bad)">Delete this service</button>
+          </form>`
         : ''}
     `,
   );

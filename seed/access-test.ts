@@ -159,5 +159,17 @@ ok('an empty name still gives something', suggestUsername('!!!') === 'user');
   ok('Regulation alone does not open the Admin Centre', !mayAccess(new Set(['regulation']), '/app/settings/people', 'GET'));
 }
 
+// Renaming a service is open to anybody who can see the rota; nothing else
+// under the service page comes with it.
+{
+  const VIEWER = new Set(['rota', 'me']);
+  ok('a rota viewer can rename a service', mayAccess(VIEWER, '/app/rota/service/12/title', 'POST'));
+  ok('but cannot delete one', !mayAccess(VIEWER, '/app/rota/service/12/delete', 'POST'));
+  ok('nor put somebody on it', !mayAccess(VIEWER, '/app/rota/service/12/role/3/add', 'POST'));
+  ok('the rename is not a back door to a longer path',
+    !mayAccess(VIEWER, '/app/rota/service/12/title/x', 'POST'));
+  ok('somebody without the rota cannot rename', !mayAccess(new Set(['me']), '/app/rota/service/12/title', 'POST'));
+}
+
 console.log(failures === 0 ? '\nAccess control OK.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
