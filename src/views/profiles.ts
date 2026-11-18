@@ -199,10 +199,14 @@ export function addPersonPage(opts: {
         <div id="login-fields" hidden style="margin-top:1.25rem">
           <div class="grid-fields">
             <div class="field">
-              <label for="username">Username</label>
-              <span class="hint">What they type to sign in. Left blank, one is made from their name.</span>
-              <input id="username" name="username" type="text" value="${f.username ?? ''}"
-                     autocapitalize="none" autocomplete="off">
+              <label for="sign-in-name">Username</label>
+              <span class="hint">What they type to sign in. Left blank, it is their email
+                address — or, with no email, one is made from their name.</span>
+              <!-- Not called "username": the browser took a box by that name for
+                   the admin's own sign-in and filled in their saved email. -->
+              <input id="sign-in-name" name="sign_in_name" type="text" value="${f.sign_in_name ?? ''}"
+                     autocapitalize="none" autocomplete="off" spellcheck="false"
+                     data-lpignore="true" data-1p-ignore>
             </div>
             <div class="field">
               <label for="profile_id">What they can see</label>

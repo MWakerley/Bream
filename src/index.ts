@@ -856,7 +856,7 @@ app.post('/app/settings/people/new', async (c) => {
   const form = await c.req.formData();
   const str = (k: string) => String(form.get(k) ?? '').trim();
   const echo = Object.fromEntries(
-    ['display_name', 'full_name', 'email', 'username', 'give_login'].map((k) => [k, str(k)]));
+    ['display_name', 'full_name', 'email', 'sign_in_name', 'give_login'].map((k) => [k, str(k)]));
 
   const displayName = str('display_name');
   const email = str('email').toLowerCase() || null;
@@ -872,7 +872,11 @@ app.post('/app/settings/people/new', async (c) => {
   }
 
   const profileId = Number(form.get('profile_id'));
-  const username = giveLogin ? (str('username').toLowerCase() || suggestUsername(displayName)) : null;
+  // Their email unless somebody typed something else; from their name only
+  // when there is no email to use.
+  const username = giveLogin
+    ? (str('sign_in_name').toLowerCase() || email || suggestUsername(displayName))
+    : null;
 
   // Everything that can fail on a constraint happens before the password is
   // generated, so a rejected form never leaves a half-made account.
@@ -1062,7 +1066,8 @@ app.post('/app/settings/people/:id/give-login', async (c) => {
     });
   }
 
-  const username = (String(form.get('username') ?? '').trim().toLowerCase())
+  const username = (String(form.get('sign_in_name') ?? '').trim().toLowerCase())
+    || person.email?.trim().toLowerCase()
     || suggestUsername(person.display_name);
   const profileId = Number(form.get('profile_id'));
 

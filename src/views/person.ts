@@ -497,10 +497,16 @@ export function personPage(opts: {
                 </p>
                 <div class="grid-fields">
                   <div class="field">
-                    <label for="username">Username</label>
-                    <span class="hint">What they type to sign in. Their email works too.</span>
-                    <input id="username" name="username" type="text"
-                           value="${suggestedUsername(p.display_name)}" required>
+                    <label for="sign-in-name">Username</label>
+                    <span class="hint">What they type to sign in — their email address, unless
+                      you change it. Their email works either way.</span>
+                    <!-- Not called "username", and autocomplete off: the browser
+                         took a box by that name for the ADMIN'S own sign-in and
+                         filled in their saved email instead. -->
+                    <input id="sign-in-name" name="sign_in_name" type="text"
+                           value="${p.email ?? suggestedUsername(p.display_name)}" required
+                           autocapitalize="none" autocomplete="off" spellcheck="false"
+                           data-lpignore="true" data-1p-ignore>
                   </div>
                   <div class="field">
                     <label for="profile_id">What they can see</label>

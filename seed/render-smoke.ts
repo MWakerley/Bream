@@ -1058,10 +1058,12 @@ await check('person with no sign-in can be given one', () => personPage({
   roles, ctx: CTX,
 }), [
   'has no sign-in', 'Give them a sign-in',
-  // The username is suggested from their name so nobody has to invent one.
-  'value="suebaker"',
+  // With an email on file, that IS the username, so nobody has to invent one.
+  'name="sign_in_name"', 'value="sue@example.org" required',
   'Volunteer', 'the usual one', 'Email it to sue@example.org',
-], ['Last signed in']);
+// Never a box called "username": the browser fills that with the signed-in
+// administrator's own saved email.
+], ['Last signed in', 'name="username"', 'value="suebaker"']);
 
 await check('somebody with no email is told to read it out', () => personPage({
   person: {
@@ -1069,7 +1071,13 @@ await check('somebody with no email is told to read it out', () => personPage({
     profiles: [{ id: 1, name: 'Volunteer', is_default: 1 }],
   },
   roles, ctx: CTX,
-}), ['No email address on file'], ['Email it to']);
+}), ['No email address on file',
+  // With no email, the username is made from their name.
+  'value="suebaker"'], ['Email it to']);
+await check('adding a person never offers a box the browser fills in', () => addPersonPage({
+  profiles: [{ id: 1, name: 'Volunteer', description: null, is_default: 1, is_admin: 0, areas: [], people: 0 }],
+  ctx: CTX,
+}), ['name="sign_in_name"', 'Left blank, it is their email'], ['name="username"']);
 
 await check('person who has never signed in', () => personPage({
   person: {
