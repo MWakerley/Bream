@@ -1665,7 +1665,15 @@ app.get('/app/rota/service/:id', async (c) => {
       candidates.set(r.role_id, await listCandidatesForRole(c.env.DB, id, r.role_id));
     }
   }
-  return c.html(servicePage(detail, viewCtx(c), candidates));
+  // So the picker can say when somebody is already on another role here and
+  // what the green/amber/red rules make of the pair.
+  const combinations = mayEdit
+    ? new Map((await listCombinations(c.env.DB)).map((r) => [
+        `${Math.min(r.role_a_id, r.role_b_id)}:${Math.max(r.role_a_id, r.role_b_id)}`,
+        { verdict: r.verdict, reason: r.reason },
+      ]))
+    : undefined;
+  return c.html(servicePage(detail, viewCtx(c), candidates, combinations));
 });
 
 /**
@@ -1696,8 +1704,13 @@ app.post('/app/rota/service/:id/role/:roleId/add', async (c) => {
   // from a count — the same rule the generator uses, so a pin at slot 3 does not
   // collide with a new slot 1.
   const { results: taken } = await c.env.DB.prepare(
-    'SELECT slot FROM assignments WHERE service_id = ?1 AND role_id = ?2',
-  ).bind(id, roleId).all<{ slot: number }>();
+    'SELECT slot, person_id FROM assignments WHERE service_id = ?1 AND role_id = ?2',
+  ).bind(id, roleId).all<{ slot: number; person_id: number | null }>();
+  // The picker no longer offers somebody already in this role, but a second tab
+  // or a double click could still send it. Twice in one role is never meant.
+  if (taken.some((t) => t.person_id === personId)) {
+    return c.redirect(`/app/rota/service/${id}`, 303);
+  }
   const used = new Set(taken.map((t) => t.slot));
   let slot = 1;
   while (used.has(slot)) slot++;

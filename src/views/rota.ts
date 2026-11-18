@@ -553,14 +553,20 @@ export function gapsPage(services: ServiceSummary[], ctx: ViewCtx) {
  * is hidden on the strength of these, because a churchwarden ringing round on a
  * Saturday night knows more than the roster does.
  */
-function candidateLabel(c: Candidate): string {
+function candidateLabel(c: Candidate, alsoOn: string[]): string {
   const notes = [
     c.on_break ? 'on a break' : '',
     c.is_guest ? 'guest' : '',
     c.away ? 'away that day' : '',
+    ...alsoOn,
   ].filter(Boolean);
   return notes.length ? `${c.display_name} — ${notes.join(', ')}` : c.display_name;
 }
+
+/** The same key the generator and the draft use: a pair has no direction. */
+const comboKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+
+export type ComboVerdicts = Map<string, { verdict: 'green' | 'amber' | 'red'; reason: string | null }>;
 
 export function servicePage(
   s: ServiceDetail,
@@ -568,7 +574,34 @@ export function servicePage(
   /** Who can be put on each role by hand. Absent means the pickers are hidden,
    *  which is what a viewer without the right to change the rota sees. */
   candidatesFor?: Map<number, Candidate[]>,
+  /** The green/amber/red combination rules, keyed by comboKey. */
+  combinations: ComboVerdicts = new Map(),
 ) {
+  /**
+   * Who can be offered for one role. Only somebody already in THIS role is left
+   * out — being on another role here is what the combination rules are for, so
+   * the person is offered with that said, the same as the draft editor does.
+   * Hiding them instead made a worship leader who was also leading the service
+   * impossible to put on by hand, whatever the rules allowed.
+   */
+  const offerFor = (roleId: number) => {
+    const here = s.roles.find((r) => r.role_id === roleId);
+    return (candidatesFor?.get(roleId) ?? [])
+      .filter((cand) => !here?.people.some((p) => p.person_id === cand.id))
+      .map((cand) => {
+        const alsoOn = s.roles
+          .filter((r) => r.role_id !== roleId && r.people.some((p) => p.person_id === cand.id))
+          .map((r) => {
+            const verdict = combinations.get(comboKey(roleId, r.role_id))?.verdict;
+            return verdict === 'red'
+              ? `already on ${r.role_name} here (marked as not allowed together)`
+              : verdict === 'amber'
+                ? `already on ${r.role_name} here (marked as not ideal)`
+                : `already on ${r.role_name} here`;
+          });
+        return { cand, label: candidateLabel(cand, alsoOn) };
+      });
+  };
   // Nobody on it at all, versus somebody on it but not enough of them. Only
   // the first is a role that needs filling.
   const empty = s.roles.filter((r) => r.people.length === 0);
@@ -683,13 +716,12 @@ export function servicePage(
                     <label class="sr-only" for="add-${r.role_id}">Put somebody on ${r.role_name}</label>
                     <select id="add-${r.role_id}" name="person_id" required>
                       <option value="">Put somebody on…</option>
-                      ${(candidatesFor?.get(r.role_id) ?? [])
-                        .filter((cand) => !cand.already_here)
-                        .map((cand) => html`<option value="${cand.id}">${candidateLabel(cand)}</option>`)}
+                      ${offerFor(r.role_id)
+                        .map(({ cand, label }) => html`<option value="${cand.id}">${label}</option>`)}
                     </select>
                     <button class="btn-secondary" type="submit">Add</button>
                   </form>
-                  ${(candidatesFor?.get(r.role_id) ?? []).filter((cand) => !cand.already_here).length === 0
+                  ${offerFor(r.role_id).length === 0
                     ? html`<p class="hint" style="margin:.35rem 0 0">
                         Nobody else is ticked for ${r.role_name}.
                         <a href="/app/settings/people">Open somebody under People</a>, tick it,

@@ -87,10 +87,16 @@ const CANDIDATES = new Map([
     { id: 11, display_name: 'Sue Baker', can_do: 1, on_break: 0, is_guest: 0, already_here: 0, away: 0 },
     { id: 12, display_name: 'Roger Vane', can_do: 1, on_break: 0, is_guest: 1, already_here: 0, away: 0 },
     { id: 13, display_name: 'Pat Doyle', can_do: 1, on_break: 1, is_guest: 0, already_here: 0, away: 1 },
-    { id: 14, display_name: 'Steve', can_do: 1, on_break: 0, is_guest: 0, already_here: 1, away: 0 },
+    // Steve is already the preacher (person 10), so is not offered again.
+    { id: 10, display_name: 'Steve', can_do: 1, on_break: 0, is_guest: 0, already_here: 1, away: 0 },
   ]],
   [4, []],
-  [2, []],
+  // Don (person 20) is on Prayer ministry here and Steve is preaching: being
+  // on another role is what the combination rules decide, not grounds to hide.
+  [2, [
+    { id: 20, display_name: 'Don', can_do: 1, on_break: 0, is_guest: 0, already_here: 1, away: 0 },
+    { id: 10, display_name: 'Steve', can_do: 1, on_break: 0, is_guest: 0, already_here: 1, away: 0 },
+  ]],
 ]);
 
 const CTX: ViewCtx = { signedInAs: 'Matt', isAdmin: true, path: '/app' };
@@ -340,10 +346,26 @@ await check('a coordinator can put somebody on', () => servicePage(detail, CTX, 
   // Existing assignees carry their own markers.
   'on a break', 'guest',
 ], [
-  // Somebody already on this service is not offered again.
-  'Steve — ',
+  // Somebody already in this ROLE is not offered for it again. (Steve is only
+  // the preacher, so in the Preacher list he would carry no note at all.)
+  '<option value="10">Steve</option>',
   // Everyone offered can already do the role, so saying so would be noise.
   'does not normally do this',
+]);
+
+// Somebody on one role here can be put on another by hand — a worship leader
+// who is also leading the service. The combination rules are SAID, not used to
+// hide anybody: red and amber are named, an unruled pair is just noted.
+await check('somebody on another role is still offered', () => servicePage(
+  detail, CTX, CANDIDATES, new Map([
+    ['1:2', { verdict: 'red' as const, reason: null }],
+    ['2:4', { verdict: 'amber' as const, reason: null }],
+  ])), [
+  'Don — already on Prayer ministry here (marked as not ideal)',
+  'Steve — already on Preacher here (marked as not allowed together)',
+]);
+await check('an unruled pair is just noted', () => servicePage(detail, CTX, CANDIDATES), [
+  'Don — already on Prayer ministry here</option>',
 ]);
 
 // A role nobody else is ticked for says where to go, rather than showing an
