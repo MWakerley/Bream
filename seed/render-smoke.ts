@@ -39,6 +39,7 @@ import { readRequest, officeEmail, receivedEmail, decisionEmail } from '../src/r
 import { appliedNotice } from '../src/rota/apply.js';
 import { publicRoomRequestPage, requestClosedPage, requestReceivedPage, bookingFormSettingsPage } from '../src/views/roomRequests.js';
 import type { ViewCtx } from '../src/views/layout.js';
+import { loginHistoryPage } from '../src/views/loginhistory.js';
 import type { RoleRow, ServiceDetail, ServiceSummary } from '../src/db.js';
 
 const role = (id: number, name: string, min = 1, ideal = 1, communion = 0): RoleRow => ({
@@ -2018,6 +2019,31 @@ await check('and nothing at all on a quiet week', () => homePage({
   }), ['role="alert"', 'Sue Baker is down for Preacher twice.', '<option value="13" selected>'],
     ['<option value="11" selected>']);
 }
+
+// Login history: everybody with a sign-in, the never-used included and
+// sorted last, and the latest sign-ins underneath.
+await check('login history', () => loginHistoryPage({
+  people: [
+    { id: 7, display_name: 'Sue Baker', profile_name: 'Volunteer', is_active: 1,
+      last_sign_in_at: '2026-11-17 09:30:00', recent: 3, total: 9 },
+    { id: 8, display_name: 'Roger Vane', profile_name: null, is_active: 0,
+      last_sign_in_at: null, recent: 0, total: 0 },
+  ],
+  latest: [{ person_id: 7, display_name: 'Sue Baker', signed_in_at: '2026-11-17 09:30:00' }],
+  more: 8, since: '2026-11-01 08:00:00', ctx: CTX, today: new Date('2026-11-18T12:00:00Z'),
+}), ['Login history', '2 people have a sign-in', '1 signed in during the last 30 days', '1 never has',
+     'Sue Baker', '3 times', 'yesterday', 'Never', 'No longer serving', 'nothing — no profile',
+     'Latest sign-ins', '/app/settings/people/7', '8 older', 'Only successful sign-ins']);
+await check('login history with nobody yet', () => loginHistoryPage({
+  people: [], latest: [], more: 0, since: null, ctx: CTX,
+}), ['Nobody has been given a sign-in yet', 'Every sign-in from now on'], ['Latest sign-ins', 'By person']);
+// The boxes about somebody else are guarded against the password manager,
+// and the guard script is on the page.
+await check('boxes about somebody else are guarded', () => personPage({
+  person: { ...WITH_ACCOUNT, email: 'sue@example.org', account: null,
+    profiles: [{ id: 1, name: 'Volunteer', is_default: 1 }] },
+  roles, ctx: CTX,
+}), ['name="sign_in_name"', 'data-keep-value', '/assets/keep-value.js']);
 
 console.log(failures === 0 ? '\nAll views rendered.' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

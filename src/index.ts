@@ -35,6 +35,7 @@ import { setupPage, signInPage } from './views/signin.js';
 import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage, keyholdersPage,
          type KeyholderRow } from './views/settings.js';
 import { combinationsByRolePage } from './views/combinations.js';
+import { loginHistoryPage, type LoginSummaryRow, type SignInRow } from './views/loginhistory.js';
 import { draftRulesPage } from './views/draftrules.js';
 import { worshipPage } from './views/worship.js';
 import { recentActivity } from './activity.js';
@@ -273,9 +274,12 @@ app.post('/admin/setup', async (c) => {
   ).bind(personId, stored.password_hash, stored.salt, stored.iterations).run();
 
   const sid = newSessionId();
-  await c.env.DB.prepare(
-    'INSERT INTO sessions (id, person_id, expires_at) VALUES (?1, ?2, ?3)',
-  ).bind(sid, personId, sessionExpiry()).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare('INSERT INTO sessions (id, person_id, expires_at) VALUES (?1, ?2, ?3)')
+      .bind(sid, personId, sessionExpiry()),
+    // Setting up is the first sign-in, so it is on the Login history too.
+    c.env.DB.prepare('INSERT INTO sign_ins (person_id) VALUES (?1)').bind(personId),
+  ]);
 
   c.header('Set-Cookie', sessionCookie(sid, SESSION_MAX_AGE_SECONDS));
   return c.redirect('/app', 303);
@@ -323,6 +327,8 @@ app.post('/auth/sign-in', async (c) => {
     // be a lot of writes for a number nobody reads that often.
     c.env.DB.prepare("UPDATE credentials SET last_sign_in_at = datetime('now') WHERE person_id = ?1")
       .bind(row.id),
+    // One row per sign-in, for the Login history page.
+    c.env.DB.prepare('INSERT INTO sign_ins (person_id) VALUES (?1)').bind(row.id),
   ]);
 
   c.header('Set-Cookie', sessionCookie(sid, SESSION_MAX_AGE_SECONDS));
@@ -450,6 +456,40 @@ app.get('/app/settings/people', async (c) => {
   // The roles too, in the rota's order, for the "Show" filter beside the buttons.
   const [people, roles] = await Promise.all([listPeople(c.env.DB), listRoles(c.env.DB)]);
   return c.html(peoplePage(people, viewCtx(c), roles));
+});
+
+/** Who has been signing in, for the Admin Centre's Login history page. */
+const LATEST_SIGN_INS = 200;
+app.get('/app/settings/login-history', async (c) => {
+  const [people, latest, totals] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT p.id, p.display_name, p.is_active, pr.name AS profile_name, c.last_sign_in_at,
+              (SELECT COUNT(*) FROM sign_ins s
+                WHERE s.person_id = p.id AND s.signed_in_at >= datetime('now', '-30 days')) AS recent,
+              (SELECT COUNT(*) FROM sign_ins s WHERE s.person_id = p.id) AS total
+         FROM people p
+         JOIN credentials c ON c.person_id = p.id
+         LEFT JOIN profiles pr ON pr.id = p.profile_id
+        ORDER BY c.last_sign_in_at DESC, p.display_name`,
+    ),
+    c.env.DB.prepare(
+      `SELECT s.person_id, p.display_name, s.signed_in_at
+         FROM sign_ins s JOIN people p ON p.id = s.person_id
+        ORDER BY s.signed_in_at DESC, s.id DESC
+        LIMIT ?1`,
+    ).bind(LATEST_SIGN_INS),
+    c.env.DB.prepare('SELECT COUNT(*) AS n, MIN(signed_in_at) AS since FROM sign_ins'),
+  ]);
+  const rows = <T,>(r: { results?: unknown[] } | undefined) => (r?.results ?? []) as T[];
+  const t = rows<{ n: number; since: string | null }>(totals)[0] ?? { n: 0, since: null };
+  const shown = rows<SignInRow>(latest);
+  return c.html(loginHistoryPage({
+    people: rows<LoginSummaryRow>(people),
+    latest: shown,
+    more: Math.max(0, t.n - shown.length),
+    since: t.since,
+    ctx: viewCtx(c),
+  }));
 });
 
 app.get('/app/settings/safeguarding', async (c) =>
@@ -852,6 +892,21 @@ app.post('/app/settings/profiles/:id/delete', async (c) => {
 app.get('/app/settings/people/new', async (c) =>
   c.html(addPersonPage({ profiles: await listProfiles(c.env.DB), ctx: viewCtx(c) })));
 
+/**
+ * Whether a username being given to somebody is the signed-in administrator's
+ * OWN email or username. The browser's password manager kept filling the box
+ * with exactly that, so it is refused here too, whatever the page did.
+ */
+async function isOwnSignIn(
+  c: Context<{ Bindings: Env; Variables: Vars }>, value: string, forPersonId: number | null,
+): Promise<boolean> {
+  const me = c.get('person').id;
+  if (!value || me === forPersonId) return false;
+  return !!(await c.env.DB.prepare(
+    'SELECT 1 FROM people WHERE id = ?1 AND (lower(email) = ?2 OR lower(username) = ?2)',
+  ).bind(me, value.toLowerCase()).first());
+}
+
 app.post('/app/settings/people/new', async (c) => {
   const form = await c.req.formData();
   const str = (k: string) => String(form.get(k) ?? '').trim();
@@ -880,6 +935,10 @@ app.post('/app/settings/people/new', async (c) => {
   const username = giveLogin
     ? (str('sign_in_name').toLowerCase() || email || suggestUsername(displayName))
     : null;
+
+  if (username && username !== email && await isOwnSignIn(c, username, null)) {
+    return fail(`"${username}" is your own sign-in — your browser filled it in. Leave the username blank to use their email.`);
+  }
 
   // Everything that can fail on a constraint happens before the password is
   // generated, so a rejected form never leaves a half-made account.
@@ -1040,7 +1099,13 @@ async function personView(
 app.get('/app/settings/people/:id', async (c) => {
   const id = Number(c.req.param('id'));
   if (!Number.isInteger(id)) return c.notFound();
-  return personView(c, id, { saved: c.req.query('saved') === '1' });
+  return personView(c, id, {
+    saved: c.req.query('saved') === '1' && c.req.query('kept') !== 'email',
+    ...(c.req.query('kept') === 'email'
+      ? { notice: { tone: 'bad' as const, text: 'Saved — except the email address, which was your own. '
+          + 'Your browser filled it in, so their email was left as it was.' } }
+      : {}),
+  });
 });
 
 /**
@@ -1073,6 +1138,16 @@ app.post('/app/settings/people/:id/give-login', async (c) => {
     || person.email?.trim().toLowerCase()
     || suggestUsername(person.display_name);
   const profileId = Number(form.get('profile_id'));
+
+  if (username !== person.email?.trim().toLowerCase() && await isOwnSignIn(c, username, id)) {
+    return personView(c, id, {
+      notice: {
+        tone: 'bad',
+        text: `"${username}" is your own sign-in — your browser filled it in. Nothing was saved; `
+          + 'the box now shows their email (or a name-based one) again.',
+      },
+    });
+  }
 
   try {
     await c.env.DB.prepare('UPDATE people SET username = ?2, profile_id = ?3 WHERE id = ?1')
@@ -1209,10 +1284,18 @@ app.post('/app/settings/people/:id', async (c) => {
     const v = Number(form.get(k));
     return Number.isInteger(v) && v > 0 ? v : null;
   };
+  // contact_email since the box was renamed so browsers stop filling it;
+  // 'email' still read so a page opened before that cannot blank it.
+  const email = form.has('contact_email') ? str('contact_email') : str('email');
+  // The administrator's OWN address, put there by the browser, is never saved
+  // onto somebody else: their email is left exactly as it was.
+  const keepEmail = email ? await isOwnSignIn(c, email, id) : false;
 
   await c.env.DB.prepare(
     `UPDATE people
-        SET display_name = ?2, full_name = ?3, email = ?4, is_active = ?5,
+        SET display_name = ?2, full_name = ?3,
+            email = CASE WHEN ?12 = 1 THEN email ELSE ?4 END,
+            is_active = ?5,
             needs_review = CASE WHEN ?6 = 1 THEN 0 ELSE needs_review END,
             review_note  = CASE WHEN ?6 = 1 THEN NULL ELSE review_note END,
             on_break = ?7,
@@ -1241,14 +1324,12 @@ app.post('/app/settings/people/:id', async (c) => {
             updated_at = datetime('now')
       WHERE id = ?1`,
   ).bind(
-    // contact_email since the box was renamed so browsers stop filling it;
-    // 'email' still read so a page opened before that cannot blank it.
-    id, str('display_name') ?? 'Unnamed', str('full_name'),
-    form.has('contact_email') ? str('contact_email') : str('email'),
+    id, str('display_name') ?? 'Unnamed', str('full_name'), email,
     form.get('is_active') ? 1 : 0, form.get('clear_review') ? 1 : 0,
     form.get('on_break') ? 1 : 0, form.get('is_guest') ? 1 : 0,
     form.get('is_keyholder') ? 1 : 0, JSON.stringify(readKeys(form)),
     c.get('areas')?.has('regulation') ? 1 : 0,
+    keepEmail ? 1 : 0,
   ).run();
 
   const roles = await listRoles(c.env.DB);
@@ -1293,7 +1374,7 @@ app.post('/app/settings/people/:id', async (c) => {
   // Their safeguarding boxes were only on the page for somebody with Regulation.
   if (c.get('areas')?.has('regulation')) await saveSgPerson(c.env.DB, id, await loadSgGrid(c.env.DB), form);
 
-  return c.redirect(`/app/settings/people/${id}?saved=1`, 303);
+  return c.redirect(`/app/settings/people/${id}?saved=1${keepEmail ? '&kept=email' : ''}`, 303);
 });
 
 /** Every role, including ones switched off — the settings page must be able to

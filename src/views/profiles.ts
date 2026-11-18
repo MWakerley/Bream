@@ -172,13 +172,13 @@ export function addPersonPage(opts: {
             <label for="display_name">Name on the rota</label>
             <span class="hint">How they appear on the printed rota.</span>
             <input id="display_name" name="display_name" type="text" value="${f.display_name ?? ''}" required
-                   autocomplete="off" data-lpignore="true" data-1p-ignore>
+                   autocomplete="off" data-lpignore="true" data-1p-ignore data-keep-value>
           </div>
           <div class="field">
             <label for="full_name">Full name</label>
             <span class="hint">Optional.</span>
             <input id="full_name" name="full_name" type="text" value="${f.full_name ?? ''}"
-                   autocomplete="off" data-lpignore="true" data-1p-ignore>
+                   autocomplete="off" data-lpignore="true" data-1p-ignore data-keep-value>
           </div>
           <div class="field">
             <label for="contact-email">Email</label>
@@ -186,7 +186,7 @@ export function addPersonPage(opts: {
             <!-- Not called "email", autocomplete off: the browser filled these
                  boxes with the signed-in administrator's own details. -->
             <input id="contact-email" name="contact_email" type="email" value="${f.email ?? ''}"
-                   autocomplete="off" data-lpignore="true" data-1p-ignore>
+                   autocomplete="off" data-lpignore="true" data-1p-ignore data-keep-value>
           </div>
         </div>
 
@@ -211,7 +211,7 @@ export function addPersonPage(opts: {
                    the admin's own sign-in and filled in their saved email. -->
               <input id="sign-in-name" name="sign_in_name" type="text" value="${f.sign_in_name ?? ''}"
                      autocapitalize="none" autocomplete="off" spellcheck="false"
-                     data-lpignore="true" data-1p-ignore>
+                     data-lpignore="true" data-1p-ignore data-keep-value>
             </div>
             <div class="field">
               <label for="profile_id">What they can see</label>

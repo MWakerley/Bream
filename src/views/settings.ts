@@ -22,6 +22,7 @@ export const SETTINGS_GROUPS: { title: string; note: string; icon: IconName; ite
     items: [
       { href: '/app/settings/people', label: 'People', icon: 'people', note: 'Everyone on the roster: what each can do, how often, and finding somebody.' },
       { href: '/app/settings/profiles', label: 'What people can see', icon: 'eye', note: 'Profiles, and which areas each one opens — including who can book rooms.' },
+      { href: '/app/settings/login-history', label: 'Login history', icon: 'clock', note: 'Who has signed in to the system, and when.' },
     ],
   },
   {
@@ -249,6 +250,7 @@ export function peoplePage(
       <div class="btn-row people-actions">
         <a class="btn-primary" href="/app/settings/people/new">Add a person</a>
         <a class="btn-secondary" href="/app/settings/people/merge">Merge duplicates</a>
+        <a class="btn-secondary" href="/app/settings/login-history">Login history</a>
         ${regulated
           ? html`<a class="btn-secondary" href="/app/settings/keyholders">${raw(KEY_ICON)} Keyholders</a>`
           : ''}

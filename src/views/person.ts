@@ -126,7 +126,7 @@ export interface PersonAccount {
 }
 
 /** "3 days ago", for a date that is more useful as a distance than as a date. */
-function howLongAgo(iso: string, today: Date): string {
+export function howLongAgo(iso: string, today: Date): string {
   const then = new Date(`${iso.replace(' ', 'T')}Z`);
   const days = Math.floor((today.getTime() - then.getTime()) / 86_400_000);
   if (!Number.isFinite(days)) return '';
@@ -253,19 +253,19 @@ export function personPage(opts: {
               <label for="display_name">Name on the rota</label>
               <span class="hint">How they appear on the printed rota.</span>
               <input id="display_name" name="display_name" type="text" value="${p.display_name}" required
-                     autocomplete="off" data-lpignore="true" data-1p-ignore>
+                     autocomplete="off" data-lpignore="true" data-1p-ignore data-keep-value>
             </div>
             <div class="field">
               <label for="full_name">Full name</label>
               <span class="hint">Optional — it is what settles "which Andy?"</span>
               <input id="full_name" name="full_name" type="text" value="${p.full_name ?? ''}"
-                     autocomplete="off" data-lpignore="true" data-1p-ignore>
+                     autocomplete="off" data-lpignore="true" data-1p-ignore data-keep-value>
             </div>
             <div class="field">
               <label for="contact-email">Email</label>
               <span class="hint">Only needed if they sign in.</span>
               <input id="contact-email" name="contact_email" type="email" value="${p.email ?? ''}"
-                     autocomplete="off" data-lpignore="true" data-1p-ignore>
+                     autocomplete="off" data-lpignore="true" data-1p-ignore data-keep-value>
             </div>
           </div>
           <!-- Three ways somebody can be left off a rota, and they mean three
@@ -517,7 +517,7 @@ export function personPage(opts: {
                     <input id="sign-in-name" name="sign_in_name" type="text"
                            value="${p.email ?? suggestedUsername(p.display_name)}" required
                            autocapitalize="none" autocomplete="off" spellcheck="false"
-                           data-lpignore="true" data-1p-ignore>
+                           data-lpignore="true" data-1p-ignore data-keep-value>
                   </div>
                   <div class="field">
                     <label for="profile_id">What they can see</label>
