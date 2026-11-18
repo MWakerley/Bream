@@ -237,24 +237,35 @@ export function personPage(opts: {
 
       <form method="post" action="/app/settings/people/${p.id}">
         <div class="card">
-          <h2>Details</h2>
+          <!-- A Save at the top as well as the bottom: the record is long, and a
+               change made up here was easy to leave unsaved. -->
+          <div class="card-head">
+            <h2>Details</h2>
+            <button class="btn-primary" type="submit">Save this person</button>
+          </div>
           <!-- Three across on a wide screen, stacking on a narrow one. The hints
-               differ in length, so .grid-fields bottom-aligns the inputs. -->
+               differ in length, so .grid-fields bottom-aligns the inputs.
+               Autocomplete off, and the email box not called "email": these
+               describe somebody ELSE, and the browser was filling in the
+               signed-in administrator's own name and email address. -->
           <div class="grid-fields grid-3">
             <div class="field">
               <label for="display_name">Name on the rota</label>
               <span class="hint">How they appear on the printed rota.</span>
-              <input id="display_name" name="display_name" type="text" value="${p.display_name}" required>
+              <input id="display_name" name="display_name" type="text" value="${p.display_name}" required
+                     autocomplete="off" data-lpignore="true" data-1p-ignore>
             </div>
             <div class="field">
               <label for="full_name">Full name</label>
               <span class="hint">Optional — it is what settles "which Andy?"</span>
-              <input id="full_name" name="full_name" type="text" value="${p.full_name ?? ''}">
+              <input id="full_name" name="full_name" type="text" value="${p.full_name ?? ''}"
+                     autocomplete="off" data-lpignore="true" data-1p-ignore>
             </div>
             <div class="field">
-              <label for="email">Email</label>
+              <label for="contact-email">Email</label>
               <span class="hint">Only needed if they sign in.</span>
-              <input id="email" name="email" type="email" value="${p.email ?? ''}">
+              <input id="contact-email" name="contact_email" type="email" value="${p.email ?? ''}"
+                     autocomplete="off" data-lpignore="true" data-1p-ignore>
             </div>
           </div>
           <!-- Three ways somebody can be left off a rota, and they mean three

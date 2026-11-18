@@ -856,10 +856,13 @@ app.post('/app/settings/people/new', async (c) => {
   const form = await c.req.formData();
   const str = (k: string) => String(form.get(k) ?? '').trim();
   const echo = Object.fromEntries(
-    ['display_name', 'full_name', 'email', 'sign_in_name', 'give_login'].map((k) => [k, str(k)]));
+    ['display_name', 'full_name', 'sign_in_name', 'give_login'].map((k) => [k, str(k)]));
+  // The box is contact_email now, so browsers stop filling it with the
+  // administrator's own address; 'email' still read from a page opened before.
+  echo.email = form.has('contact_email') ? str('contact_email') : str('email');
 
   const displayName = str('display_name');
-  const email = str('email').toLowerCase() || null;
+  const email = echo.email.toLowerCase() || null;
   const giveLogin = form.get('give_login') !== null;
 
   const fail = async (text: string) => c.html(addPersonPage({
@@ -1238,7 +1241,10 @@ app.post('/app/settings/people/:id', async (c) => {
             updated_at = datetime('now')
       WHERE id = ?1`,
   ).bind(
-    id, str('display_name') ?? 'Unnamed', str('full_name'), str('email'),
+    // contact_email since the box was renamed so browsers stop filling it;
+    // 'email' still read so a page opened before that cannot blank it.
+    id, str('display_name') ?? 'Unnamed', str('full_name'),
+    form.has('contact_email') ? str('contact_email') : str('email'),
     form.get('is_active') ? 1 : 0, form.get('clear_review') ? 1 : 0,
     form.get('on_break') ? 1 : 0, form.get('is_guest') ? 1 : 0,
     form.get('is_keyholder') ? 1 : 0, JSON.stringify(readKeys(form)),

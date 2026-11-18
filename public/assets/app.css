@@ -303,6 +303,11 @@ a:hover { color: var(--navy-deep); }
 .card > :first-child { margin-top: 0; }
 .card > :last-child { margin-bottom: 0; }
 .card h2, .card h3 { color: var(--navy); text-transform: uppercase; font-size: 1.05rem; letter-spacing: .06em; }
+/* A card's heading with a button on the same line — the person record's top
+   Save. Wraps under the heading on a phone rather than squeezing it. */
+.card-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;
+  justify-content: space-between; margin-bottom: 1rem; }
+.card-head > h2 { margin: 0; }
 
 .table-scroll { overflow-x: auto; border-radius: var(--radius); box-shadow: var(--shadow); background: var(--paper); }
 /* A scroll box clips only what it positions. Without this, the .sr-only labels

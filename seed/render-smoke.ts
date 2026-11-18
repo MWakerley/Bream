@@ -533,6 +533,11 @@ await check('nobody with no safeguarding role is chased for courses', () => pers
   safeguarding: { grid: SG_GRID, person: { roleIds: [], courses: new Map() } },
 }), ['None of the roles ticked above needs a course'], ['courses done']);
 
+const WITH_ACCOUNT_EARLY = {
+  id: 7, display_name: 'Sue Baker', full_name: null, email: null,
+  needs_review: 0, review_note: null, is_active: 1, is_admin: 0,
+  settings: new Map<number, never>(),
+};
 await check('person edit', () => personPage({
   person: {
     id: 7, display_name: 'Andy', full_name: null, email: null,
@@ -554,6 +559,16 @@ await check('person edit', () => personPage({
      // One figure now: the second box, and its heading, are gone.
      'Specific preferences', 'name="weeks_1" value="2" checked', 'Every other week'],
   ['Not more often than', 'At most', 'name="gapn_1"']);
+
+// A long record: Save is offered at the top as well as the bottom, and the
+// boxes about somebody ELSE are kept away from the browser's autofill, which
+// was writing the administrator's own email into them.
+await check('person record: Save at the top, no autofill', async () => {
+  const out = String(await personPage({ person: { ...WITH_ACCOUNT_EARLY, email: 'sue@example.org' }, roles, ctx: CTX }));
+  const saves = out.split('Save this person</button>').length - 1;
+  const head = out.indexOf('class="card-head"');
+  return saves === 2 && head > -1 && head < out.indexOf('name="display_name"') ? out : 'Save not at the top';
+}, ['name="contact_email"', 'value="sue@example.org"', 'autocomplete="off"'], ['name="email"', 'Save not at the top']);
 
 /**
  * Which unit each named <select> has selected, followed by the whole page with

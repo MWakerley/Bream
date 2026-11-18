@@ -171,17 +171,22 @@ export function addPersonPage(opts: {
           <div class="field">
             <label for="display_name">Name on the rota</label>
             <span class="hint">How they appear on the printed rota.</span>
-            <input id="display_name" name="display_name" type="text" value="${f.display_name ?? ''}" required>
+            <input id="display_name" name="display_name" type="text" value="${f.display_name ?? ''}" required
+                   autocomplete="off" data-lpignore="true" data-1p-ignore>
           </div>
           <div class="field">
             <label for="full_name">Full name</label>
             <span class="hint">Optional.</span>
-            <input id="full_name" name="full_name" type="text" value="${f.full_name ?? ''}">
+            <input id="full_name" name="full_name" type="text" value="${f.full_name ?? ''}"
+                   autocomplete="off" data-lpignore="true" data-1p-ignore>
           </div>
           <div class="field">
-            <label for="email">Email</label>
+            <label for="contact-email">Email</label>
             <span class="hint">Needed to send them their sign-in.</span>
-            <input id="email" name="email" type="email" value="${f.email ?? ''}">
+            <!-- Not called "email", autocomplete off: the browser filled these
+                 boxes with the signed-in administrator's own details. -->
+            <input id="contact-email" name="contact_email" type="email" value="${f.email ?? ''}"
+                   autocomplete="off" data-lpignore="true" data-1p-ignore>
           </div>
         </div>
 
