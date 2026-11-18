@@ -329,7 +329,7 @@ await check('service detail', () => servicePage(detail, CTX),
   // A viewer who may only SEE the rota gets a read-only page: no picker, no
   // Take off, and no switching a role off or back on — all of which the
   // server would refuse them anyway.
-  ['Put somebody on', 'Take off', 'Put it back', '/off"', '/on"']);
+  ['Put somebody on', 'Take off', 'Put it back', '/off"', '/on"', '/title"', 'Change the service name']);
 await check('a coordinator can switch a role off and back on', () => servicePage(detail, CTX, CANDIDATES),
   ['Not needed here', 'Put it back']);
 

@@ -159,16 +159,19 @@ ok('an empty name still gives something', suggestUsername('!!!') === 'user');
   ok('Regulation alone does not open the Admin Centre', !mayAccess(new Set(['regulation']), '/app/settings/people', 'GET'));
 }
 
-// Renaming a service is open to anybody who can see the rota; nothing else
-// under the service page comes with it.
+// Somebody who may only SEE the rota can change nothing on a service — not
+// even its name. Whoever may change the rota can do all of it.
 {
   const VIEWER = new Set(['rota', 'me']);
-  ok('a rota viewer can rename a service', mayAccess(VIEWER, '/app/rota/service/12/title', 'POST'));
-  ok('but cannot delete one', !mayAccess(VIEWER, '/app/rota/service/12/delete', 'POST'));
+  const BUILDER = new Set(['rota', 'rota.manage', 'me']);
+  ok('a rota viewer can open a service', mayAccess(VIEWER, '/app/rota/service/12', 'GET'));
+  ok('but cannot rename one', !mayAccess(VIEWER, '/app/rota/service/12/title', 'POST'));
+  ok('nor delete one', !mayAccess(VIEWER, '/app/rota/service/12/delete', 'POST'));
   ok('nor put somebody on it', !mayAccess(VIEWER, '/app/rota/service/12/role/3/add', 'POST'));
-  ok('the rename is not a back door to a longer path',
-    !mayAccess(VIEWER, '/app/rota/service/12/title/x', 'POST'));
-  ok('somebody without the rota cannot rename', !mayAccess(new Set(['me']), '/app/rota/service/12/title', 'POST'));
+  ok('nor a one-off', !mayAccess(VIEWER, '/app/rota/service/12/role/3/add-one-off', 'POST'));
+  ok('nor switch a role off', !mayAccess(VIEWER, '/app/rota/service/12/role/3/off', 'POST'));
+  ok('whoever may change the rota can rename', mayAccess(BUILDER, '/app/rota/service/12/title', 'POST'));
+  ok('and put a one-off on', mayAccess(BUILDER, '/app/rota/service/12/role/3/add-one-off', 'POST'));
 }
 
 console.log(failures === 0 ? '\nAccess control OK.' : `\n${failures} FAILURES`);

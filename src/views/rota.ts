@@ -619,9 +619,9 @@ export function servicePage(
         ${s.is_communion ? html` · ${chip('neutral', 'Communion')}` : ''}
       </p>
 
-      <!-- Anybody who can see the rota can put the name right; folded away so
-           it does not crowd the page people open on a Sunday morning. -->
-      <details class="card" style="padding-top:.75rem;padding-bottom:.75rem">
+      <!-- Only for whoever may change the rota; folded away so it does not
+           crowd the page people open on a Sunday morning. -->
+      ${candidatesFor ? html`<details class="card" style="padding-top:.75rem;padding-bottom:.75rem">
         <summary style="cursor:pointer">Change the service name</summary>
         <form method="post" action="/app/rota/service/${s.id}/title"
               style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:.75rem">
@@ -636,7 +636,7 @@ export function servicePage(
           </label>
           <button class="btn-secondary" type="submit">Save name</button>
         </form>
-      </details>
+      </details>` : ''}
 
       ${empty.length
         ? html`<div class="notice notice-bad" role="status">

@@ -1761,9 +1761,9 @@ app.post('/app/rota/service/:id/role/:roleId/add-one-off', async (c) => {
 });
 
 /**
- * Rename a service — "Worship" to "Holy Communion", say. Open to anybody who
- * can see the rota (see OPEN_WRITES in access.ts): it is only the label, and
- * whoever spots it is wrong should be able to put it right.
+ * Rename a service — "Worship" to "Holy Communion", say. Like every other
+ * change to the rota it needs the right to change it: somebody who may only
+ * see the rota gets a read-only page.
  */
 app.post('/app/rota/service/:id/title', async (c) => {
   const id = Number(c.req.param('id'));
