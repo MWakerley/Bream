@@ -459,7 +459,7 @@ app.get('/app/settings/people', async (c) => {
 });
 
 /** Who has been signing in, for the Admin Centre's Login history page. */
-const LATEST_SIGN_INS = 200;
+const LATEST_SIGN_INS = 20;
 app.get('/app/settings/login-history', async (c) => {
   const [people, latest, totals] = await c.env.DB.batch([
     c.env.DB.prepare(
