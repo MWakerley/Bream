@@ -99,6 +99,17 @@ loose.run(svc, role, 5, b);
 db.prepare(CLEAR_DRAFT_PLACES_SQL).run(JSON.stringify([[svc, role, 5]]));
 ok('and touches only the places it is given', row(4)?.person_id === a && row(5) === undefined);
 
+// A one-off — a name on the booking, nobody under People — is a confirmed
+// booking like any other, so a draft pointed at its place leaves it alone.
+db.prepare(`INSERT INTO assignments (service_id, role_id, slot, person_id, one_off_name, status, generated, reason)
+            VALUES (?, ?, 6, NULL, 'Revd Visitor', 'confirmed', 0, 'Put on by Matt as a one-off')`).run(svc, role);
+db.prepare(CLEAR_DRAFT_PLACES_SQL).run(JSON.stringify([[svc, role, 6]]));
+const oneOffWrite = Number(db.prepare(PLACE_SQL).run(svc, role, 6, c, 'Generated for slot 6.').changes);
+const s6 = one<{ person_id: number | null; one_off_name: string | null }>(
+  'SELECT person_id, one_off_name FROM assignments WHERE service_id = ? AND role_id = ? AND slot = 6', svc, role);
+ok('a one-off is never cleared or overwritten by a draft',
+  oneOffWrite === 0 && s6.person_id === null && s6.one_off_name === 'Revd Visitor', JSON.stringify(s6));
+
 // ---- merging two records keeps what each said about how often -------------
 // The draft goes by each person's own figures now, so a merge that drops the
 // duplicate's "As often as needed", or its cap, changes who preaches.

@@ -155,12 +155,13 @@ export async function listWorshipSundays(
         WHERE w.service_id IN (${marks})`,
     ).bind(...ids).all<WorshipSlot & { service_id: number }>(),
     db.prepare(
-      `SELECT a.service_id, p.display_name
+      `SELECT a.service_id, COALESCE(p.display_name, a.one_off_name) AS display_name
          FROM assignments a
-         JOIN people p ON p.id = a.person_id
+         LEFT JOIN people p ON p.id = a.person_id
          JOIN roles  r ON r.id = a.role_id
         WHERE a.service_id IN (${marks})
-          AND r.key = 'worship_leader'`,
+          AND r.key = 'worship_leader'
+          AND COALESCE(p.display_name, a.one_off_name) IS NOT NULL`,
     ).bind(...ids).all<{ service_id: number; display_name: string }>(),
   ]);
 

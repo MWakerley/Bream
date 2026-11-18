@@ -690,6 +690,7 @@ export function servicePage(
                           ${a.status === 'draft' ? chip('neutral', 'draft') : ''}
                           ${a.on_break ? chip('amber', 'on a break') : ''}
                           ${a.is_guest ? chip('navy', 'guest') : ''}
+                          ${a.one_off ? chip('neutral', 'one-off') : ''}
                           ${candidatesFor
                             ? html`<form method="post"
                                 action="/app/rota/service/${s.id}/assignment/${a.assignment_id}/remove"
@@ -721,6 +722,22 @@ export function servicePage(
                     </select>
                     <button class="btn-secondary" type="submit">Add</button>
                   </form>
+                  <!-- Somebody for this service only, who should not become a
+                       record under People. Folded away: it is the occasional
+                       case, and the list above is the usual one. -->
+                  <details class="one-off">
+                    <summary>Someone just for this service?</summary>
+                    <form method="post" action="/app/rota/service/${s.id}/role/${r.role_id}/add-one-off"
+                          class="add-person">
+                      <label class="sr-only" for="one-off-${r.role_id}">Their name</label>
+                      <input id="one-off-${r.role_id}" name="name" type="text" maxlength="80" required
+                             placeholder="Their name" autocomplete="off">
+                      <button class="btn-secondary" type="submit">Add</button>
+                    </form>
+                    <p class="hint" style="margin:.35rem 0 0">
+                      Only the name is kept, on this service. They are not added to People.
+                    </p>
+                  </details>
                   ${offerFor(r.role_id).length === 0
                     ? html`<p class="hint" style="margin:.35rem 0 0">
                         Nobody else is ticked for ${r.role_name}.

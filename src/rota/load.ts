@@ -123,12 +123,19 @@ export async function loadGeneratorInput(
       ).bind(historyFrom, fromDate),
 
       db.prepare(
-        `SELECT a.id AS assignment_id, a.service_id, a.role_id, a.slot, a.person_id,
-                a.reason, p.display_name, p.on_break, p.is_guest
+        // A one-off (a name on the booking, no person) is a pin like any
+        // other. It stands in as minus its booking's id: never a real
+        // person, so the generator holds the place without allocating it.
+        `SELECT a.id AS assignment_id, a.service_id, a.role_id, a.slot,
+                COALESCE(a.person_id, -a.id) AS person_id, a.reason,
+                COALESCE(p.display_name, a.one_off_name) AS display_name,
+                COALESCE(p.on_break, 0) AS on_break, COALESCE(p.is_guest, 0) AS is_guest,
+                (a.person_id IS NULL) AS one_off
            FROM assignments a
            JOIN services s ON s.id = a.service_id
-           JOIN people   p ON p.id = a.person_id
-          WHERE a.person_id IS NOT NULL AND a.status = 'confirmed'
+           LEFT JOIN people p ON p.id = a.person_id
+          WHERE (p.id IS NOT NULL OR (a.person_id IS NULL AND a.one_off_name IS NOT NULL))
+            AND a.status = 'confirmed'
             AND s.service_date BETWEEN ?1 AND ?2`,
       ).bind(fromDate, toDate),
     ]);
@@ -251,6 +258,7 @@ export async function loadGeneratorInput(
     })),
     pinned: pinRows.map((p) => ({
       serviceId: p.service_id, roleId: p.role_id, slot: p.slot, personId: p.person_id,
+      ...(p.one_off ? { oneOffName: p.display_name as string } : {}),
     })),
     released,
     runSeed,

@@ -368,6 +368,19 @@ await check('an unruled pair is just noted', () => servicePage(detail, CTX, CAND
   'Don — already on Prayer ministry here</option>',
 ]);
 
+// Somebody for one service only is added by name and marked as a one-off, and
+// the form to add one is offered only to whoever may change the rota.
+await check('a one-off is shown and can be added', () => servicePage({
+  ...detail,
+  roles: detail.roles.map((r) => r.role_id === 2
+    ? { ...r, people: [on(9, 'Revd Visitor', { person_id: null, one_off: 1 })] }
+    : r),
+}, CTX, CANDIDATES), [
+  'Revd Visitor', 'one-off', '/app/rota/service/1/role/2/add-one-off', 'Someone just for this service?',
+]);
+await check('a viewer is not offered the one-off form', () => servicePage(detail, CTX),
+  ['Remembrance'], ['add-one-off']);
+
 // A role nobody else is ticked for says where to go, rather than showing an
 // empty dropdown that looks broken.
 await check('an empty picker says how to fill it', () => servicePage(

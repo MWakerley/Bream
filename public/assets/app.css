@@ -1092,6 +1092,10 @@ input[type=search].search-input::-webkit-search-cancel-button { display: none; }
 .add-person { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .add-person select { width: auto; min-width: 12rem; max-width: 100%; flex: 1 1 12rem; padding: .5rem .6rem; }
 .add-person button { flex: none; }
+.add-person input[type="text"] { width: auto; min-width: 12rem; max-width: 100%; flex: 1 1 12rem; }
+.one-off { margin-top: .4rem; }
+.one-off > summary { cursor: pointer; font-size: .9em; color: var(--ink-2); }
+.one-off[open] > summary { margin-bottom: .35rem; }
 
 /* ---------------------------------------------------------------------------
    Booking a room straight from the calendar.

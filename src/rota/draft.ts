@@ -204,11 +204,17 @@ export function buildDraftView(
           }));
         for (const pin of input.pinned) {
           if (pin.serviceId !== s.id || pin.roleId !== r.roleId || nameOf.has(pin.personId)) continue;
-          people.push({
-            personId: pin.personId, name: extras.pinNames.get(pin.personId) ?? 'Already booked',
-            slot: pin.slot, amber: [], pinned: true,
-            reason: 'Already set — left exactly as it was, though they are not being given anything new at the moment.',
-          });
+          people.push(pin.oneOffName != null
+            ? {
+                personId: pin.personId, name: pin.oneOffName,
+                slot: pin.slot, amber: [], pinned: true,
+                reason: 'A one-off, put on by hand for this service only — left exactly as it was.',
+              }
+            : {
+                personId: pin.personId, name: extras.pinNames.get(pin.personId) ?? 'Already booked',
+                slot: pin.slot, amber: [], pinned: true,
+                reason: 'Already set — left exactly as it was, though they are not being given anything new at the moment.',
+              });
         }
         people.sort((a, b) => a.slot - b.slot);
 

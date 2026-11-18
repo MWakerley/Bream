@@ -1726,6 +1726,41 @@ app.post('/app/rota/service/:id/role/:roleId/add', async (c) => {
 });
 
 /**
+ * Put a one-off on a role: somebody taking part in this service only — a
+ * visiting speaker, a relative reading at a baptism — who should not become a
+ * record under People. Only the name is kept, on the booking itself, and it
+ * goes when the booking is taken off or the service is deleted.
+ */
+app.post('/app/rota/service/:id/role/:roleId/add-one-off', async (c) => {
+  const id = Number(c.req.param('id'));
+  const roleId = Number(c.req.param('roleId'));
+  if (!Number.isInteger(id) || !Number.isInteger(roleId)) return c.notFound();
+  const name = String((await c.req.formData()).get('name') ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (!name) return c.redirect(`/app/rota/service/${id}`, 303);
+
+  const exists = await c.env.DB.prepare(
+    'SELECT 1 FROM services s, roles r WHERE s.id = ?1 AND r.id = ?2',
+  ).bind(id, roleId).first();
+  if (!exists) return c.notFound();
+
+  // The lowest free slot, as for anybody put on by hand.
+  const { results: taken } = await c.env.DB.prepare(
+    'SELECT slot FROM assignments WHERE service_id = ?1 AND role_id = ?2',
+  ).bind(id, roleId).all<{ slot: number }>();
+  const used = new Set(taken.map((t) => t.slot));
+  let slot = 1;
+  while (used.has(slot)) slot++;
+
+  // Confirmed and generated = 0, so the next draft keeps it as a pin.
+  await c.env.DB.prepare(
+    `INSERT INTO assignments (service_id, role_id, slot, person_id, one_off_name, status, generated, reason)
+     VALUES (?1, ?2, ?3, NULL, ?4, 'confirmed', 0, ?5)`,
+  ).bind(id, roleId, slot, name, `Put on by ${c.get('person').display_name} as a one-off`).run();
+
+  return c.redirect(`/app/rota/service/${id}`, 303);
+});
+
+/**
  * Rename a service — "Worship" to "Holy Communion", say. Open to anybody who
  * can see the rota (see OPEN_WRITES in access.ts): it is only the label, and
  * whoever spots it is wrong should be able to put it right.
@@ -2484,7 +2519,7 @@ async function draftForExport(c: Context<{ Bindings: Env; Variables: Vars }>) {
     roles: s.rows.filter((r) => r.roleId != null).map((r) => ({
       role_id: r.roleId!, role_name: nameOf.get(r.roleId!) ?? 'Role', min_needed: 0, ideal_needed: 0,
       people: r.names.map((n) => ({
-        assignment_id: 0, person_id: 0, display_name: n, status: 'draft', on_break: 0, is_guest: 0,
+        assignment_id: 0, person_id: 0, display_name: n, status: 'draft', on_break: 0, is_guest: 0, one_off: 0,
       })),
     })),
   }));

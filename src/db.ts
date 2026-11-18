@@ -488,13 +488,15 @@ const REQUIREMENTS_SQL = `
          r.is_critical                          AS is_critical,
          COALESCE(o.min_needed,   r.min_needed)   AS min_needed,
          COALESCE(o.ideal_needed, r.ideal_needed) AS ideal_needed,
-         COUNT(a.person_id)                     AS filled
+         COUNT(a.id)                            AS filled
     FROM services s
     LEFT JOIN service_types st ON st.id = s.service_type_id
     CROSS JOIN roles r
     LEFT JOIN service_role_overrides o ON o.service_id = s.id AND o.role_id = r.id
+    -- A one-off (a name on the booking, no person) fills a place too.
     LEFT JOIN assignments a
-           ON a.service_id = s.id AND a.role_id = r.id AND a.person_id IS NOT NULL
+           ON a.service_id = s.id AND a.role_id = r.id
+          AND (a.person_id IS NOT NULL OR a.one_off_name IS NOT NULL)
    WHERE s.is_cancelled = 0
      AND r.is_active = 1
      AND COALESCE(o.applies, 1) = 1
@@ -626,8 +628,11 @@ export interface ServiceRoleDetail {
 
 export interface ServiceAssignee {
   assignment_id: number;
-  person_id: number;
+  /** Null for a one-off: somebody named on this booking only, not under People. */
+  person_id: number | null;
   display_name: string;
+  /** Somebody taking part in this one service, kept nowhere but the booking. */
+  one_off: number;
   status: string;
   /** They are on this service despite being on a break or being a guest. */
   on_break: number;
@@ -686,9 +691,13 @@ export async function getServiceDetails(
     ).bind(list),
     db.prepare(
       `SELECT a.service_id, a.id AS assignment_id, a.role_id, a.status,
-              p.id AS person_id, p.display_name, p.on_break, p.is_guest
-         FROM assignments a JOIN people p ON p.id = a.person_id
+              p.id AS person_id,
+              COALESCE(p.display_name, a.one_off_name) AS display_name,
+              COALESCE(p.on_break, 0) AS on_break, COALESCE(p.is_guest, 0) AS is_guest,
+              (a.person_id IS NULL) AS one_off
+         FROM assignments a LEFT JOIN people p ON p.id = a.person_id
         WHERE a.service_id IN ${IN}
+          AND (p.id IS NOT NULL OR (a.person_id IS NULL AND a.one_off_name IS NOT NULL))
         ORDER BY a.role_id, a.slot`,
     ).bind(list),
     db.prepare(

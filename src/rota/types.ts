@@ -85,7 +85,9 @@ export interface GeneratorInput {
   /** Assignments before the horizon, for cadence. */
   history: ServedRecord[];
   /** Assignments already inside the horizon that must be kept exactly. */
-  pinned: { serviceId: number; roleId: number; slot: number; personId: number }[];
+  /** A one-off carries its name and a negative personId (minus its booking's
+   *  id), which no real person has. */
+  pinned: { serviceId: number; roleId: number; slot: number; personId: number; oneOffName?: string }[];
   /**
    * Existing bookings the draft takes OFF: people now on a break, and guests
    * the rota picked rather than somebody putting them on by hand. Their places
