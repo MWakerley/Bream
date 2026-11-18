@@ -760,13 +760,15 @@ export function servicePage(
                         : chip('green', 'OK')}
                 </td>
                 <td class="stack-actions">
-                  <form method="post" action="/app/rota/service/${s.id}/role/${r.role_id}/off"
+                  ${candidatesFor
+                    ? html`<form method="post" action="/app/rota/service/${s.id}/role/${r.role_id}/off"
                         class="inline-form">
                     <button class="linkish" type="submit"
                             title="This service does not need ${r.role_name} at all">
                       Not needed here
                     </button>
-                  </form>
+                  </form>`
+                    : ''}
                 </td>
               </tr>`;
             })}
@@ -790,11 +792,13 @@ export function servicePage(
                       <td class="stack-title"><strong>${n.role_name}</strong></td>
                       <td style="color:var(--ink-2)">${n.note ?? '—'}</td>
                       <td class="stack-actions" style="text-align:right">
-                        <form method="post"
+                        ${candidatesFor
+                          ? html`<form method="post"
                               action="/app/rota/service/${s.id}/role/${n.role_id}/on"
                               class="inline-form">
                           <button class="linkish" type="submit">Put it back</button>
-                        </form>
+                        </form>`
+                          : ''}
                       </td>
                     </tr>`,
                   )}

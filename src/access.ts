@@ -9,8 +9,8 @@
  */
 
 export const AREAS = [
-  { key: 'rota', label: 'See the rota', note: 'Who is serving and when, read-only.' },
-  { key: 'rota.manage', label: 'Build the rota', note: 'Generate it, edit services, readings, and handle swap requests.' },
+  { key: 'rota', label: 'See the rota', note: 'Who is serving and when, read-only. On its own, nobody can be put on or taken off.' },
+  { key: 'rota.manage', label: 'Build and change the rota', note: 'Put people on and take them off services, switch roles off, generate drafts, readings, and swap requests.' },
   { key: 'rooms', label: 'See room bookings', note: 'The room diary, read-only.' },
   { key: 'rooms.manage', label: 'Book rooms', note: 'The Make a booking tab: make, change and cancel bookings.' },
   { key: 'events', label: 'See events', note: 'What is on and who has booked.' },

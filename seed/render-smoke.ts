@@ -322,13 +322,16 @@ await check('the gaps page keeps the two apart', () => gapsPage(
   // Nothing is unfilled, so that half says so; the short-handed half names it.
   ['Nothing unfilled', 'Reader 1 of 2', 'Somebody is doing each of these']);
 await check('service detail', () => servicePage(detail, CTX),
-  ['Remembrance', 'Bream Cenotaph', 'nobody yet', 'Not needed here', 'Put it back',
+  ['Remembrance', 'Bream Cenotaph', 'nobody yet',
    'Tea and coffee', 'Steve', 'Don', 'Christine',
    // A card per role on a phone, so Status is not off the edge of the screen.
    'class="grid stack"', 'data-label="Status"'],
-  // A viewer who may not change the rota is not offered a picker that would
-  // refuse them. Nothing to add, nothing to take off.
-  ['Put somebody on', 'Take off']);
+  // A viewer who may only SEE the rota gets a read-only page: no picker, no
+  // Take off, and no switching a role off or back on — all of which the
+  // server would refuse them anyway.
+  ['Put somebody on', 'Take off', 'Put it back', '/off"', '/on"']);
+await check('a coordinator can switch a role off and back on', () => servicePage(detail, CTX, CANDIDATES),
+  ['Not needed here', 'Put it back']);
 
 // Putting somebody on by hand is how a GUEST preacher gets on a service at all
 // — they are never drawn from the pool by definition — and how anybody on a
