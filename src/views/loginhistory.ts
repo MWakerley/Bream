@@ -23,6 +23,15 @@ export interface SignInRow {
   person_id: number;
   display_name: string;
   signed_in_at: string;
+  /** 'password' | 'temporary' | 'reset_requested' — see migration 0038. */
+  kind?: string;
+}
+
+/** What one row of the latest list was, in words. */
+function how(kind: string | undefined) {
+  if (kind === 'temporary') return chip('navy', 'Temporary password');
+  if (kind === 'reset_requested') return chip('amber', 'Asked for a new password');
+  return html`<span style="color:var(--ink-2)">Password</span>`;
 }
 
 /**
@@ -64,7 +73,8 @@ export function loginHistoryPage(opts: {
           ? html`Sign-ins are on record from ${formatDateTime(opts.since)}. Before this page
               existed only each person's latest sign-in was kept, so earlier ones are not here.`
           : 'Every sign-in from now on is recorded here.'}
-        Only successful sign-ins are listed.
+        Only successful sign-ins are listed, and anybody asking for a temporary password
+        from the sign-in page — which is not counted as signing in.
       </p>
 
       ${opts.people.length
@@ -101,11 +111,12 @@ export function loginHistoryPage(opts: {
         ? html`<h2 class="section-h2">Latest sign-ins</h2>
           <div class="table-scroll">
             <table class="grid stack" id="login-latest">
-              <thead><tr><th>When</th><th>Who</th></tr></thead>
+              <thead><tr><th>When</th><th>Who</th><th>How</th></tr></thead>
               <tbody>
                 ${opts.latest.map((s) => html`<tr>
                   <td class="stack-title">${formatDateTime(s.signed_in_at)}</td>
                   <td data-label="Who"><a href="/app/settings/people/${s.person_id}">${s.display_name}</a></td>
+                  <td data-label="How">${how(s.kind)}</td>
                 </tr>`)}
               </tbody>
             </table>

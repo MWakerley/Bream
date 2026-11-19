@@ -31,7 +31,7 @@ import {
   type SessionPerson,
 } from './db.js';
 import { homePage } from './views/home.js';
-import { setupPage, signInPage } from './views/signin.js';
+import { forgottenPasswordPage, setupPage, signInPage } from './views/signin.js';
 import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage, keyholdersPage,
          type KeyholderRow } from './views/settings.js';
 import { combinationsByRolePage } from './views/combinations.js';
@@ -306,15 +306,27 @@ app.post('/auth/sign-in', async (c) => {
   // because most of them have no email on file; administrators set themselves up
   // with an address. Accepting both means nobody has to remember which they have.
   const row = await c.env.DB.prepare(
-    `SELECT p.id, c.password_hash, c.salt, c.iterations
+    `SELECT p.id, c.password_hash, c.salt, c.iterations,
+            c.reset_hash, c.reset_salt, c.reset_iterations,
+            (c.reset_hash IS NOT NULL AND c.reset_expires_at > datetime('now')) AS reset_live
        FROM people p JOIN credentials c ON c.person_id = p.id
       WHERE (lower(p.email) = ?1 OR lower(p.username) = ?1) AND p.is_active = 1`,
-  ).bind(email).first<{ id: number; password_hash: string; salt: string; iterations: number }>();
+  ).bind(email).first<{
+    id: number; password_hash: string; salt: string; iterations: number;
+    reset_hash: string | null; reset_salt: string | null; reset_iterations: number | null; reset_live: number;
+  }>();
 
   // Same message and broadly the same work either way, so the form cannot be
   // used to find out which addresses exist.
   const ok = row ? await verifyPassword(password, row) : false;
-  if (!row || !ok) {
+  // An emailed temporary password, if one is still in date. It sits beside the
+  // real password (see 0038) rather than replacing it.
+  const okTemp = !ok && row?.reset_live
+    ? await verifyPassword(password, {
+        password_hash: row.reset_hash!, salt: row.reset_salt!, iterations: row.reset_iterations!,
+      })
+    : false;
+  if (!row || (!ok && !okTemp)) {
     return c.html(signInPage({ error: 'That email and password did not match.', next }), 401);
   }
 
@@ -327,13 +339,105 @@ app.post('/auth/sign-in', async (c) => {
     // be a lot of writes for a number nobody reads that often.
     c.env.DB.prepare("UPDATE credentials SET last_sign_in_at = datetime('now') WHERE person_id = ?1")
       .bind(row.id),
+    okTemp
+      // The temporary password becomes the password, used up, and must be
+      // changed before anything else (requireSignIn sends them straight there).
+      ? c.env.DB.prepare(
+          `UPDATE credentials
+              SET password_hash = reset_hash, salt = reset_salt, iterations = reset_iterations,
+                  must_change = 1, updated_at = datetime('now'),
+                  reset_hash = NULL, reset_salt = NULL, reset_iterations = NULL, reset_expires_at = NULL
+            WHERE person_id = ?1`,
+        ).bind(row.id)
+      // Their own password worked, so any temporary one asked for is no longer
+      // wanted — and may not have been asked for by them at all.
+      : c.env.DB.prepare(
+          `UPDATE credentials
+              SET reset_hash = NULL, reset_salt = NULL, reset_iterations = NULL, reset_expires_at = NULL
+            WHERE person_id = ?1 AND reset_hash IS NOT NULL`,
+        ).bind(row.id),
     // One row per sign-in, for the Login history page.
-    c.env.DB.prepare('INSERT INTO sign_ins (person_id) VALUES (?1)').bind(row.id),
+    c.env.DB.prepare('INSERT INTO sign_ins (person_id, kind) VALUES (?1, ?2)')
+      .bind(row.id, okTemp ? 'temporary' : 'password'),
   ]);
+  if (okTemp) {
+    c.header('Set-Cookie', sessionCookie(sid, SESSION_MAX_AGE_SECONDS));
+    return c.redirect('/auth/change-password', 303);
+  }
 
   c.header('Set-Cookie', sessionCookie(sid, SESSION_MAX_AGE_SECONDS));
   // Only ever redirect within this site.
   return c.redirect(next.startsWith('/') && !next.startsWith('//') ? next : '/app', 303);
+});
+
+/** How long an emailed temporary password works for, and how often one may be sent. */
+const RESET_VALID_HOURS = 24;
+const RESET_GAP_MINUTES = 10;
+
+app.get('/auth/forgotten-password', (c) =>
+  c.html(forgottenPasswordPage({ turnstileSitekey: turnstileReady(c.env) ? c.env.TURNSTILE_SITEKEY : undefined })));
+
+/**
+ * Send a temporary password to somebody who has forgotten theirs.
+ *
+ * The reply is the same whether or not the address is on file, has a sign-in,
+ * or was asked about a minute ago — the form must not tell a stranger who has
+ * an account here. Only the robot check can fail visibly.
+ */
+app.post('/auth/forgotten-password', async (c) => {
+  const form = await c.req.formData();
+  const asked = String(form.get('email') ?? '').trim().toLowerCase().slice(0, 200);
+  const sitekey = turnstileReady(c.env) ? c.env.TURNSTILE_SITEKEY : undefined;
+
+  const human = await verifyTurnstile(c.env, String(form.get('cf-turnstile-response') ?? ''),
+    c.req.header('CF-Connecting-IP'), 'Send me a temporary password');
+  if (!human.ok) return c.html(forgottenPasswordPage({ error: human.error, turnstileSitekey: sitekey }), 400);
+  if (!asked) return c.html(forgottenPasswordPage({ error: 'Type your email address.', turnstileSitekey: sitekey }), 400);
+
+  // By email or username, but only ever SENT to the email on file.
+  const person = await c.env.DB.prepare(
+    `SELECT p.id, p.display_name, p.email, p.username,
+            (c.reset_requested_at IS NOT NULL
+             AND c.reset_requested_at > datetime('now', ?2)) AS too_soon
+       FROM people p JOIN credentials c ON c.person_id = p.id
+      WHERE (lower(p.email) = ?1 OR lower(p.username) = ?1)
+        AND p.is_active = 1 AND p.email IS NOT NULL AND p.email <> ''`,
+  ).bind(asked, `-${RESET_GAP_MINUTES} minutes`)
+    .first<{ id: number; display_name: string; email: string; username: string | null; too_soon: number }>();
+
+  if (person && !person.too_soon) {
+    const password = temporaryPassword();
+    const hashed = await hashPassword(password);
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE credentials
+            SET reset_hash = ?2, reset_salt = ?3, reset_iterations = ?4,
+                reset_expires_at = datetime('now', ?5), reset_requested_at = datetime('now')
+          WHERE person_id = ?1`,
+      ).bind(person.id, hashed.password_hash, hashed.salt, hashed.iterations, `+${RESET_VALID_HOURS} hours`),
+      // On the Login history, so an administrator can see it was asked for.
+      c.env.DB.prepare("INSERT INTO sign_ins (person_id, kind) VALUES (?1, 'reset_requested')").bind(person.id),
+    ]);
+
+    const origin = new URL(c.req.url).origin;
+    await sendEmail(c.env.EMAIL, c.env.ACK_FROM, person.email,
+      'Your temporary password for the Bream Church system',
+      `Dear ${person.display_name},
+
+Somebody — hopefully you — asked for a new password for the Bream Church Management System.
+
+  Sign in at:          ${origin}/auth/sign-in
+  Username:            ${person.username ?? person.email}
+  Temporary password:  ${password}
+
+It works for the next ${RESET_VALID_HOURS} hours. As soon as you sign in with it you will be asked to choose a password of your own.
+
+Your old password still works until then. If you did not ask for this, you can ignore this email: nothing has changed, and signing in with your usual password cancels the temporary one.
+
+Bream Church`);
+  }
+
+  return c.html(forgottenPasswordPage({ sent: true }));
 });
 
 app.post('/auth/sign-out', async (c) => {
@@ -398,7 +502,9 @@ app.post('/auth/change-password', async (c) => {
   const hashed = await hashPassword(password);
   await c.env.DB.prepare(
     `UPDATE credentials
-        SET password_hash = ?2, salt = ?3, iterations = ?4, must_change = 0
+        SET password_hash = ?2, salt = ?3, iterations = ?4, must_change = 0,
+            -- A new password of their own replaces any emailed temporary one.
+            reset_hash = NULL, reset_salt = NULL, reset_iterations = NULL, reset_expires_at = NULL
       WHERE person_id = ?1`,
   ).bind(person.id, hashed.password_hash, hashed.salt, hashed.iterations).run();
 
@@ -464,16 +570,19 @@ app.get('/app/settings/login-history', async (c) => {
   const [people, latest, totals] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT p.id, p.display_name, p.is_active, pr.name AS profile_name, c.last_sign_in_at,
+              -- Asking for a temporary password is listed, but is not a sign-in.
               (SELECT COUNT(*) FROM sign_ins s
-                WHERE s.person_id = p.id AND s.signed_in_at >= datetime('now', '-30 days')) AS recent,
-              (SELECT COUNT(*) FROM sign_ins s WHERE s.person_id = p.id) AS total
+                WHERE s.person_id = p.id AND s.kind <> 'reset_requested'
+                  AND s.signed_in_at >= datetime('now', '-30 days')) AS recent,
+              (SELECT COUNT(*) FROM sign_ins s
+                WHERE s.person_id = p.id AND s.kind <> 'reset_requested') AS total
          FROM people p
          JOIN credentials c ON c.person_id = p.id
          LEFT JOIN profiles pr ON pr.id = p.profile_id
         ORDER BY c.last_sign_in_at DESC, p.display_name`,
     ),
     c.env.DB.prepare(
-      `SELECT s.person_id, p.display_name, s.signed_in_at
+      `SELECT s.person_id, p.display_name, s.signed_in_at, s.kind
          FROM sign_ins s JOIN people p ON p.id = s.person_id
         ORDER BY s.signed_in_at DESC, s.id DESC
         LIMIT ?1`,
@@ -1229,7 +1338,9 @@ app.post('/app/settings/people/:id/reset-password', async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE credentials
-          SET password_hash = ?2, salt = ?3, iterations = ?4, must_change = 1
+          SET password_hash = ?2, salt = ?3, iterations = ?4, must_change = 1,
+              -- The reset given here replaces any emailed temporary password.
+              reset_hash = NULL, reset_salt = NULL, reset_iterations = NULL, reset_expires_at = NULL
         WHERE person_id = ?1`,
     ).bind(id, hashed.password_hash, hashed.salt, hashed.iterations),
     // Anyone signed in as them is signed out. If the reason for the reset is

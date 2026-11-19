@@ -97,6 +97,8 @@ body.landing { background: var(--paper); }
 .signin-panel .btn-big:hover { background: var(--navy-deep); color: #fff; }
 .btn-wide { width: 100%; }
 .signin-note { display: none; margin: 1rem 0 0; font-size: .9375rem; color: var(--ink-2); }
+/* Unlike the note above, shown at every width. */
+.signin-forgot { margin: 1rem 0 0; font-size: .9375rem; text-align: center; }
 @media (max-width: 760px) {
   .hero-split { grid-template-columns: 1fr; }
   .signin-panel { justify-self: stretch; max-width: none; }

@@ -10,7 +10,7 @@
  *     --outfile=.smoke.mjs && node .smoke.mjs
  */
 import { homePage } from '../src/views/home.js';
-import { signInPage, setupPage } from '../src/views/signin.js';
+import { forgottenPasswordPage, signInPage, setupPage } from '../src/views/signin.js';
 import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage,
          keyholdersPage } from '../src/views/settings.js';
 import { gapsPage, glancePage, readingsPage, rotaDashboard, servicePage, formatDate, formatSpan } from '../src/views/rota.js';
@@ -2029,11 +2029,22 @@ await check('login history', () => loginHistoryPage({
     { id: 8, display_name: 'Roger Vane', profile_name: null, is_active: 0,
       last_sign_in_at: null, recent: 0, total: 0 },
   ],
-  latest: [{ person_id: 7, display_name: 'Sue Baker', signed_in_at: '2026-11-17 09:30:00' }],
+  latest: [
+    { person_id: 7, display_name: 'Sue Baker', signed_in_at: '2026-11-17 09:30:00', kind: 'password' },
+    { person_id: 7, display_name: 'Sue Baker', signed_in_at: '2026-11-16 09:30:00', kind: 'temporary' },
+    { person_id: 7, display_name: 'Sue Baker', signed_in_at: '2026-11-16 09:00:00', kind: 'reset_requested' },
+  ],
   more: 8, since: '2026-11-01 08:00:00', ctx: CTX, today: new Date('2026-11-18T12:00:00Z'),
 }), ['Login history', '2 people have a sign-in', '1 signed in during the last 30 days', '1 never has',
      'Sue Baker', '3 times', 'yesterday', 'Never', 'No longer serving', 'nothing — no profile',
-     'Latest sign-ins', '/app/settings/people/7', '8 older', 'Only successful sign-ins']);
+     'Latest sign-ins', '/app/settings/people/7', '8 older', 'Only successful sign-ins',
+     // How each was done: the forgotten-password route is told apart.
+     'data-label="How"', 'Temporary password', 'Asked for a new password']);
+// The forgotten-password page itself.
+await check('forgotten password page', () => forgottenPasswordPage(),
+  ['Forgotten your password', 'name="email"', 'Send me a temporary password'], ['cf-turnstile', 'Check your email']);
+await check('forgotten password: sent', () => forgottenPasswordPage({ sent: true }),
+  ['Check your email', 'If that address belongs to somebody', '24 hours', 'Back to sign in'], ['name="email"']);
 await check('login history with nobody yet', () => loginHistoryPage({
   people: [], latest: [], more: 0, since: null, ctx: CTX,
 }), ['Nobody has been given a sign-in yet', 'Every sign-in from now on'], ['Latest sign-ins', 'By person']);

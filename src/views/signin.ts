@@ -75,6 +75,7 @@ export function signInPage(opts: { error?: string; next?: string } = {}) {
           </div>
           <button class="btn-primary btn-big btn-wide" type="submit">Sign in</button>
         </form>
+        <p class="signin-forgot"><a href="/auth/forgotten-password">Forgotten your password?</a></p>
         <p class="signin-note">Not got a sign-in? Whoever looks after the rota can set one up for you.</p>
       </div>
     </div>
@@ -89,6 +90,62 @@ export function signInPage(opts: { error?: string; next?: string } = {}) {
 </footer>
 </body>
 </html>`;
+}
+
+/**
+ * "Forgotten your password?" — asks for their email and sends a temporary one.
+ *
+ * Says the same thing whether or not the address is on file, so the form cannot
+ * be used to find out who has a sign-in here.
+ */
+export function forgottenPasswordPage(opts: {
+  sent?: boolean;
+  error?: string;
+  /** Present only when the robot check is set up. */
+  turnstileSitekey?: string;
+} = {}) {
+  return layout(
+    { title: 'Forgotten your password', chrome: false },
+    html`
+      <div class="signin-wrap">
+        ${opts.sent
+          ? html`<div class="notice notice-ok" role="status">
+              <p><strong>Check your email.</strong> If that address belongs to somebody with a
+                sign-in here, a temporary password is on its way to it now.</p>
+              <p style="margin-bottom:0">It works for 24 hours. When you sign in with it you will be
+                asked to choose your own password straight away. Your old password keeps working
+                until then, so if you remember it after all, just use that.</p>
+            </div>
+            <p class="page-intro">Nothing arrived after a few minutes? Look in your junk folder.
+              If you have no email address on file, whoever looks after the rota can reset your
+              password for you.</p>
+            <p><a class="btn-primary" href="/auth/sign-in">Back to sign in</a></p>`
+          : html`
+            <p class="page-intro">
+              Type the email address you gave the church and we will send you a temporary
+              password. You will choose your own as soon as you sign in with it.
+            </p>
+            ${opts.error ? html`<div class="notice notice-bad" role="alert"><p>${opts.error}</p></div>` : ''}
+            <form method="post" action="/auth/forgotten-password" class="card">
+              <div class="field">
+                <label for="email">Your email address</label>
+                <input id="email" name="email" type="email" autocomplete="email"
+                       autocapitalize="none" required autofocus maxlength="200">
+              </div>
+              ${opts.turnstileSitekey
+                ? html`<div class="field">
+                    <div class="cf-turnstile" data-sitekey="${opts.turnstileSitekey}"
+                         data-theme="light" data-action="forgotten-password"></div>
+                    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+                  </div>`
+                : ''}
+              <button class="btn-primary" type="submit">Send me a temporary password</button>
+            </form>
+            <p class="hint">No email address on file? Whoever looks after the rota can reset your
+              password for you. <a href="/auth/sign-in">Back to sign in</a></p>`}
+      </div>
+    `,
+  );
 }
 
 /** The one-time bootstrap form. Reachable only while no admin exists AND the
