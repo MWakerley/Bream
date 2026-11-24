@@ -563,6 +563,83 @@ function candidateLabel(c: Candidate, alsoOn: string[]): string {
   return notes.length ? `${c.display_name} — ${notes.join(', ')}` : c.display_name;
 }
 
+/**
+ * "Is 'Iain' somebody under People?" — asked when a name typed into "Someone
+ * just for this service?" is not exactly one person's.
+ *
+ * A bare name never reaches anybody's My dates, so the coordinator is asked
+ * before one is kept. Everybody active is offered, ticked for the role or not,
+ * with the likeliest first and already chosen; saying no keeps the name as a
+ * one-off, exactly as typed.
+ */
+export function oneOffQuestionPage(p: {
+  ctx: ViewCtx;
+  service: { id: number; service_date: string; service_time: string; title: string | null };
+  role: { id: number; name: string };
+  name: string;
+  likely: { id: number; display_name: string }[];
+  everyone: { id: number; display_name: string }[];
+}) {
+  const back = `/app/rota/service/${p.service.id}`;
+  const likelyIds = new Set(p.likely.map((x) => x.id));
+  const rest = p.everyone.filter((x) => !likelyIds.has(x.id));
+  return layout(
+    {
+      title: `Is ${p.name} somebody under People?`,
+      heading: `Is “${p.name}” somebody under People?`,
+      back: { href: back, label: p.service.title ?? 'Worship' },
+      ...p.ctx,
+    },
+    html`
+      <p class="page-intro">
+        ${p.role.name} at ${p.service.title ?? 'Worship'}, ${formatDate(p.service.service_date)}
+        at ${p.service.service_time}.
+      </p>
+
+      <div class="card">
+        <h2 style="margin-top:0;font-family:var(--serif);font-weight:500">Yes — put them on</h2>
+        <p>
+          Choose them here and the date shows in their <strong>My dates</strong>, their calendar
+          and their reminders. Everybody is listed, whether or not they are ticked for
+          ${p.role.name}.
+        </p>
+        <form method="post" action="/app/rota/service/${p.service.id}/role/${p.role.id}/add"
+              class="add-person">
+          <label class="sr-only" for="one-off-person">Who it is</label>
+          <select id="one-off-person" name="person_id" required>
+            ${p.likely.length ? '' : html`<option value="">Choose somebody…</option>`}
+            ${p.likely.length
+              ? html`<optgroup label="Likely">
+                  ${p.likely.map((x, i) => html`<option value="${x.id}" ${i === 0 ? 'selected' : ''}>${x.display_name}</option>`)}
+                </optgroup>
+                <optgroup label="Everybody else">
+                  ${rest.map((x) => html`<option value="${x.id}">${x.display_name}</option>`)}
+                </optgroup>`
+              : rest.map((x) => html`<option value="${x.id}">${x.display_name}</option>`)}
+          </select>
+          <button class="btn-primary" type="submit">Put them on</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;font-family:var(--serif);font-weight:500">No — just for this service</h2>
+        <p>
+          A visiting speaker, say. Only the name “${p.name}” is kept, on this service, and it
+          will not appear in anybody's dates.
+        </p>
+        <form method="post" action="/app/rota/service/${p.service.id}/role/${p.role.id}/add-one-off"
+              class="add-person">
+          <input type="hidden" name="name" value="${p.name}">
+          <input type="hidden" name="just_name" value="1">
+          <button class="btn-secondary" type="submit">Keep “${p.name}” as a one-off</button>
+        </form>
+      </div>
+
+      <p><a href="${back}">Cancel</a></p>
+    `,
+  );
+}
+
 /** The same key the generator and the draft use: a pair has no direction. */
 const comboKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 
@@ -736,7 +813,7 @@ export function servicePage(
                     </form>
                     <p class="hint" style="margin:.35rem 0 0">
                       Only the name is kept, on this service. They are not added to People.
-                      A name that is already under People puts that person on, so it shows in their dates.
+                      If they might be somebody under People, you will be asked who, so it shows in their dates.
                     </p>
                   </details>
                   ${offerFor(r.role_id).length === 0

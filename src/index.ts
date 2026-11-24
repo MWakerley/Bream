@@ -42,7 +42,7 @@ import { recentActivity } from './activity.js';
 import { listWorshipSundays, saveWorshipPlan, loadWorshipSettings, positionsFor, defaultKind,
          newKey } from './worship.js';
 import { worshipSettingsPage } from './views/worshipsettings.js';
-import { gapsPage, glancePage, readingsPage, rotaDashboard, servicePage, type RotaLayout } from './views/rota.js';
+import { gapsPage, glancePage, oneOffQuestionPage, readingsPage, rotaDashboard, servicePage, type RotaLayout } from './views/rota.js';
 import { getCookie, setCookie } from 'hono/cookie';
 import { servicesPage, type ServiceListRow, type ServiceTypeOption } from './views/services.js';
 import { generateFormPage, previewPage, draftServiceEditPage } from './views/generate.js';
@@ -1938,29 +1938,55 @@ app.post('/app/rota/service/:id/role/:roleId/add-one-off', async (c) => {
   const id = Number(c.req.param('id'));
   const roleId = Number(c.req.param('roleId'));
   if (!Number.isInteger(id) || !Number.isInteger(roleId)) return c.notFound();
-  const name = String((await c.req.formData()).get('name') ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const form = await c.req.formData();
+  const name = String(form.get('name') ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  // Set by "Keep it as a one-off" on the question page: they have been asked.
+  const justName = form.get('just_name') === '1';
   if (!name) return c.redirect(`/app/rota/service/${id}`, 303);
 
-  const exists = await c.env.DB.prepare(
-    'SELECT 1 FROM services s, roles r WHERE s.id = ?1 AND r.id = ?2',
-  ).bind(id, roleId).first();
-  if (!exists) return c.notFound();
-
-  // The list above only offers people ticked for this role, so somebody who is
-  // under People but not ticked — Iain preaching at the Christingle — gets typed
-  // in here instead. Kept as a bare name, it never reached their My dates. When
-  // the name is exactly one active person's, put THEM on; only a name nobody
-  // has, or one shared by two people, stays a one-off.
-  const { results: sameName } = await c.env.DB.prepare(
-    `SELECT id FROM people
-      WHERE is_active = 1 AND lower(trim(display_name)) = lower(?1) LIMIT 2`,
-  ).bind(name).all<{ id: number }>();
-  const personId = sameName.length === 1 ? sameName[0]!.id : null;
+  const [service, role] = await Promise.all([
+    c.env.DB.prepare('SELECT id, service_date, service_time, title FROM services WHERE id = ?1')
+      .bind(id).first<{ id: number; service_date: string; service_time: string; title: string | null }>(),
+    c.env.DB.prepare('SELECT id, name FROM roles WHERE id = ?1').bind(roleId).first<{ id: number; name: string }>(),
+  ]);
+  if (!service || !role) return c.notFound();
 
   // The lowest free slot, as for anybody put on by hand.
   const { results: taken } = await c.env.DB.prepare(
     'SELECT slot, person_id FROM assignments WHERE service_id = ?1 AND role_id = ?2',
   ).bind(id, roleId).all<{ slot: number; person_id: number | null }>();
+
+  // The list above only offers people ticked for this role, so somebody who is
+  // under People but not ticked — Iain preaching at the Christingle — got typed
+  // in here instead, and kept as a bare name it never reached their My dates.
+  // So: a name that is exactly one active person's puts THEM on; anything else
+  // asks whether it is somebody under People before keeping a bare name.
+  let personId: number | null = null;
+  if (!justName) {
+    const { results: everyone } = await c.env.DB.prepare(
+      'SELECT id, display_name FROM people WHERE is_active = 1 ORDER BY display_name COLLATE NOCASE',
+    ).all<{ id: number; display_name: string }>();
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const typed = norm(name);
+    const exact = everyone.filter((p) => norm(p.display_name) === typed);
+    if (exact.length === 1) {
+      personId = exact[0]!.id;
+    } else {
+      // Likely: the same name, the same first word ("Iain" for "Iain Smith"),
+      // or one name inside the other ("Jane T" for "Jane").
+      const first = typed.split(' ')[0] ?? '';
+      const likely = everyone.filter((p) => {
+        const n = norm(p.display_name);
+        return n === typed || n.split(' ')[0] === first || n.includes(typed) || typed.includes(n);
+      });
+      const onRole = new Set(taken.map((t) => t.person_id));
+      return c.html(oneOffQuestionPage({
+        ctx: viewCtx(c), service, role, name,
+        likely: likely.filter((p) => !onRole.has(p.id)),
+        everyone: everyone.filter((p) => !onRole.has(p.id)),
+      }));
+    }
+  }
   // Twice in one role is never meant, as for the list above.
   if (personId && taken.some((t) => t.person_id === personId)) {
     return c.redirect(`/app/rota/service/${id}`, 303);

@@ -9,9 +9,9 @@
  *
  *   * a name that is exactly one active person's puts THAT person on, and the
  *     date is on their My dates;
- *   * a name nobody has stays a one-off;
- *   * a name two people share stays a one-off rather than guessing;
- *   * the matched person is not put on the same role twice.
+ *   * the matched person is not put on the same role twice;
+ *   * any other name asks whether it is somebody under People, offering
+ *     everybody with the likeliest first, and keeps a bare name only when told.
  *
  * Same set-up as forgot-test: the whole app through its own fetch, against a
  * real SQLite database built from every migration.
@@ -91,20 +91,20 @@ async function cookieFor(username: string) {
 }
 
 await withLogin('Claire', 'claire', 'Administrator');
-const iain = await withLogin('Zebedee Test', 'zebedee', 'Volunteer');
+const zeb = await withLogin('Zebedee Test', 'zebedee', 'Volunteer');
 run(`INSERT INTO people (display_name) VALUES ('Quentin Twin')`);
 run(`INSERT INTO people (display_name) VALUES ('quentin twin')`);
 const roleId = (name: string) => Number(all<{ id: number }>('SELECT id FROM roles WHERE name = ?', name)[0]?.id);
 const preacher = roleId('Preacher');
 const tea = roleId('Tea and coffee');
-// Iain is under People but NOT ticked for Preacher — the case that went wrong.
-run('INSERT INTO person_roles (person_id, role_id, can_do, willing) VALUES (?, ?, 0, 1)', iain, preacher);
+// Zebedee is under People but NOT ticked for Preacher — the case that went wrong.
+run('INSERT INTO person_roles (person_id, role_id, can_do, willing) VALUES (?, ?, 0, 1)', zeb, preacher);
 const svc = run(`INSERT INTO services (service_date, service_time, title)
                  VALUES ('2099-12-13', '10:30', 'Family Service & Christingle')`);
 
 const claire = await cookieFor('claire');
-const iainCookie = await cookieFor('zebedee');
-ok('both can sign in', claire !== '' && iainCookie !== '');
+const zebCookie = await cookieFor('zebedee');
+ok('both can sign in', claire !== '' && zebCookie !== '');
 
 const oneOff = (roleId: number, name: string) =>
   post(`/app/rota/service/${svc}/role/${roleId}/add-one-off`, [['name', name]], claire);
@@ -117,24 +117,39 @@ const r1 = await oneOff(preacher, '  zebedee   TEST ');
 ok('typing a name already under People is accepted', r1.status === 303, String(r1.status));
 const p = rows(preacher);
 ok('and puts that person on, not a bare name',
-  p.length === 1 && p[0]?.person_id === iain && p[0]?.one_off_name === null, JSON.stringify(p));
+  p.length === 1 && p[0]?.person_id === zeb && p[0]?.one_off_name === null, JSON.stringify(p));
 
-const mine = await call('/app/me', undefined, iainCookie);
+const mine = await call('/app/me', undefined, zebCookie);
 ok('so the date is on their My dates',
   mine.status === 200 && mine.body.includes('Family Service &amp; Christingle'), String(mine.status));
 
 await oneOff(preacher, 'Zebedee Test');
 ok('typing them again does not put them on twice', rows(preacher).length === 1, JSON.stringify(rows(preacher)));
 
-await oneOff(tea, 'Visiting Vicar');
+// Anything else is a question, not a bare name: nothing is kept until answered.
+const q1 = await oneOff(tea, 'Visiting Vicar');
+ok('a name that is nobody\'s asks whether it is somebody under People',
+  q1.status === 200 && q1.body.includes('somebody under People') && rows(tea).length === 0, String(q1.status));
+ok('and offers everybody, ticked for the role or not',
+  q1.body.includes(`<option value="${zeb}"`) && q1.body.includes('>Claire<'));
+ok('with nothing chosen when nobody looks likely', !q1.body.includes('label="Likely"'));
+await post(`/app/rota/service/${svc}/role/${tea}/add-one-off`, [['name', 'Visiting Vicar'], ['just_name', '1']], claire);
 const t1 = rows(tea);
-ok('a name nobody has stays a one-off',
+ok('saying "just this name" keeps it as a one-off',
   t1.length === 1 && t1[0]?.person_id === null && t1[0]?.one_off_name === 'Visiting Vicar', JSON.stringify(t1));
 
-await oneOff(tea, 'Quentin Twin');
-const t2 = rows(tea);
-ok('a name two people share stays a one-off rather than guessing',
-  t2.length === 2 && t2[1]?.person_id === null && t2[1]?.one_off_name === 'Quentin Twin', JSON.stringify(t2));
+const likelyCount = (body: string) =>
+  /<optgroup label="Likely">([\s\S]*?)<\/optgroup>/.exec(body)?.[1]?.match(/<option /g)?.length ?? 0;
+const q2 = await oneOff(tea, 'Quentin Twin');
+ok('a name two people share asks rather than guessing, with both as likely',
+  q2.status === 200 && rows(tea).length === 1 && likelyCount(q2.body) === 2, String(likelyCount(q2.body)));
+
+const q3 = await oneOff(tea, 'Zebedee');
+ok('a first name alone suggests the person it starts, already chosen',
+  q3.status === 200 && new RegExp(`<optgroup label="Likely">\\s*<option value="${zeb}" selected`).test(q3.body));
+const chosen = await post(`/app/rota/service/${svc}/role/${tea}/add`, [['person_id', String(zeb)]], claire);
+ok('and choosing them puts them on', chosen.status === 303
+  && rows(tea).some((r) => r.person_id === zeb), JSON.stringify(rows(tea)));
 
 if (failures) { console.log(`\n${failures} failed.`); process.exit(1); }
 console.log('\nOne-off names OK.');
