@@ -369,7 +369,10 @@ export function rolesPage(
                   <td class="stack-title">
                     <input type="hidden" name="id" value="${r.id}">
                     <input type="text" name="name_${r.id}" value="${r.name}"
-                           aria-label="Name of role ${r.name}" required>
+                           aria-label="Name of role ${r.name}" required style="min-width:10rem">
+                    <a href="/app/settings/roles/${r.id}/delete"
+                       style="display:block;margin-top:.3rem;font-size:.875rem;color:var(--bad)"
+                       aria-label="Delete the role ${r.name}">Delete</a>
                   </td>
                   <td data-label="Minimum">
                     <input type="number" name="min_${r.id}" value="${r.min_needed}" min="0" max="20"
@@ -410,6 +413,7 @@ export function rolesPage(
         </div>
         <p style="color:var(--ink-2);font-size:.9375rem">
           Turning a role off keeps its history but stops it being asked for on new services.
+          Deleting it removes it everywhere, past rotas included.
           Ideal must be at least the minimum.
         </p>
         <button class="btn-primary" type="submit">Save all roles</button>
@@ -444,6 +448,64 @@ export function rolesPage(
         </div>
         <button class="btn-primary" type="submit">Add this role</button>
       </form>
+    `,
+  );
+}
+
+/** What deleting a role would take with it, counted for the are-you-sure. */
+export interface RoleDeleteImpact {
+  people: number;
+  upcoming: number;
+  past: number;
+}
+
+/**
+ * "Delete Flowers?" — the are-you-sure before a role goes.
+ *
+ * Deleting takes the role off every service, past ones included, and off every
+ * person, by ON DELETE CASCADE. Nothing about it can be got back from the page,
+ * so the page counts what will go and offers switching it off instead, which
+ * keeps the history.
+ */
+export function roleDeletePage(
+  role: Pick<RoleRow, 'id' | 'name' | 'is_active'>,
+  impact: RoleDeleteImpact,
+  ctx: ViewCtx,
+) {
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  const lines = [
+    impact.people ? n(impact.people, 'person is', 'people are') + ' ticked as able to do it — that goes from their records' : '',
+    impact.upcoming ? n(impact.upcoming, 'place on an upcoming service', 'places on upcoming services') + ' — whoever is on them comes off' : '',
+    impact.past ? n(impact.past, 'place on a past service', 'places on past services') + ' — so past rotas will no longer show who did it' : '',
+  ].filter(Boolean);
+  return layout(
+    {
+      title: `Delete ${role.name}?`,
+      eyebrow: 'Admin Centre',
+      heading: `Delete “${role.name}”?`,
+      back: { href: '/app/settings/roles', label: 'Roles' },
+      ...ctx,
+    },
+    html`
+      <div class="card">
+        ${lines.length
+          ? html`<p>This removes it from everywhere, and cannot be undone:</p>
+              <ul>${lines.map((l) => html`<li>${l}</li>`)}</ul>`
+          : html`<p>Nobody is ticked for it and it is on no services, so nothing else goes with it.</p>`}
+        ${impact.past || impact.upcoming
+          ? html`<p>
+              To stop it being asked for but keep who did it, switch it off instead: untick
+              <strong>In use</strong> on the Roles page.${role.is_active ? '' : ' It is already switched off.'}
+            </p>`
+          : ''}
+        <form method="post" action="/app/settings/roles/${role.id}/delete"
+              style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+          <button class="btn-primary" type="submit" style="background:var(--bad);border-color:var(--bad)">
+            Delete ${role.name}
+          </button>
+          <a href="/app/settings/roles">Keep it</a>
+        </form>
+      </div>
     `,
   );
 }

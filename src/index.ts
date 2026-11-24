@@ -32,7 +32,7 @@ import {
 } from './db.js';
 import { homePage } from './views/home.js';
 import { forgottenPasswordPage, setupPage, signInPage } from './views/signin.js';
-import { combinationsPage, pairsPage, peoplePage, rolesPage, settingsHomePage, keyholdersPage,
+import { combinationsPage, pairsPage, peoplePage, roleDeletePage, rolesPage, settingsHomePage, keyholdersPage,
          type KeyholderRow } from './views/settings.js';
 import { combinationsByRolePage } from './views/combinations.js';
 import { loginHistoryPage, type LoginSummaryRow, type SignInRow } from './views/loginhistory.js';
@@ -1576,6 +1576,49 @@ app.post('/app/settings/roles/new', async (c) => {
   return c.html(rolesPage(await allRoles(c.env.DB), viewCtx(c), {
     tone: 'ok',
     text: `Added "${name}". Nobody is marked as able to do it yet — set that on each person.`,
+  }));
+});
+
+/** What deleting one role would take with it — counted for the are-you-sure. */
+async function roleDeleteImpact(db: D1Database, roleId: number) {
+  const today = new Date().toISOString().slice(0, 10);
+  return (await db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM person_roles WHERE role_id = ?1 AND can_do = 1) AS people,
+       (SELECT COUNT(*) FROM assignments a JOIN services s ON s.id = a.service_id
+         WHERE a.role_id = ?1 AND s.service_date >= ?2
+           AND (a.person_id IS NOT NULL OR a.one_off_name IS NOT NULL)) AS upcoming,
+       (SELECT COUNT(*) FROM assignments a JOIN services s ON s.id = a.service_id
+         WHERE a.role_id = ?1 AND s.service_date < ?2
+           AND (a.person_id IS NOT NULL OR a.one_off_name IS NOT NULL)) AS past`,
+  ).bind(roleId, today).first<{ people: number; upcoming: number; past: number }>())
+    ?? { people: 0, upcoming: 0, past: 0 };
+}
+
+app.get('/app/settings/roles/:id/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+  const role = await c.env.DB.prepare('SELECT id, name, is_active FROM roles WHERE id = ?1')
+    .bind(id).first<{ id: number; name: string; is_active: number }>();
+  if (!role) return c.redirect('/app/settings/roles', 303);
+  return c.html(roleDeletePage(role, await roleDeleteImpact(c.env.DB, id), viewCtx(c)));
+});
+
+/**
+ * Deletes a role. Everything that refers to it — who is ticked for it, its
+ * places on every service past and future, its combination rules, pairings
+ * scoped to it, per-service overrides — goes with it by ON DELETE CASCADE.
+ */
+app.post('/app/settings/roles/:id/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id)) return c.notFound();
+  const role = await c.env.DB.prepare('SELECT name FROM roles WHERE id = ?1')
+    .bind(id).first<{ name: string }>();
+  // Already gone — a second tab, or a reload. Nothing to do, and nothing wrong.
+  if (!role) return c.redirect('/app/settings/roles', 303);
+  await c.env.DB.prepare('DELETE FROM roles WHERE id = ?1').bind(id).run();
+  return c.html(rolesPage(await allRoles(c.env.DB), viewCtx(c), {
+    tone: 'ok', text: `Deleted "${role.name}".`,
   }));
 });
 
