@@ -1946,19 +1946,36 @@ app.post('/app/rota/service/:id/role/:roleId/add-one-off', async (c) => {
   ).bind(id, roleId).first();
   if (!exists) return c.notFound();
 
+  // The list above only offers people ticked for this role, so somebody who is
+  // under People but not ticked — Iain preaching at the Christingle — gets typed
+  // in here instead. Kept as a bare name, it never reached their My dates. When
+  // the name is exactly one active person's, put THEM on; only a name nobody
+  // has, or one shared by two people, stays a one-off.
+  const { results: sameName } = await c.env.DB.prepare(
+    `SELECT id FROM people
+      WHERE is_active = 1 AND lower(trim(display_name)) = lower(?1) LIMIT 2`,
+  ).bind(name).all<{ id: number }>();
+  const personId = sameName.length === 1 ? sameName[0]!.id : null;
+
   // The lowest free slot, as for anybody put on by hand.
   const { results: taken } = await c.env.DB.prepare(
-    'SELECT slot FROM assignments WHERE service_id = ?1 AND role_id = ?2',
-  ).bind(id, roleId).all<{ slot: number }>();
+    'SELECT slot, person_id FROM assignments WHERE service_id = ?1 AND role_id = ?2',
+  ).bind(id, roleId).all<{ slot: number; person_id: number | null }>();
+  // Twice in one role is never meant, as for the list above.
+  if (personId && taken.some((t) => t.person_id === personId)) {
+    return c.redirect(`/app/rota/service/${id}`, 303);
+  }
   const used = new Set(taken.map((t) => t.slot));
   let slot = 1;
   while (used.has(slot)) slot++;
 
   // Confirmed and generated = 0, so the next draft keeps it as a pin.
+  const by = c.get('person').display_name;
   await c.env.DB.prepare(
     `INSERT INTO assignments (service_id, role_id, slot, person_id, one_off_name, status, generated, reason)
-     VALUES (?1, ?2, ?3, NULL, ?4, 'confirmed', 0, ?5)`,
-  ).bind(id, roleId, slot, name, `Put on by ${c.get('person').display_name} as a one-off`).run();
+     VALUES (?1, ?2, ?3, ?4, ?5, 'confirmed', 0, ?6)`,
+  ).bind(id, roleId, slot, personId, personId ? null : name,
+    personId ? `Put on by ${by}` : `Put on by ${by} as a one-off`).run();
 
   return c.redirect(`/app/rota/service/${id}`, 303);
 });

@@ -736,6 +736,7 @@ export function servicePage(
                     </form>
                     <p class="hint" style="margin:.35rem 0 0">
                       Only the name is kept, on this service. They are not added to People.
+                      A name that is already under People puts that person on, so it shows in their dates.
                     </p>
                   </details>
                   ${offerFor(r.role_id).length === 0
